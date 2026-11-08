@@ -1,3 +1,4 @@
+-- 前提: 適用時点で api_token は空であること（NOT NULL 列を DEFAULT 無しで ADD するため、行があると失敗する）。本番 D1 はこのマイグレーション以前に未作成。
 ALTER TABLE `api_token` ADD `created_at` text NOT NULL;--> statement-breakpoint
 CREATE INDEX `change_log_table_name_row_idx` ON `change_log` (`table_name`,`row_id`);--> statement-breakpoint
 CREATE INDEX `friendship_user_hi_idx` ON `friendship` (`user_hi`);--> statement-breakpoint
