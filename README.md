@@ -4,3 +4,7 @@
 作品情報は escape.id の公開情報などから Claude が補完し、オーナーの承認を経て反映する。
 
 設計: [docs/design.md](docs/design.md)
+
+## 開発
+
+`.dev.vars.example` を `.dev.vars` にコピーして `npm run dev` すると、`/_ui` で部品見本が見られる。
