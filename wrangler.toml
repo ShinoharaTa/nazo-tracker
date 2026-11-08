@@ -1,0 +1,10 @@
+name = "nazo-tracker"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nazo-tracker"
+# 本番 D1 作成後に `wrangler d1 create nazo-tracker` が出力する ID に置き換える
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
