@@ -76,9 +76,15 @@ const List = () => (
   </>
 )
 
-const Detail = () => {
+// 右ページに出す記録（星降る街の周遊録）
+export const galleryRecord = (): GalleryRecord => {
   const r = records.find((x) => x.id === SELECTED)
   if (!r) throw new Error('gallery record not found')
+  return r
+}
+
+const Detail = () => {
+  const r = galleryRecord()
   const w = workOf(r)
   const spPhotos = r.photos.filter((p) => p.sp)
   const pubPhotos = r.photos.filter((p) => !p.sp)
@@ -187,9 +193,10 @@ const Detail = () => {
         </div>
       </div>
       <div class="sect">
-        <SpoilerCard count={`メモ ${r.spoiler ? 1 : 0} · 写真 ${spPhotos.length}`}>
-          <p style="margin:0;line-height:1.7">{r.spoiler}</p>
-        </SpoilerCard>
+        <SpoilerCard
+          src="/_ui/spoiler"
+          count={{ memo: r.spoiler ? 1 : 0, photos: spPhotos.length }}
+        />
       </div>
       <div class="sect">
         <button type="button" class="btn danger">

@@ -3,8 +3,9 @@
 import { Hono } from 'hono'
 import type { Bindings } from '../index'
 import { Empty, Kpis, Menu, MenuItem, SearchIcon, Switch, Tabs, TopBar } from '../ui/components'
-import { Gallery } from '../ui/Gallery'
+import { Gallery, galleryRecord } from '../ui/Gallery'
 import { Document, Layout } from '../ui/Layout'
+import { spoilerResponse } from '../ui/spoiler'
 
 const ui = new Hono<{ Bindings: Bindings }>({ strict: false })
 
@@ -312,9 +313,21 @@ ui.get('/login', (c) =>
 )
 
 // 部品見本。UI_GALLERY=1 のときだけ有効
-ui.get('/_ui', (c) => {
+ui.use('/_ui/*', async (c, next) => {
   if (c.env?.UI_GALLERY !== '1') return c.notFound()
-  return c.html(<Gallery />)
+  await next()
+})
+
+ui.get('/_ui', (c) => c.html(<Gallery />))
+
+// 見本の SpoilerCard の取得先。星降る街の記録のネタバレを返す
+ui.get('/_ui/spoiler', (c) => {
+  const r = galleryRecord()
+  return spoilerResponse(
+    c,
+    { memo: r.spoiler, photos: r.photos.filter((p) => p.sp).map((p) => ({ label: p.k })) },
+    { back: '/_ui', tab: 'records' },
+  )
 })
 
 export default ui

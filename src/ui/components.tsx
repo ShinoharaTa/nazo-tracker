@@ -287,25 +287,33 @@ export const MonthCols = ({ counts }: { counts: readonly number[] }) => {
   )
 }
 
-// ネタバレ。閉じているときは帯（.veil）だけを出す
-export const SpoilerCard = (props: { count?: string; children?: Child }) => (
-  <details class="spoil">
-    <summary>
-      <span class="row">
-        <b style="color:var(--danger);font-size:14px">ネタバレ</b>
-        <span class="btn">
-          <span class="when-closed">表示</span>
-          <span class="when-open">隠す</span>
-        </span>
-      </span>
+// ネタバレ。本文は初期 HTML に含めず、public/app.js が「表示」操作時に src から断片を取得する。
+// JS が無いときは src へ普通に遷移する（spoilerResponse が全体ページを返す）
+export const SpoilerCard = (props: { src: string; count?: { memo: number; photos: number } }) => {
+  const id = `spoil-${props.src.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
+  return (
+    <section class="spoil" data-spoiler>
+      <div class="row">
+        <h3 class="spoil-title">ネタバレ</h3>
+        <a
+          class="btn"
+          href={props.src}
+          data-spoiler-toggle
+          aria-expanded="false"
+          aria-controls={id}
+        >
+          表示
+        </a>
+      </div>
       <span class="lock">
-        自分だけに表示されます。フレンドにも見えません。{props.count ? `（${props.count}）` : ''}
+        自分だけに表示されます。フレンドにも見えません。
+        {props.count ? `（メモ ${props.count.memo} · 写真 ${props.count.photos}）` : ''}
       </span>
-      <span class="veil" aria-hidden="true" />
-    </summary>
-    {props.children}
-  </details>
-)
+      <div id={id} class="spoil-body" hidden />
+      <div class="veil" aria-hidden="true" />
+    </section>
+  )
+}
 
 export const Empty = ({ children }: { children?: Child }) => <div class="empty">{children}</div>
 

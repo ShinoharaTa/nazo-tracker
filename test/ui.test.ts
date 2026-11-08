@@ -89,6 +89,45 @@ describe('GET /_ui', () => {
   })
 })
 
+describe('ネタバレの遅延読み込み', () => {
+  const on = { ...env, UI_GALLERY: '1' }
+  const spoiler = '第3章の暗号はキットの裏表紙と組み合わせる。'
+
+  it('初期 HTML（/_ui）にネタバレ本文を含めない', async () => {
+    const html = await (await app.request('/_ui', {}, on)).text()
+    expect(html).toContain('data-spoiler-toggle')
+    expect(html).toContain('href="/_ui/spoiler"')
+    expect(html).not.toContain(spoiler)
+  })
+
+  it('X-Requested-With: fetch 付きなら断片だけを返す', async () => {
+    const res = await app.request('/_ui/spoiler', { headers: { 'X-Requested-With': 'fetch' } }, on)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).not.toContain('<html')
+    expect(html).toContain(spoiler)
+    expect(res.headers.get('cache-control')).toBe('no-store, private')
+    expect(res.headers.get('x-robots-tag')).toBe('noindex')
+    expect(res.headers.get('vary')).toContain('X-Requested-With')
+  })
+
+  it('ヘッダ無しなら Layout で包んだ全体ページを返す', async () => {
+    const res = await app.request('/_ui/spoiler', {}, on)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('<html lang="ja">')
+    expect(html).toContain('<a class="back" href="/_ui"')
+    expect(html).toContain(spoiler)
+    expect(res.headers.get('cache-control')).toBe('no-store, private')
+    expect(res.headers.get('x-robots-tag')).toBe('noindex')
+  })
+
+  it('UI_GALLERY が "1" でなければ 404', async () => {
+    const res = await app.request('/_ui/spoiler', { headers: { 'X-Requested-With': 'fetch' } }, env)
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('labels', () => {
   it('workKinds の全値にラベルがある', () => {
     expect(Object.keys(workKindLabels).sort()).toEqual([...workKinds].sort())
