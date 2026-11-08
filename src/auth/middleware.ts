@@ -20,6 +20,12 @@ import {
 
 // cookie → session → user。無効・期限切れ・退会済みは未ログイン扱いにして cookie を消す
 export const attachUser = createMiddleware<AppEnv>(async (c, next) => {
+  const secret = c.env.SESSION_SECRET
+  if (!secret || secret.length < 32) {
+    console.error('SESSION_SECRET が未設定か、32 文字未満です')
+    return c.text('SESSION_SECRET が未設定か短すぎます', 500)
+  }
+
   const db = createDb(c.env.DB)
   c.set('db', db)
   c.set('user', null)

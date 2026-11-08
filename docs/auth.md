@@ -74,7 +74,7 @@
 - 署名不一致・存在しない・期限切れ・`user.deleted_at IS NOT NULL` の cookie は未ログイン扱いにし、cookie を削除する。
 - ログイン成功時は必ず新しい token を発行し、それまでの cookie の行を削除する（セッション固定対策）。
 - ログアウトは `POST /auth/logout` のみ。状態を変える POST は `Origin` が `APP_ORIGIN` と一致するか `Sec-Fetch-Site: same-origin` のときだけ通す（CSRF）。
-- 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない）。
+- 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない。画面ができる PR-2 までは `/records`）。
 
 ### オーナー
 - 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。
@@ -83,3 +83,4 @@
 
 ### 仮ログイン（開発用）
 - `GET/POST /_dev/login` で `provider = 'dev'` の identity にログインできる。`AUTH_DEV_LOGIN = "1"`、`APP_ORIGIN` のホストが `127.0.0.1` / `localhost`、リクエストの `Host` が `127.0.0.1` / `localhost` の 3 条件が揃ったときだけ有効で、それ以外は 404。本番の wrangler.toml は `AUTH_DEV_LOGIN = "0"`。
+- 開発は `APP_ORIGIN` と同じ origin（`http://127.0.0.1:8787`）でアクセスする。curl で POST するときは `-H "Origin: http://127.0.0.1:8787"` が必要（CSRF の照合）。

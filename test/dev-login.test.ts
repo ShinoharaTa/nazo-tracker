@@ -53,6 +53,11 @@ describe('仮ログイン /_dev/login', () => {
     expect(html).toContain('value="owner"')
   })
 
+  it('Host: localhost:8787 でも通る', async () => {
+    const res = await post('viahost', on, { Host: 'localhost:8787' })
+    expect(res.status).toBe(302)
+  })
+
   it.each(['', ' ', 'a b', 'あ', 'x'.repeat(33), 'a/b'])('subject %j は 400', async (s) => {
     expect((await post(s)).status).toBe(400)
   })

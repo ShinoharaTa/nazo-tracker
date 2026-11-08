@@ -30,6 +30,7 @@ describe('画面ルート', () => {
     '/records/new',
     '/records/xyz',
     '/stats',
+    '/stats/',
     '/settings',
     '/settings/',
   ])('未ログインで %s は 302 /login', async (path) => {

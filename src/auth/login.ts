@@ -92,5 +92,6 @@ export const loginWithIdentity = async (
   return { userId, isNew }
 }
 
-export const redirectAfterLogin = (c: Context<AppEnv>, isNew: boolean) =>
-  c.redirect(isNew ? '/settings/name?welcome=1' : '/records', 302)
+// PR-2 で /settings/name ができたら、新規ユーザー（isNew）は /settings/name?welcome=1 に切り替える
+export const redirectAfterLogin = (c: Context<AppEnv>, _isNew: boolean) =>
+  c.redirect('/records', 302)
