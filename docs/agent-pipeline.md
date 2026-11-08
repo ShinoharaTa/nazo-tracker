@@ -1,0 +1,89 @@
+# 補完パイプライン（リクエスト → Claude → 提案 → 承認）
+
+## 1. 流れ
+
+```mermaid
+sequenceDiagram
+  participant M as メンバー
+  participant W as Worker (API)
+  participant O as オーナー
+  participant C as Claude (このサーバー)
+  M->>W: POST /api/requests {kind, url, title, note}
+  O->>W: 事前選別（triaged / rejected）※任意
+  O->>C: tmux で「キュー処理して」(/process-queue)
+  C->>W: GET /api/agent/requests?status=triaged,open
+  C->>C: escape MCP get_event / WebFetch / match API
+  C->>W: POST /api/agent/sources, POST /api/agent/proposals
+  W->>W: 自動反映ルール判定 (A-3) → applied or pending
+  O->>W: 承認 UI: 差分・出典・候補を見て 承認 / 却下 / 紐付け先変更
+  W->>W: 反映 + change_log、request を done
+```
+
+## 2. リクエスト
+
+- 誰でも（ログイン済み）投稿。kind と `payload_json`（`url`, `title`, `organization`, `note`, `target_id`）。1 日 20 件/人。
+- 一覧はオーナーのみ。依頼者の表示名は見える（記録は見えない）。
+- `needs_info` でオーナー/Claude から依頼者に質問（依頼者は自分のリクエストの状態と質問だけ見える）。
+
+## 3. Claude の処理手順（`/process-queue` の中身、CLI 経由）
+
+1. `nazo-admin queue list --status triaged,open` で取得（open は A-1 を省略した場合）。
+2. 各件を `processing` に。
+3. 調査:
+   - `url` が escape.id → MCP `get_event`、必要なら `list_dates`。`source(method=escape_mcp)` を登録。`imageUrl` は提案に含めない。escape.id は形式を区別していない前提なので、`work.kind` は説明文・公式サイトから推定して confidence 付きで提案し、オーナーが承認時に確定する（`type` の生値は `run.escape_type_raw` に参考として残す）。終了日が無く常設らしい（期間「-」/開始日のみ）なら `is_permanent=1` を提案し confidence を 0.7 に下げる。
+   - それ以外の URL → robots 確認 → WebFetch。`source(method=webfetch)`。
+   - URL 無し → 公式サイトを検索で探す。見つからなければ `needs_info`。
+4. `nazo-admin match --title --org` で候補を取得。
+5. 提案を作る（kind=create/update/link/merge、各フィールドに source_id、confidence、match_candidates）。
+6. request を `proposed` に。失敗は `needs_info` + 理由。
+7. 最後にサマリをオーナーに返す（件数、pending の URL）。
+
+確信度の目安: escape.id 由来の構造化フィールド 0.95 / 公式サイト本文から読んだ値 0.7 / 推測 0.4 / 常設判定 0.7。
+
+Claude が**触らないもの**: 画像（取得・アップロードとも）、ユーザーの記録（attempt / session / image）、フレンド関係、ジャンルの付与。評価項目は手入力のみ。
+
+`work.kind` / `is_permanent` の確定: 提案の `proposal_field` に `kind`（推定値 + 根拠の source）を含め、承認 UI でオーナーが選び直せるセレクトにする。A-3 自動反映の対象でも、kind の confidence < 0.9 なら work は pending に落とし、run だけ自動反映しない（work と run は同じ提案で扱い、片方だけ反映しない）。
+
+## 4. 承認モデル
+
+| 状態 | 誰が | 内容 |
+|---|---|---|
+| pending | — | 既定。オーナー承認待ち |
+| auto_applied | Worker | A-3 ルール該当。`revert_until = now+7d`。承認 UI の「最近の自動反映」に出て 1 タップで取り消し |
+| applied | オーナー | 承認。フィールド単位で採否を選べる（部分承認） |
+| rejected | オーナー | 理由を書く。`rejection_memory(fingerprint)` に保存 |
+| suppressed | Worker | fingerprint が rejection_memory に一致。Claude に 409 を返し再提案を止める |
+| superseded | Worker | 同じ target に新しい提案が来た |
+
+A-3 自動反映ルール（Worker 側、設定で ON/OFF）:
+`kind=create AND target_table IN (run, work) AND 全フィールドの source.method = escape_mcp AND confidence ≥ 0.9 AND match_candidates に score ≥ 0.8 が無い`。
+`update` / `merge` / `link` / 参加記録インポートは常に pending。
+
+差分表示: フィールドごとに `old → new`、出典ドメイン、取得日時、確信度。候補があれば「既存 X に紐付ける」ボタン。
+fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化した new_value 群)。
+
+## 5. Claude → D1 書き込み経路（比較）
+
+| 案 | 経路 | 認証 | 権限の最小化 | 業務検証 | 実装 | 運用 |
+|---|---|---|---|---|---|---|
+| W-1 **アプリ REST API + CLI**（推薦） | `nazo-admin` → `/api/agent/*` | Bearer（長期トークン、ハッシュ保存、90 日期限） | ◎ role=agent: マスタ読 / request 読・状態更新 / source・proposal 書。記録・フレンド・画像・R2 は 403 | ◎ Worker が検証・名寄せ・自動反映判定 | 小 | 小（ローテーション） |
+| W-2 Worker 上のリモート MCP | Claude から Streamable HTTP MCP | 同上 + MCP 認証 | ◎ | ◎ | 中 | 小 |
+| W-3 `wrangler d1 execute` 直接 | CF API トークンで SQL | CF API トークン（D1 Edit はアカウント内全 D1 に及ぶ） | ✗ trailcast の D1 まで書ける。行レベル制御なし | ✗ 検証を素通り | 小 | 中（事故リスク） |
+
+**推薦 W-1。** W-3 は緊急時のオーナー手作業のみに限定し、Claude には渡さない。W-2 は W-1 の上に後付け可能。
+
+### トークン管理
+- 発行: オーナー UI で `name, scopes, expires_at` を指定 → 平文は一度だけ表示 → `~/.config/nazo-tracker/agent.env`（0600）に `NAZO_AGENT_TOKEN=`。
+- 保存: D1 には SHA-256 ハッシュのみ。`last_used_at` 更新。失効・再発行は UI。
+- 監査: agent による全書き込みは `change_log.actor = token:<id>`。
+- CLI は `127.0.0.1` に何も listen しない。HTTPS で `nazo.shino3.net` へ。
+
+## 6. trailcast インポート（オーナー専用リクエスト `import_trailcast`）
+
+1. オーナーが DID と thread rkey を渡す。
+2. Claude が `listRecords(collection=net.shino3.trailcast.post)` を全件取り、`thread` が一致する post を抽出。
+3. 各 post → `proposal(kind=create_attempt_import, target user = オーナー)`。フィールド: work 候補（タグ・本文から）、status、finished_on、memo、source_ref=at-uri。
+4. 承認 UI で一括表示（work 候補を選ぶ/新規作成）。承認で attempt（+session 1 件）作成。
+5. `UNIQUE(user_id, source_ref)` で再実行は冪等。
+
+他ユーザーの trailcast インポートは v1 では対象外（必要なら本人が UI から DID を入れる形で後付け）。
