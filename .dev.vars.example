@@ -1,1 +1,6 @@
 UI_GALLERY=1
+APP_ORIGIN=http://127.0.0.1:8787
+# 32 文字以上の任意の文字列（例: openssl rand -base64 32）
+SESSION_SECRET=
+AUTH_DEV_LOGIN=1
+OWNER_IDENTITIES=dev:owner

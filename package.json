@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.17"
+    "hono": "^4.13.17",
+    "ulidx": "^2.4.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",

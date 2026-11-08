@@ -13,5 +13,13 @@ migrations_dir = "migrations"
 directory = "./public"
 
 [vars]
+# CSRF の Origin 照合・cookie の Secure 判定に使う。ローカルでは .dev.vars で http://127.0.0.1:8787 に上書きする
+APP_ORIGIN = "https://nazo.shino3.net"
+# "1" のときだけ仮ログイン /_dev/login を有効にする。本番は必ず "0"（APP_ORIGIN が https://nazo.shino3.net なので "1" にしても無効）
+AUTH_DEV_LOGIN = "0"
+# オーナーにする identity（provider:subject のカンマ区切り、完全一致）。例: "discord:123456789012345678"
+OWNER_IDENTITIES = ""
 # "1" のときだけ部品見本 GET /_ui を有効にする。ローカルでは .dev.vars で上書きする
 UI_GALLERY = "0"
+
+# SESSION_SECRET は secret。`wrangler secret put SESSION_SECRET` で入れる（ローカルは .dev.vars）
