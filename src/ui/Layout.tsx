@@ -51,7 +51,7 @@ const Cover = ({ tab }: { tab: Tab }) => {
     return (
       <div class="cover" style="text-align:left;align-items:stretch;justify-content:flex-start">
         <div class="top">
-          <h1 style="font-size:20px">データの扱い</h1>
+          <h2 style="font-size:20px">データの扱い</h2>
         </div>
         <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
           記録と統計は自分だけが見られます。作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出さず、5
@@ -80,14 +80,15 @@ const TabLink = ({ t, current }: { t: (typeof tabs)[number]; current: Tab }) =>
     <a href={t.href}>{t.label}</a>
   )
 
-export const Layout = (props: {
+// single（見開き全体を 1 ページで使う）のときは right を渡せない
+export type LayoutProps = {
   title: string
   tab: Tab
   left: Child
-  right?: Child
-  single?: boolean
   fab?: boolean
-}) => {
+} & ({ single: true; right?: never } | { single?: false; right?: Child })
+
+export const Layout = (props: LayoutProps) => {
   const hasRight = props.right !== undefined && props.right !== null
   const bookClass = props.single ? 'book one' : hasRight ? 'book has-detail' : 'book'
   return (

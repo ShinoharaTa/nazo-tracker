@@ -13,6 +13,7 @@ describe('画面ルート', () => {
 
   it.each([
     ['/records', 200],
+    ['/records/', 200],
     ['/records?tab=pending', 200],
     ['/records?tab=wish', 200],
     ['/records/new', 200],
@@ -36,6 +37,31 @@ describe('画面ルート', () => {
     expect(html).toContain('<nav class="bn"')
     expect(html).toContain('<a class="fab" href="/records/new">')
     expect(html).toContain('<a class="on" href="/records" aria-current="page">記録</a>')
+  })
+
+  it('未知の ?tab= は「すべて」にフォールバック', async () => {
+    const html = await (await app.request('/records?tab=zzz', {}, env)).text()
+    expect(html).toContain('<a class="tab on" href="/records" aria-current="page">すべて</a>')
+  })
+
+  it('未知の ?kind=（line 単体も含む）は「すべて」にフォールバック', async () => {
+    const html = await (await app.request('/works?kind=line', {}, env)).text()
+    expect(html).toContain('<a class="fchip on" href="/works" aria-current="page">すべて</a>')
+    expect(html).not.toContain('name="kind"')
+  })
+
+  it('検索語はエスケープして出す', async () => {
+    const q = encodeURIComponent('"><script>x</script>')
+    const html = await (await app.request(`/works?q=${q}`, {}, env)).text()
+    expect(html).not.toContain('<script>x')
+    expect(html).toContain('&quot;&gt;&lt;script&gt;x&lt;/script&gt;')
+  })
+
+  it('詳細を持つページだけ has-detail が付く', async () => {
+    const withDetail = await (await app.request('/records/new', {}, env)).text()
+    expect(withDetail).toContain('class="book has-detail"')
+    const list = await (await app.request('/records', {}, env)).text()
+    expect(list).not.toContain('has-detail')
   })
 
   it('/stats は見開き全体を 1 ページで使う', async () => {

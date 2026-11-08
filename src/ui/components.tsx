@@ -97,7 +97,7 @@ export const TopBar = (props: {
         <a class="back" href={props.back} aria-label="戻る">
           <BackIcon />
         </a>
-        <span class="sub">{props.label}</span>
+        <h1 class="sub">{props.label}</h1>
         {props.action ?? <span style="width:44px" />}
       </div>
     )

@@ -6,7 +6,7 @@ import { Empty, Kpis, Menu, MenuItem, SearchIcon, Switch, Tabs, TopBar } from '.
 import { Gallery } from '../ui/Gallery'
 import { Document, Layout } from '../ui/Layout'
 
-const ui = new Hono<{ Bindings: Bindings }>()
+const ui = new Hono<{ Bindings: Bindings }>({ strict: false })
 
 type RecordsTab = 'all' | 'pending' | 'wish'
 
@@ -56,7 +56,8 @@ const RecordsList = ({ tab }: { tab: RecordsTab }) => (
   </>
 )
 
-// 作品一覧の形式フィルタ。LINE と Web はモックに合わせて 1 つにまとめる
+// 作品一覧の形式フィルタ。LINE と Web はモックに合わせて 1 つにまとめる。
+// online は line / web をまとめた UI 上だけの値（workKinds には無い）。P2 で DB の条件（kind IN ('line', 'web')）に変換する
 const kindFilters: readonly { key: string; label: string }[] = [
   { key: 'all', label: 'すべて' },
   { key: 'hall', label: '公演' },
@@ -84,7 +85,7 @@ const WorksList = ({ kind, q }: { kind: string; q: string }) => (
       {kindFilters.map((f) => {
         const href = f.key === 'all' ? '/works' : `/works?kind=${f.key}`
         return f.key === kind ? (
-          <a class="fchip on" href={href} aria-current="true">
+          <a class="fchip on" href={href} aria-current="page">
             {f.label}
           </a>
         ) : (
@@ -312,7 +313,7 @@ ui.get('/login', (c) =>
 
 // 部品見本。UI_GALLERY=1 のときだけ有効
 ui.get('/_ui', (c) => {
-  if (c.env.UI_GALLERY !== '1') return c.notFound()
+  if (c.env?.UI_GALLERY !== '1') return c.notFound()
   return c.html(<Gallery />)
 })
 

@@ -84,7 +84,8 @@ a {
   border-bottom: 2px solid var(--rule);
   margin-bottom: 4px;
 }
-.top h1 {
+.top h1,
+.top h2 {
   margin: 0;
   font-family: var(--hand);
   font-size: 26px;
@@ -917,6 +918,14 @@ a.ticket {
 .menu [aria-disabled="true"] {
   color: var(--muted);
   cursor: not-allowed;
+}
+/* 戻る版 TopBar の見出し（h1.sub）は .sub と同じ見た目にする */
+.top h1.sub {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--muted);
 }
 /* 検索欄（form） */
 form.search {

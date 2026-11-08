@@ -7,7 +7,8 @@ export type Bindings = {
   UI_GALLERY?: string
 }
 
-const app = new Hono<{ Bindings: Bindings }>()
+// strict: false で末尾スラッシュ付き（/records/ など）も同じルートとして扱う。ui 側も同じ設定
+const app = new Hono<{ Bindings: Bindings }>({ strict: false })
 
 app.get('/healthz', async (c) => {
   const row = await c.env.DB.prepare('SELECT 1 AS one').first<{ one: number }>()
