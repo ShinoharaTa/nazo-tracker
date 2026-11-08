@@ -457,17 +457,21 @@ export const image = sqliteTable(
   ],
 )
 
-export const imageReport = sqliteTable('image_report', {
-  id: text('id').primaryKey(),
-  imageId: text('image_id')
-    .notNull()
-    .references(() => image.id, { onDelete: 'cascade' }),
-  reporterUserId: text('reporter_user_id')
-    .notNull()
-    .references(() => user.id),
-  reason: text('reason'),
-  createdAt: text('created_at').notNull(),
-})
+export const imageReport = sqliteTable(
+  'image_report',
+  {
+    id: text('id').primaryKey(),
+    imageId: text('image_id')
+      .notNull()
+      .references(() => image.id, { onDelete: 'cascade' }),
+    reporterUserId: text('reporter_user_id')
+      .notNull()
+      .references(() => user.id),
+    reason: text('reason'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [unique('image_report_image_reporter_user_unique').on(t.imageId, t.reporterUserId)],
+)
 
 export const friendRequest = sqliteTable(
   'friend_request',
@@ -489,6 +493,7 @@ export const friendRequest = sqliteTable(
       .where(sql`"status" = 'pending'`),
     index('friend_request_to_status_idx').on(t.toUserId, t.status),
     check('friend_request_status_check', oneOf('status', friendRequestStatuses)),
+    check('friend_request_self_check', sql`"from_user_id" <> "to_user_id"`),
   ],
 )
 
@@ -505,6 +510,7 @@ export const friendship = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.userLo, t.userHi] }),
+    index('friendship_user_hi_idx').on(t.userHi),
     check('friendship_order_check', sql`"user_lo" < "user_hi"`),
   ],
 )
@@ -598,7 +604,8 @@ export const request = sqliteTable(
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
-  () => [
+  (t) => [
+    index('request_status_idx').on(t.status),
     check('request_kind_check', oneOf('kind', requestKinds)),
     check('request_status_check', oneOf('status', requestStatuses)),
   ],
@@ -633,6 +640,7 @@ export const apiToken = sqliteTable(
     expiresAt: text('expires_at'),
     lastUsedAt: text('last_used_at'),
     revokedAt: text('revoked_at'),
+    createdAt: text('created_at').notNull(),
   },
   () => [check('api_token_role_check', oneOf('role', apiTokenRoles))],
 )
@@ -661,6 +669,8 @@ export const proposal = sqliteTable(
     uniqueIndex('proposal_pending_fingerprint_unique')
       .on(t.fingerprint)
       .where(sql`"status" = 'pending'`),
+    index('proposal_status_idx').on(t.status),
+    index('proposal_target_table_target_idx').on(t.targetTable, t.targetId),
     check('proposal_kind_check', oneOf('kind', proposalKinds)),
     check('proposal_status_check', oneOf('status', proposalStatuses)),
   ],
@@ -697,7 +707,8 @@ export const changeLog = sqliteTable(
     proposalId: text('proposal_id').references(() => proposal.id),
     createdAt: text('created_at').notNull(),
   },
-  () => [
+  (t) => [
+    index('change_log_table_name_row_idx').on(t.tableName, t.rowId),
     // actor はユーザーかトークンのちょうど片方
     check('change_log_actor_check', sql`("actor_user_id" IS NULL) <> ("actor_token_id" IS NULL)`),
   ],
