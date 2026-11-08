@@ -264,7 +264,7 @@ flowchart LR
 | コールドスタート | ◎ | △ | ○ |
 | 実装コスト | 小 | 中 | 中 |
 
-- ORM: Drizzle（D1、マイグレーション）。テスト: Vitest + `@cloudflare/vitest-pool-workers`。
+- ORM: Drizzle（D1、マイグレーション）。テスト: Vitest + `@cloudflare/vitest-plugin`。
 - 画像: R2 バインディング（非公開バケット）。アップロード・配信とも Worker 経由（認可・サイズ・MIME・EXIF 検査）。
 - デプロイ: `wrangler deploy`。ドメイン `nazo.shino3.net`（決定。既存ゾーン shino3.net 前提）。
 - ローカル: `wrangler dev --ip 127.0.0.1`、ローカル D1。確認は curl。

@@ -8,9 +8,9 @@
 ## 2. テーブル
 - `user(id, display_name, role(member / owner), friend_code NULL, default_share_level(none / status / rating / memo; 既定 status、v1 は固定で UI 無し), exclude_from_counts INT 既定 0, created_at, last_seen_at, deleted_at)`
 - `identity(provider, subject, user_id, created_at, last_login_at)` PK(provider, subject)
-- `session(id, user_id, expires_at, created_at, ua_hint)` — Cookie は署名付き session id、30 日、`Secure; HttpOnly; SameSite=Lax`
+- `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session id、30 日、`Secure; HttpOnly; SameSite=Lax`
 - `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at)` — PKCE、10 分
-- `recovery_code(user_id, code_hash, used_at)` — 復旧コード（決定）
+- `recovery_code(user_id, code_hash, used_at)` PK(user_id, code_hash) — 復旧コード（決定）
 
 ## 3. プロバイダ別
 
@@ -59,4 +59,4 @@
 - リポジトリ層: `scopedTo(viewerId)` が `own()` と `asFriendOf(targetUserId)` を返す。`asFriendOf` は friendship / block を検証してから、level 別の列セットだけを持つ型（`FriendAttemptStatus | FriendAttemptRating | FriendAttemptMemo`）を返す（v1 で呼ばれるのは Status のみ）。`spoiler_memo` と `spoiler=1` の image を含む型は `own()` にしか存在しない。これ以外に attempt / session / image を読む経路を作らない。
 - 画像の配信 `GET /img/:imageId` も同じ `scopedTo` を通す。R2 の公開 URL・署名 URL は作らない。
 - マスタ側のクエリが attempt / wishlist を JOIN してよいのは、`countsFor(workIds)`（匿名人数、DISTINCT user_id の COUNT だけを返す専用関数）と、viewer の friendship を起点にした「フレンド n 人」（`asFriendOf` 経由）の 2 箇所だけ。それ以外は lint で禁止語に。
-- 退会: user を `deleted_at`、identity / session / attempt / session / attempt_genre / image（R2 含む）/ friendship / friend_request / block / market_visit / wishlist を物理削除（匿名人数からも消える）。request / proposal の `requester_user_id` は NULL。
+- 退会: user を `deleted_at`、identity / session_token / attempt / session（進行ログ）/ attempt_genre / image（R2 含む）/ friendship / friend_request / block / market_visit / wishlist を物理削除（匿名人数からも消える）。request / proposal の `requester_user_id` は NULL。
