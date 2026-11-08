@@ -8,3 +8,10 @@ database_name = "nazo-tracker"
 # 本番 D1 作成後に `wrangler d1 create nazo-tracker` が出力する ID に置き換える
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
+
+[assets]
+directory = "./public"
+
+[vars]
+# "1" のときだけ部品見本 GET /_ui を有効にする。ローカルでは .dev.vars で上書きする
+UI_GALLERY = "0"
