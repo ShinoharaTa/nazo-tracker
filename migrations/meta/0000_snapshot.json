@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0bfb9d81-1c69-4f91-b028-d5bae19b07c2",
+  "id": "931c31c1-c32e-4247-8e8b-f5a8b77ef15a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "api_token": {
@@ -18,21 +18,21 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "token_hash": {
           "name": "token_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "role": {
           "name": "role",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "scopes_json": {
@@ -64,7 +64,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "api_token_token_hash_unique": {
+          "name": "api_token_token_hash_unique",
+          "columns": [
+            "token_hash"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -110,7 +118,7 @@
           "name": "status",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "purchased_on": {
@@ -124,8 +132,9 @@
           "name": "attempt_no",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
         },
         "started_on": {
           "name": "started_on",
@@ -215,14 +224,14 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -356,7 +365,7 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -381,7 +390,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "attempt_genre_genre_id_genre_id_fk": {
@@ -430,25 +439,33 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "blocked_user_id": {
           "name": "blocked_user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "block_blocked_user_idx": {
+          "name": "block_blocked_user_idx",
+          "columns": [
+            "blocked_user_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "block_user_id_user_id_fk": {
           "name": "block_user_id_user_id_fk",
@@ -477,9 +494,22 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "block_user_id_blocked_user_id_pk": {
+          "columns": [
+            "user_id",
+            "blocked_user_id"
+          ],
+          "name": "block_user_id_blocked_user_id_pk"
+        }
+      },
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "block_self_check": {
+          "name": "block_self_check",
+          "value": "\"user_id\" <> \"blocked_user_id\""
+        }
+      }
     },
     "booth": {
       "name": "booth",
@@ -495,7 +525,7 @@
           "name": "market_edition_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "organization_id": {
@@ -509,7 +539,7 @@
           "name": "name_as_listed",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "booth_no": {
@@ -590,7 +620,7 @@
           "name": "booth_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "work_id": {
@@ -604,7 +634,7 @@
           "name": "title_as_listed",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "price_yen": {
@@ -615,7 +645,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "booth_item_work_idx": {
+          "name": "booth_item_work_idx",
+          "columns": [
+            "work_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "booth_item_booth_id_booth_id_fk": {
           "name": "booth_item_booth_id_booth_id_fk",
@@ -662,21 +700,21 @@
           "name": "table_name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "row_id": {
           "name": "row_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "action": {
           "name": "action",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "before_json": {
@@ -693,8 +731,15 @@
           "notNull": false,
           "autoincrement": false
         },
-        "actor": {
-          "name": "actor",
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor_token_id": {
+          "name": "actor_token_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -711,12 +756,38 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
       "indexes": {},
       "foreignKeys": {
+        "change_log_actor_user_id_user_id_fk": {
+          "name": "change_log_actor_user_id_user_id_fk",
+          "tableFrom": "change_log",
+          "tableTo": "user",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "change_log_actor_token_id_api_token_id_fk": {
+          "name": "change_log_actor_token_id_api_token_id_fk",
+          "tableFrom": "change_log",
+          "tableTo": "api_token",
+          "columnsFrom": [
+            "actor_token_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "change_log_proposal_id_proposal_id_fk": {
           "name": "change_log_proposal_id_proposal_id_fk",
           "tableFrom": "change_log",
@@ -733,7 +804,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "change_log_actor_check": {
+          "name": "change_log_actor_check",
+          "value": "(\"actor_user_id\" IS NULL) <> (\"actor_token_id\" IS NULL)"
+        }
+      }
     },
     "friend_request": {
       "name": "friend_request",
@@ -749,28 +825,28 @@
           "name": "from_user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "to_user_id": {
           "name": "to_user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "responded_at": {
@@ -790,6 +866,14 @@
           ],
           "isUnique": true,
           "where": "\"status\" = 'pending'"
+        },
+        "friend_request_to_status_idx": {
+          "name": "friend_request_to_status_idx",
+          "columns": [
+            "to_user_id",
+            "status"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -850,7 +934,7 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -914,25 +998,34 @@
           "name": "label",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "sort_order": {
           "name": "sort_order",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "archived": {
           "name": "archived",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         }
       },
-      "indexes": {},
+      "indexes": {
+        "genre_label_unique": {
+          "name": "genre_label_unique",
+          "columns": [
+            "label"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -964,14 +1057,14 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "last_login_at": {
@@ -982,7 +1075,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "identity_user_idx": {
+          "name": "identity_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "identity_user_id_user_id_fk": {
           "name": "identity_user_id_user_id_fk",
@@ -1024,35 +1125,36 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "attempt_id": {
           "name": "attempt_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "kind": {
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "spoiler": {
           "name": "spoiler",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "r2_key": {
           "name": "r2_key",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "thumb_r2_key": {
@@ -1080,14 +1182,14 @@
           "name": "bytes",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "content_type": {
           "name": "content_type",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "removed_at": {
@@ -1108,11 +1210,26 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "image_attempt_idx": {
+          "name": "image_attempt_idx",
+          "columns": [
+            "attempt_id"
+          ],
+          "isUnique": false
+        },
+        "image_user_idx": {
+          "name": "image_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "image_user_id_user_id_fk": {
           "name": "image_user_id_user_id_fk",
@@ -1137,7 +1254,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -1168,14 +1285,14 @@
           "name": "image_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "reporter_user_id": {
           "name": "reporter_user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "reason": {
@@ -1189,7 +1306,7 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -1205,7 +1322,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "image_report_reporter_user_id_user_id_fk": {
@@ -1240,14 +1357,14 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "name_norm": {
           "name": "name_norm",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "site_url": {
@@ -1278,14 +1395,14 @@
           "name": "market_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "label": {
           "name": "label",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "start_on": {
@@ -1331,7 +1448,23 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "market_edition_escape_id_url_unique": {
+          "name": "market_edition_escape_id_url_unique",
+          "columns": [
+            "escape_id_url"
+          ],
+          "isUnique": true
+        },
+        "market_edition_market_external_key_unique": {
+          "name": "market_edition_market_external_key_unique",
+          "columns": [
+            "market_id",
+            "external_key"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "market_edition_market_id_market_id_fk": {
           "name": "market_edition_market_id_market_id_fk",
@@ -1378,21 +1511,21 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "market_edition_id": {
           "name": "market_edition_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "visited_on": {
           "name": "visited_on",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "memo": {
@@ -1450,21 +1583,21 @@
           "name": "provider",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "code_verifier": {
           "name": "code_verifier",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "mode": {
           "name": "mode",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "user_id": {
@@ -1478,7 +1611,7 @@
           "name": "expires_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -1570,14 +1703,14 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -1637,28 +1770,28 @@
           "name": "organization_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "name_norm": {
           "name": "name_norm",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "kind": {
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "since": {
@@ -1730,14 +1863,14 @@
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "target_table": {
           "name": "target_table",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "target_id": {
@@ -1758,14 +1891,15 @@
           "name": "status",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
         },
         "fingerprint": {
           "name": "fingerprint",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "match_candidates_json": {
@@ -1786,7 +1920,7 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "reviewed_at": {
@@ -1819,12 +1953,13 @@
         }
       },
       "indexes": {
-        "proposal_fingerprint_idx": {
-          "name": "proposal_fingerprint_idx",
+        "proposal_pending_fingerprint_unique": {
+          "name": "proposal_pending_fingerprint_unique",
           "columns": [
             "fingerprint"
           ],
-          "isUnique": false
+          "isUnique": true,
+          "where": "\"status\" = 'pending'"
         }
       },
       "foreignKeys": {
@@ -1895,14 +2030,14 @@
           "name": "proposal_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "field": {
           "name": "field",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "old_value": {
@@ -1939,7 +2074,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "proposal_field_source_id_source_id_fk": {
@@ -1967,14 +2102,14 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "code_hash": {
           "name": "code_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "used_at": {
@@ -2001,7 +2136,15 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "recovery_code_user_id_code_hash_pk": {
+          "columns": [
+            "user_id",
+            "code_hash"
+          ],
+          "name": "recovery_code_user_id_code_hash_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -2026,7 +2169,7 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -2057,22 +2200,23 @@
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "payload_json": {
           "name": "payload_json",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'open'"
         },
         "triage_note": {
           "name": "triage_note",
@@ -2085,14 +2229,14 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -2146,7 +2290,7 @@
           "name": "channel",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "organization_id": {
@@ -2195,8 +2339,9 @@
           "name": "is_permanent",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "escape_id_url": {
           "name": "escape_id_url",
@@ -2237,14 +2382,14 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -2255,6 +2400,21 @@
             "escape_id_url"
           ],
           "isUnique": true
+        },
+        "run_work_idx": {
+          "name": "run_work_idx",
+          "columns": [
+            "work_id"
+          ],
+          "isUnique": false
+        },
+        "run_venue_permanent_idx": {
+          "name": "run_venue_permanent_idx",
+          "columns": [
+            "venue_id",
+            "is_permanent"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2325,6 +2485,14 @@
         "run_sale_shop_check": {
           "name": "run_sale_shop_check",
           "value": "\"channel\" <> 'sale' OR \"shop_id\" IS NOT NULL"
+        },
+        "run_venue_channel_check": {
+          "name": "run_venue_channel_check",
+          "value": "\"channel\" = 'performance' OR \"venue_id\" IS NULL"
+        },
+        "run_shop_channel_check": {
+          "name": "run_shop_channel_check",
+          "value": "\"channel\" = 'sale' OR \"shop_id\" IS NULL"
         }
       }
     },
@@ -2342,14 +2510,14 @@
           "name": "attempt_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "user_id": {
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "played_on": {
@@ -2419,11 +2587,27 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "session_attempt_idx": {
+          "name": "session_attempt_idx",
+          "columns": [
+            "attempt_id"
+          ],
+          "isUnique": false
+        },
+        "session_user_played_on_idx": {
+          "name": "session_user_played_on_idx",
+          "columns": [
+            "user_id",
+            "played_on"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "session_attempt_id_attempt_id_fk": {
           "name": "session_attempt_id_attempt_id_fk",
@@ -2435,7 +2619,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "session_user_id_user_id_fk": {
@@ -2483,21 +2667,21 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "expires_at": {
           "name": "expires_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "ua_hint": {
@@ -2508,7 +2692,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "session_token_user_idx": {
+          "name": "session_token_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "session_token_user_id_user_id_fk": {
           "name": "session_token_user_id_user_id_fk",
@@ -2542,14 +2734,14 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "kind": {
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "url": {
@@ -2614,7 +2806,7 @@
           "name": "url",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "domain": {
@@ -2628,7 +2820,7 @@
           "name": "method",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "fetched_at": {
@@ -2689,15 +2881,16 @@
           "name": "display_name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "role": {
           "name": "role",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'member'"
         },
         "friend_code": {
           "name": "friend_code",
@@ -2710,7 +2903,7 @@
           "name": "default_share_level",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false,
           "default": "'status'"
         },
@@ -2718,7 +2911,7 @@
           "name": "exclude_from_counts",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false,
           "default": 0
         },
@@ -2726,7 +2919,7 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "last_seen_at": {
@@ -2744,7 +2937,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "user_friend_code_unique": {
+          "name": "user_friend_code_unique",
+          "columns": [
+            "friend_code"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -2777,14 +2978,14 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "name_norm": {
           "name": "name_norm",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "prefecture": {
@@ -2877,7 +3078,7 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -2944,14 +3145,14 @@
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "title_norm": {
           "name": "title_norm",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "kind": {
@@ -3028,14 +3229,14 @@
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -3106,28 +3307,28 @@
           "name": "work_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "title": {
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "title_norm": {
           "name": "title_norm",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "kind": {
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },

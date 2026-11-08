@@ -16,3 +16,21 @@ describe('GET /healthz', () => {
     expect(row?.name).toBe('attempt')
   })
 })
+
+describe('seed', () => {
+  it('ジャンルの初期 8 種が sort_order 順に入っている', async () => {
+    const { results } = await env.DB.prepare(
+      'SELECT id, label FROM genre ORDER BY sort_order',
+    ).all<{ id: string; label: string }>()
+    expect(results.map((r) => r.label)).toEqual([
+      'ひらめき',
+      '論理',
+      '物量',
+      'ストーリー',
+      '探索',
+      '大謎一発',
+      '協力',
+      '体験・演出',
+    ])
+  })
+})

@@ -108,7 +108,7 @@ erDiagram
 **持ち帰り謎の販路**: 1 作品に販売サイト・イベントが複数ある前提。販売サイトごとに `run(channel='sale', shop_id)` を 1 行、マーケット出店は `booth_item(work_id)` で紐付ける。作品ページでは `v_work_channels`（work ⋈ run(sale) ⋈ shop ∪ work ⋈ booth_item ⋈ booth ⋈ market_edition）で「どこで売っている/売っていたか」を時系列に一覧する。これはマスタ側の情報で、個人の購入記録とは結び付けない。
 | created_at / updated_at | |
 
-CHECK: `channel='performance' → venue_id or NULL`, `channel='sale' → shop_id`。
+CHECK: `channel='sale' → shop_id NOT NULL`、`channel = 'performance' OR venue_id IS NULL`、`channel = 'sale' OR shop_id IS NULL`（venue_id は performance のみ、shop_id は sale のみ）。
 
 **ルーム型・常設**: `work.kind='room'` + `run(channel='performance', venue_id=店舗, start_on NULL 可, end_on NULL, is_permanent=1)`。一覧ビュー `v_room_by_venue`: venue(prefecture, name) ⋈ run(is_permanent=1 AND (end_on IS NULL OR end_on >= date('now'))) ⋈ work(kind='room')。都道府県 → 店舗 → 作品で並べる。
 
@@ -172,7 +172,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 ### friend_request / friendship / block
 - `friend_request(id, from_user_id, to_user_id, status(pending / accepted / declined / canceled), created_at, responded_at)` UNIQUE(from,to) WHERE pending
 - `friendship(user_lo, user_hi, created_at)` PK(user_lo, user_hi)、`user_lo < user_hi` で 1 行。解除で削除
-- `block(user_id, blocked_user_id, created_at)` — ブロック中は friendship を削除し、申請不可、相手からは「存在しない」と同じ応答
+- `block(user_id, blocked_user_id, created_at)` PK(user_id, blocked_user_id)、CHECK(user_id <> blocked_user_id) — ブロック中は friendship を削除し、申請不可、相手からは「存在しない」と同じ応答
 - `user.friend_code`（短いランダム、再発行可、NULL で招待停止）、`user.default_share_level`（既定 `status`、v1 は固定で UI 無し）、`user.exclude_from_counts`（匿名人数から外す、既定 0）→ auth.md
 
 ### session（進行ログ）
@@ -211,12 +211,12 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
   - kind: `new_work` / `fix_work` / `new_organization` / `new_shop` / `new_booth` / `new_room_venue`（常設店舗の公式 URL を渡す）/ `new_genre` / `import_trailcast` / `other`
   - status: `open` → `triaged` | `rejected` → `processing` → `proposed` → `done` | `needs_info`
 - `source(id, url, domain, method(escape_mcp / webfetch / manual / pds), fetched_at, content_hash, excerpt, robots_checked)`
-- `proposal(id, request_id NULL, kind, target_table, target_id NULL, confidence REAL, status(pending / applied / auto_applied / rejected / superseded / suppressed), fingerprint UNIQUE-ish, created_by_token_id, created_at, reviewed_at, reviewer_user_id, review_note, revert_until)`
+- `proposal(id, request_id NULL, kind, target_table, target_id NULL, confidence REAL, status(pending / applied / auto_applied / rejected / superseded / suppressed), fingerprint（部分 UNIQUE: `WHERE status = 'pending'`）, created_by_token_id, created_at, reviewed_at, reviewer_user_id, review_note, revert_until)`
   - kind: `create` / `update` / `link`（run→work）/ `merge` / `create_attempt_import`
   - `match_candidates_json`: 名寄せ候補 `[{table,id,score,reason}]`
 - `proposal_field(id, proposal_id, field, old_value, new_value, source_id NULL)` — フィールド単位の差分と出典
 - `rejection_memory(fingerprint PK, reason, created_at)` — 同じ提案の再発を `suppressed` にする
-- `change_log(id, table_name, row_id, action, before_json, after_json, actor(user_id | token_id), proposal_id NULL, created_at)`
+- `change_log(id, table_name, row_id, action, before_json, after_json, actor_user_id NULL FK user, actor_token_id NULL FK api_token, proposal_id NULL, created_at)` — CHECK: actor_user_id と actor_token_id のちょうど片方が NOT NULL
 - `api_token(id, name, token_hash, role(agent), scopes_json, expires_at, last_used_at, revoked_at)`
 
 ## 5. 名寄せ
