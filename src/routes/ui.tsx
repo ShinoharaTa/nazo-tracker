@@ -1,7 +1,9 @@
 // 画面のルート。記録・作品などの中身はまだ空状態で返す。
 
 import { Hono } from 'hono'
+import { deleteAccount } from '../auth/account'
 import { currentUser, requireUser } from '../auth/middleware'
+import { clearSessionCookie, type SessionUser } from '../auth/session'
 import type { AppEnv } from '../env'
 import { Empty, Kpis, Menu, MenuItem, SearchIcon, Switch, Tabs, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
@@ -228,66 +230,122 @@ ui.get('/stats', (c) =>
   ),
 )
 
-ui.get('/settings', (c) => {
+// 設定一覧（左ページ）。/settings と /settings/* で共通
+const SettingsMenu = ({ user }: { user: SessionUser }) => (
+  <>
+    <TopBar title="設定" />
+    <div class="sect" style="margin-top:4px">
+      <h2>表示名</h2>
+      <Menu>
+        <MenuItem label="表示名を変える" note={user.displayName} disabled />
+      </Menu>
+    </div>
+    <div class="sect">
+      <h2>ログイン方法</h2>
+      <Menu>
+        <MenuItem label="Google" note="P1 で実装" disabled />
+        <MenuItem label="Discord" note="P1 で実装" disabled />
+        <MenuItem label="ほかのログイン方法を連携" note="P6 で実装" disabled />
+        <MenuItem label="復旧コード" note="P6 で実装" disabled />
+      </Menu>
+      <p class="note">ログイン方法を 2 つ連携しておくと、片方が使えなくなっても戻れます。</p>
+    </div>
+    <div class="sect">
+      <h2>フレンド</h2>
+      <Menu>
+        <MenuItem label="フレンド" note="P8 で実装" disabled />
+        <MenuItem label="招待リンクをコピー" note="P8 で実装" disabled />
+      </Menu>
+      <p class="note">
+        フレンドに見えるのは、作品名・ステータス・日付だけです。メモやネタバレは見えません。
+      </p>
+    </div>
+    <div class="sect">
+      <h2>データ</h2>
+      <Menu>
+        <MenuItem label="作品の人数に自分を含める" note="P3 で実装" disabled />
+        <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
+      </Menu>
+    </div>
+    {user.role === 'owner' ? (
+      <div class="sect">
+        <h2>管理（オーナーのみ）</h2>
+        <Menu>
+          <MenuItem label="承認待ちの提案" note="P4 で実装" disabled />
+        </Menu>
+      </div>
+    ) : null}
+    <div class="sect">
+      <Menu>
+        <MenuItem label="ログアウト" action="/auth/logout" />
+        <MenuItem label="退会" href="/settings/delete" />
+      </Menu>
+    </div>
+  </>
+)
+
+ui.get('/settings', (c) =>
+  c.html(<Layout title="設定" tab="settings" left={<SettingsMenu user={currentUser(c)} />} />),
+)
+
+// 退会の確認（右ページ）。オーナーは退会できない（ロックアウト防止）
+const DeleteAccount = ({ user, error }: { user: SessionUser; error?: string }) => (
+  <>
+    <TopBar back="/settings" label="退会" />
+    <div class="sect" style="margin-top:4px">
+      <h2>退会すると消えるもの</h2>
+      <ul>
+        <li>記録・進行ログ・写真</li>
+        <li>マイリスト</li>
+        <li>フレンド関係（申請・ブロックを含む）</li>
+        <li>ログイン連携</li>
+      </ul>
+      <ul>
+        <li>同じアカウントで再ログインすると、新規ユーザーになります。</li>
+        <li>作品マスタへのリクエストは、匿名化して残ります。</li>
+      </ul>
+    </div>
+    {user.role === 'owner' ? (
+      <p class="note">オーナーは退会できません。</p>
+    ) : (
+      <form method="post" action="/settings/delete" class="sect">
+        {error ? (
+          <p class="note" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <label>
+          <input type="checkbox" name="confirm" value="yes" /> 上の内容を確認しました
+        </label>
+        <button type="submit" class="btn danger">
+          退会する
+        </button>
+      </form>
+    )}
+  </>
+)
+
+const deletePage = (user: SessionUser, error?: string) => (
+  <Layout
+    title="退会"
+    tab="settings"
+    left={<SettingsMenu user={user} />}
+    right={<DeleteAccount user={user} error={error} />}
+  />
+)
+
+ui.get('/settings/delete', (c) => c.html(deletePage(currentUser(c))))
+
+ui.post('/settings/delete', async (c) => {
   const user = currentUser(c)
-  return c.html(
-    <Layout
-      title="設定"
-      tab="settings"
-      left={
-        <>
-          <TopBar title="設定" />
-          <div class="sect" style="margin-top:4px">
-            <h2>表示名</h2>
-            <Menu>
-              <MenuItem label="表示名を変える" note={user.displayName} disabled />
-            </Menu>
-          </div>
-          <div class="sect">
-            <h2>ログイン方法</h2>
-            <Menu>
-              <MenuItem label="Google" note="P1 で実装" disabled />
-              <MenuItem label="Discord" note="P1 で実装" disabled />
-              <MenuItem label="ほかのログイン方法を連携" note="P6 で実装" disabled />
-              <MenuItem label="復旧コード" note="P6 で実装" disabled />
-            </Menu>
-            <p class="note">ログイン方法を 2 つ連携しておくと、片方が使えなくなっても戻れます。</p>
-          </div>
-          <div class="sect">
-            <h2>フレンド</h2>
-            <Menu>
-              <MenuItem label="フレンド" note="P8 で実装" disabled />
-              <MenuItem label="招待リンクをコピー" note="P8 で実装" disabled />
-            </Menu>
-            <p class="note">
-              フレンドに見えるのは、作品名・ステータス・日付だけです。メモやネタバレは見えません。
-            </p>
-          </div>
-          <div class="sect">
-            <h2>データ</h2>
-            <Menu>
-              <MenuItem label="作品の人数に自分を含める" note="P3 で実装" disabled />
-              <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
-            </Menu>
-          </div>
-          {user.role === 'owner' ? (
-            <div class="sect">
-              <h2>管理（オーナーのみ）</h2>
-              <Menu>
-                <MenuItem label="承認待ちの提案" note="P4 で実装" disabled />
-              </Menu>
-            </div>
-          ) : null}
-          <div class="sect">
-            <Menu>
-              <MenuItem label="ログアウト" action="/auth/logout" />
-              <MenuItem label="退会" note="P1 で実装" disabled />
-            </Menu>
-          </div>
-        </>
-      }
-    />,
-  )
+  if (user.role === 'owner') return c.html(deletePage(user), 400)
+  const body = await c.req.parseBody()
+  if (body.confirm !== 'yes') {
+    return c.html(deletePage(user, '確認のチェックを入れてください。'), 400)
+  }
+  await deleteAccount(c.get('db'), user.id)
+  clearSessionCookie(c)
+  return c.redirect('/login?deleted=1', 302)
 })
 
 const loginMessage = (error: string | undefined, deleted: string | undefined): string | null => {
