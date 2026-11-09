@@ -72,10 +72,9 @@ describe('ログイン後', () => {
     expect(sc).not.toMatch(/Secure/)
   })
 
-  // PR-2 で初回は /settings/name?welcome=1 に切り替える
-  it('初回も 2 回目も /records へ', async () => {
+  it('初回は /settings/name?welcome=1、2 回目は /records へ', async () => {
     const first = await loginAs(env, { subject: 'redir' })
-    expect(first.res.headers.get('location')).toBe('/records')
+    expect(first.res.headers.get('location')).toBe('/settings/name?welcome=1')
     const second = await loginAs(env, { subject: 'redir' })
     expect(second.res.headers.get('location')).toBe('/records')
   })
