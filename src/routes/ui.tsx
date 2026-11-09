@@ -386,7 +386,9 @@ const DeleteAccount = ({ user, error }: { user: SessionUser; error?: string }) =
         <li>マイリスト</li>
         <li>フレンド関係（申請・ブロックを含む）</li>
         <li>ログイン連携</li>
+        <li>この操作は元に戻せません。</li>
       </ul>
+      <p class="note">補足</p>
       <ul>
         <li>同じアカウントで再ログインすると、新規ユーザーになります。</li>
         <li>作品マスタへのリクエストは、匿名化して残ります。</li>

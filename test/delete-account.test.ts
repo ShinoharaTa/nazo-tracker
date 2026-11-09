@@ -229,6 +229,7 @@ describe('GET /settings/delete', () => {
     expect(html).toContain('class="btn danger"')
     expect(html).toContain('新規ユーザーになります')
     expect(html).toContain('匿名化して残ります')
+    expect(html).toContain('この操作は元に戻せません。')
   })
 
   it('owner にはフォームを出さない', async () => {
@@ -297,6 +298,7 @@ describe('POST /settings/delete', () => {
     const { userId: third } = await loginAs(env, { subject: 'del-third' })
     await seed('del', me, other, third)
     const otherBefore = await ownRows(other)
+    const thirdBefore = await ownRows(third)
 
     const res = await postDelete(cookie, { confirm: 'yes' })
     expect(res.status).toBe(302)
@@ -314,6 +316,14 @@ describe('POST /settings/delete', () => {
       ...otherBefore,
       friendship: otherBefore.friendship - 1,
       image_report: otherBefore.image_report - 1,
+    })
+    // third: 自分との friendship・friend_request（往復 2 件）・block（往復 2 件）だけが減り、
+    // other との分は残る
+    expect(await ownRows(third)).toEqual({
+      ...thirdBefore,
+      friendship: thirdBefore.friendship - 1,
+      friend_request: thirdBefore.friend_request - 2,
+      block: thirdBefore.block - 2,
     })
     expect(await count("SELECT COUNT(*) AS n FROM image_report WHERE id = 'del-ir-3'")).toBe(1)
     expect(await count("SELECT COUNT(*) AS n FROM image_report WHERE id LIKE 'del-ir-%'")).toBe(1)
