@@ -310,10 +310,10 @@ export type WorkInput = {
   firstReleasedOn: string | null
 }
 
-// kind は空（未設定）を許す
 export const validateWork = async (db: Db, f: Form, selfId?: string) => {
   const errors: string[] = []
   const title = field(errors, '題名', f.title, str(NAME_MAX), true)
+  // kind は任意（親の決定: 形式不明のまま登録できるように。P4 の提案も NULL で入る）
   const kind = field(errors, '形式', f.kind, oneOf(workKinds))
   const primaryOrganizationId = await liveOrgId(db, errors, '団体', f.primary_organization_id)
   const officialUrl = field(errors, '公式サイト', f.official_url, url())

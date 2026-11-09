@@ -1,5 +1,5 @@
 // 作品の作成・編集と別名の追加・削除（/admin/works/*, /admin/work-aliases/*）。requireOwner は admin/index.tsx で掛かる。
-// 作成時だけ名寄せ候補（findCandidates）を見て、score ≥ SIMILAR_MIN があれば 1 回止める。
+// 作成時だけ名寄せ候補（findCandidates）を見て、score ≥ SIMILAR_MIN があれば止める（同じ題名での再送は 1 回で通す）。
 
 import { Hono } from 'hono'
 import {
@@ -25,6 +25,7 @@ import { createWork, createWorkAlias, deleteWorkAlias, updateWork } from '../../
 import { findCandidates } from '../../db/match'
 import type { AppEnv } from '../../env'
 import { type Candidate, SIMILAR_MIN } from '../../lib/match'
+import { norm } from '../../lib/norm'
 import {
   AdminNotFound,
   AdminPage,
@@ -74,7 +75,7 @@ const newPage = async (
     values: Form
     errors?: readonly string[]
     candidates?: readonly Candidate[]
-    confirm?: boolean
+    confirm?: string
   },
 ) => (
   <AdminPage title="作品を追加">
@@ -130,18 +131,24 @@ works.post('/works/new', async (c) => {
   const db = c.get('db')
   const body = await c.req.parseBody()
   const form = formOf(body, workFields)
-  const confirmed = body.confirm === '1'
+  // confirm は候補を見て確認済みの norm(title)。題名を変えたら再チェックする
+  const confirm = typeof body.confirm === 'string' ? body.confirm : ''
   const v = await validateWork(db, form)
-  if (!v.ok)
-    return c.html(await newPage(db, { values: form, errors: v.errors, confirm: confirmed }), 400)
-  if (!confirmed) {
+  if (!v.ok) {
+    return c.html(
+      await newPage(db, { values: form, errors: v.errors, confirm: confirm || undefined }),
+      400,
+    )
+  }
+  const titleNorm = norm(v.value.title)
+  if (confirm !== titleNorm) {
     const orgName = v.value.primaryOrganizationId
       ? (await orgOptions(db)).find((o) => o.id === v.value.primaryOrganizationId)?.name
       : undefined
     const m = await findCandidates(db, { title: v.value.title, org: orgName })
     const candidates = m.works.filter((w) => w.score >= SIMILAR_MIN)
     if (candidates.length) {
-      return c.html(await newPage(db, { values: form, candidates, confirm: true }), 400)
+      return c.html(await newPage(db, { values: form, candidates, confirm: titleNorm }), 400)
     }
   }
   const id = await createWork(db, v.value, currentUser(c).id)

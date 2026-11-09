@@ -59,3 +59,15 @@ export const shopKindLabels: Record<ShopKind, string> = {
   physical_store: '実店舗',
   other: 'その他',
 }
+
+// 名寄せ候補の reason（src/db/match.ts）。未知の値はそのまま
+const matchReasonLabels: Record<string, string> = {
+  escape_id_url: 'escape.id の URL が一致',
+  same_org_title: '同じ団体で同じ題名',
+  title: '同じ題名',
+  similar: '似た題名',
+  name: '同じ名前',
+}
+
+export const matchReasonLabel = (reason: string): string =>
+  Object.hasOwn(matchReasonLabels, reason) ? matchReasonLabels[reason] : reason
