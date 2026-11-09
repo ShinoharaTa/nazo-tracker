@@ -96,10 +96,10 @@ erDiagram
 | channel | `performance`（会場公演）/ `online`（LINE・Web 配信）/ `sale`（持ち帰り販売） |
 | organization_id FK NULL | 当時の主催（名義団体） |
 | billed_as | TEXT 当時の表記スナップショット |
-| venue_id FK NULL | performance |
+| venue_id FK NULL | performance のみ。performance でも NULL 可（会場未定） |
 | shop_id FK NULL | sale |
 | start_on / end_on | NULL 可（周遊・常設は end 無し） |
-| is_permanent | INTEGER 0/1。常設ルーム・カフェ型など。`end_on` を入れたら終了扱い |
+| is_permanent | INTEGER 0/1。常設ルーム・カフェ型など。performance のみ（オーナー画面で検証）。`end_on` を入れたら終了扱い |
 | escape_id_url UNIQUE NULL | `https://escape.id/<org>-org/e-<slug>/` 正規化 |
 | ticket_url, price_yen | |
 | escape_type_raw | escape.id `type` の生値（参考のみ。kind 判定には使わない） |
@@ -109,6 +109,8 @@ erDiagram
 | created_at / updated_at | |
 
 CHECK: `channel='sale' → shop_id NOT NULL`、`channel = 'performance' OR venue_id IS NULL`、`channel = 'sale' OR shop_id IS NULL`（venue_id は performance のみ、shop_id は sale のみ）。
+
+run は削除しない（P2 は作成・編集のみ。`attempt.run_id` から参照されるため）。
 
 **ルーム型・常設**: `work.kind='room'` + `run(channel='performance', venue_id=店舗, start_on NULL 可, end_on NULL, is_permanent=1)`。一覧ビュー `v_room_by_venue`: venue(prefecture, name) ⋈ run(is_permanent=1 AND (end_on IS NULL OR end_on >= date('now'))) ⋈ work(kind='room')。都道府県 → 店舗 → 作品で並べる。
 

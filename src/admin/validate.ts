@@ -2,8 +2,22 @@
 // 各パーサは空でない値だけを受け取り、エラーは「{項目名}」に続く文で返す。
 
 import type { Db } from '../db/client'
-import { isLiveOrg, orgUniqueTaken, shopUrlTaken } from '../db/master'
-import { organizationAliasKinds, shopKinds } from '../db/schema'
+import {
+  isLiveOrg,
+  isLiveVenue,
+  orgUniqueTaken,
+  runEscapeUrlTaken,
+  shopExists,
+  shopUrlTaken,
+  workOfficialUrlTaken,
+} from '../db/master'
+import {
+  organizationAliasKinds,
+  runChannels,
+  shopKinds,
+  workAliasKinds,
+  workKinds,
+} from '../db/schema'
 import { prefectures } from '../lib/prefectures'
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -17,6 +31,9 @@ const NAME_MAX = 200
 const NOTE_MAX = 4000
 // 住所の上限は名前と同じにしている
 const ADDRESS_MAX = 200
+const PLAYERS_MAX = 99
+const MINUTES_MAX = 6000
+const PRICE_MAX = 999999
 
 export type Form = Record<string, string>
 
@@ -88,20 +105,33 @@ export const oneOf =
   (raw) =>
     (values as readonly string[]).includes(raw) ? ok(raw as T) : ng('の値が正しくありません。')
 
-// escape.id の団体 URL。host 小文字・query/hash 除去・末尾 / 付与のあと https://escape.id/〇〇-org/ であること
-export const escapeOrgUrl = (): Parser<string> => (raw) => {
-  const base = url()(raw)
-  if (!base.ok) return base
-  const u = new URL(base.value)
-  u.search = ''
-  u.hash = ''
-  if (!u.pathname.endsWith('/')) u.pathname = `${u.pathname}/`
-  const s = u.href
-  if (!/^https:\/\/escape\.id\/[^/]+-org\/$/.test(s)) {
-    return ng('は https://escape.id/〇〇-org/ の形にしてください。')
+// url() のあと query/hash 除去・末尾 / 付与（host は url() で小文字）。re に合わなければ msg
+const escapeUrl =
+  (re: RegExp, msg: string): Parser<string> =>
+  (raw) => {
+    const base = url()(raw)
+    if (!base.ok) return base
+    const u = new URL(base.value)
+    u.search = ''
+    u.hash = ''
+    if (!u.pathname.endsWith('/')) u.pathname = `${u.pathname}/`
+    const s = u.href
+    return re.test(s) ? ok(s) : ng(msg)
   }
-  return ok(s)
-}
+
+// escape.id の団体 URL。正規化のあと https://escape.id/〇〇-org/ であること
+export const escapeOrgUrl = (): Parser<string> =>
+  escapeUrl(
+    /^https:\/\/escape\.id\/[^/]+-org\/$/,
+    'は https://escape.id/〇〇-org/ の形にしてください。',
+  )
+
+// escape.id のイベント URL（run）。正規化のあと https://escape.id/〇〇-org/e-〇〇/ であること
+export const escapeRunUrl = (): Parser<string> =>
+  escapeUrl(
+    /^https:\/\/escape\.id\/[^/]+-org\/e-[^/]+\/$/,
+    'は https://escape.id/〇〇-org/e-〇〇/ の形にしてください。',
+  )
 
 // 正規化済みの escape.id 団体 URL から slug（crazylemon-org → crazylemon）
 export const slugOf = (escapeIdUrl: string | null): string | null => {
@@ -130,17 +160,21 @@ const field = <T>(
   return r.value
 }
 
-const liveOrgId = async (
-  db: Db,
+// raw が空なら null。exists が false なら「見つからないか、統合済み」
+const refId = async (
   errors: string[],
   label: string,
   raw: string,
+  exists: (id: string) => Promise<boolean>,
 ): Promise<string | null> => {
   if (raw === '') return null
-  if (await isLiveOrg(db, raw)) return raw
+  if (await exists(raw)) return raw
   errors.push(`${label}が見つからないか、統合済みです。`)
   return null
 }
+
+const liveOrgId = (db: Db, errors: string[], label: string, raw: string) =>
+  refId(errors, label, raw, (id) => isLiveOrg(db, id))
 
 export type Validated<T> = { ok: true; value: T } | { ok: false; errors: string[] }
 
@@ -243,5 +277,166 @@ export const validateShop = async (db: Db, f: Form, selfId?: string) => {
     kind: kind ?? shopKinds[0],
     url: shopUrl,
     organizationId,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// work / work_alias
+// ---------------------------------------------------------------------------
+
+export const workFields = [
+  'title',
+  'kind',
+  'primary_organization_id',
+  'official_url',
+  'description',
+  'player_min',
+  'player_max',
+  'estimated_minutes',
+  'time_limit_minutes',
+  'first_released_on',
+] as const
+
+export type WorkInput = {
+  title: string
+  kind: (typeof workKinds)[number] | null
+  primaryOrganizationId: string | null
+  officialUrl: string | null
+  description: string | null
+  playerMin: number | null
+  playerMax: number | null
+  estimatedMinutes: number | null
+  timeLimitMinutes: number | null
+  firstReleasedOn: string | null
+}
+
+// kind は空（未設定）を許す
+export const validateWork = async (db: Db, f: Form, selfId?: string) => {
+  const errors: string[] = []
+  const title = field(errors, '題名', f.title, str(NAME_MAX), true)
+  const kind = field(errors, '形式', f.kind, oneOf(workKinds))
+  const primaryOrganizationId = await liveOrgId(db, errors, '団体', f.primary_organization_id)
+  const officialUrl = field(errors, '公式サイト', f.official_url, url())
+  const description = field(errors, '説明', f.description, str(NOTE_MAX, { multiline: true }))
+  const playerMin = field(errors, '最少人数', f.player_min, int(1, PLAYERS_MAX))
+  const playerMax = field(errors, '最多人数', f.player_max, int(1, PLAYERS_MAX))
+  const estimatedMinutes = field(errors, '所要時間', f.estimated_minutes, int(1, MINUTES_MAX))
+  const timeLimitMinutes = field(errors, '制限時間', f.time_limit_minutes, int(1, MINUTES_MAX))
+  const firstReleasedOn = field(errors, '初演・発売日', f.first_released_on, date())
+  if (playerMin !== null && playerMax !== null && playerMin > playerMax) {
+    errors.push('最少人数は最多人数以下にしてください。')
+  }
+  if (officialUrl && (await workOfficialUrlTaken(db, officialUrl, selfId))) {
+    errors.push('同じ公式サイトの作品があります。')
+  }
+  return done<WorkInput>(errors, {
+    title: title ?? '',
+    kind,
+    primaryOrganizationId,
+    officialUrl,
+    description,
+    playerMin,
+    playerMax,
+    estimatedMinutes,
+    timeLimitMinutes,
+    firstReleasedOn,
+  })
+}
+
+export const workAliasFields = ['title', 'kind'] as const
+
+export type WorkAliasInput = {
+  title: string
+  kind: (typeof workAliasKinds)[number]
+}
+
+export const validateWorkAlias = (f: Form) => {
+  const errors: string[] = []
+  const title = field(errors, '別名', f.title, str(NAME_MAX), true)
+  const kind = field(errors, '種類', f.kind, oneOf(workAliasKinds), true)
+  return done<WorkAliasInput>(errors, { title: title ?? '', kind: kind ?? workAliasKinds[0] })
+}
+
+// ---------------------------------------------------------------------------
+// run（work_id はフォームに出さず URL から）
+// ---------------------------------------------------------------------------
+
+export const runFields = [
+  'channel',
+  'organization_id',
+  'billed_as',
+  'venue_id',
+  'shop_id',
+  'start_on',
+  'end_on',
+  'is_permanent',
+  'escape_id_url',
+  'ticket_url',
+  'price_yen',
+  'escape_type_raw',
+  'note',
+] as const
+
+export type RunInput = {
+  channel: (typeof runChannels)[number]
+  organizationId: string | null
+  billedAs: string | null
+  venueId: string | null
+  shopId: string | null
+  startOn: string | null
+  endOn: string | null
+  isPermanent: number
+  escapeIdUrl: string | null
+  ticketUrl: string | null
+  priceYen: number | null
+  escapeTypeRaw: string | null
+  note: string | null
+}
+
+// channel の制約は schema の CHECK と同じ（sale → shop_id 必須、venue_id は performance のみ、shop_id は sale のみ）。
+// 加えて is_permanent は performance のみ
+export const validateRun = async (db: Db, f: Form, selfId?: string) => {
+  const errors: string[] = []
+  const channel = field(errors, '種別', f.channel, oneOf(runChannels), true)
+  const organizationId = await liveOrgId(db, errors, '名義団体', f.organization_id)
+  const billedAs = field(errors, '名義の表記', f.billed_as, str(NAME_MAX))
+  const venueId = await refId(errors, '会場', f.venue_id, (id) => isLiveVenue(db, id))
+  const shopId = await refId(errors, '販売先', f.shop_id, (id) => shopExists(db, id))
+  const startOn = field(errors, '開始日', f.start_on, date())
+  const endOn = field(errors, '終了日', f.end_on, date())
+  const permanent = field(errors, '常設', f.is_permanent, oneOf(['1']))
+  const escapeIdUrl = field(errors, 'escape.id の URL', f.escape_id_url, escapeRunUrl())
+  const ticketUrl = field(errors, 'チケットの URL', f.ticket_url, url())
+  const priceYen = field(errors, '価格', f.price_yen, int(0, PRICE_MAX))
+  const escapeTypeRaw = field(errors, 'escape.id の type', f.escape_type_raw, str(NAME_MAX))
+  const note = field(errors, 'メモ', f.note, str(NOTE_MAX, { multiline: true }))
+  if (channel === 'sale' && f.shop_id === '') errors.push('販売では販売先を選んでください。')
+  if (channel && channel !== 'performance' && f.venue_id !== '') {
+    errors.push('会場は公演のときだけ選べます。')
+  }
+  if (channel && channel !== 'sale' && f.shop_id !== '') {
+    errors.push('販売先は販売のときだけ選べます。')
+  }
+  if (channel && channel !== 'performance' && permanent) {
+    errors.push('常設は公演のときだけ選べます。')
+  }
+  if (startOn && endOn && startOn > endOn) errors.push('開始日は終了日より前にしてください。')
+  if (escapeIdUrl && (await runEscapeUrlTaken(db, escapeIdUrl, selfId))) {
+    errors.push('同じ escape.id URL の回があります。')
+  }
+  return done<RunInput>(errors, {
+    channel: channel ?? runChannels[0],
+    organizationId,
+    billedAs,
+    venueId,
+    shopId,
+    startOn,
+    endOn,
+    isPermanent: permanent ? 1 : 0,
+    escapeIdUrl,
+    ticketUrl,
+    priceYen,
+    escapeTypeRaw,
+    note,
   })
 }

@@ -265,12 +265,20 @@ ui.get('/works/:id', async (c) => {
   const r = await getWork(db, c.req.param('id'))
   if (!r) return c.html(await masterNotFound(db), 404)
   if ('redirect' in r) return c.redirect(`/works/${encodeURIComponent(r.redirect)}`, 302)
+  const owner = isOwner(c)
   return c.html(
     <Layout
       title={r.found.title}
       tab="works"
       left={await defaultWorksList(db, r.found.id)}
-      right={<WorkDetail w={r.found} today={todayJst()} />}
+      right={
+        <WorkDetail
+          w={r.found}
+          today={todayJst()}
+          editHref={owner ? `/admin/works/${r.found.id}` : undefined}
+          runEditHref={owner ? (runId) => `/admin/runs/${runId}` : undefined}
+        />
+      }
     />,
   )
 })

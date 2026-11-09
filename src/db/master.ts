@@ -645,3 +645,72 @@ export const shopUrlTaken = async (db: Db, url: string, exceptId?: string): Prom
     .from(shop)
     .where(and(eq(shop.url, url), exceptId ? ne(shop.id, exceptId) : undefined))
     .get())
+
+export type WorkRow = typeof work.$inferSelect
+export type WorkAliasRow = typeof workAlias.$inferSelect
+export type RunDbRow = typeof run.$inferSelect
+
+// 作品の編集画面用。行全体・統合先・別名・回（表示用、compareRuns の順）
+export const getAdminWork = async (db: Db, id: string) => {
+  const row = await db.select().from(work).where(eq(work.id, id)).get()
+  if (!row) return null
+  const [into, aliases, runs] = await Promise.all([
+    row.mergedIntoId
+      ? db
+          .select({ id: work.id, name: work.title })
+          .from(work)
+          .where(eq(work.id, row.mergedIntoId))
+          .get()
+      : undefined,
+    db.select().from(workAlias).where(eq(workAlias.workId, id)).orderBy(workAlias.id),
+    runsByWork(db, [id]),
+  ])
+  return { row, mergedInto: into ?? null, aliases, runs: runs.get(id) ?? [] }
+}
+
+export const getWorkAliasRow = (db: Db, id: string) =>
+  db.select().from(workAlias).where(eq(workAlias.id, id)).get()
+
+export const getRunRow = (db: Db, id: string) => db.select().from(run).where(eq(run.id, id)).get()
+
+// 選択肢用。未統合の会場を name_norm 順に
+export const venueOptions = (db: Db) =>
+  db
+    .select({ id: venue.id, name: venue.name, prefecture: venue.prefecture })
+    .from(venue)
+    .where(isNull(venue.mergedIntoId))
+    .orderBy(venue.nameNorm, venue.id)
+
+// 選択肢用。販売先を名前順に（統合は無い）
+export const shopOptions = (db: Db) =>
+  db.select({ id: shop.id, name: shop.name }).from(shop).orderBy(shop.name, shop.id)
+
+export const isLiveVenue = async (db: Db, id: string): Promise<boolean> =>
+  !!(await db
+    .select({ id: venue.id })
+    .from(venue)
+    .where(and(eq(venue.id, id), isNull(venue.mergedIntoId)))
+    .get())
+
+export const shopExists = async (db: Db, id: string): Promise<boolean> =>
+  !!(await db.select({ id: shop.id }).from(shop).where(eq(shop.id, id)).get())
+
+// official_url が同じ作品（exceptId 以外。統合済みも含む）があるか
+export const workOfficialUrlTaken = async (
+  db: Db,
+  url: string,
+  exceptId?: string,
+): Promise<boolean> =>
+  !!(await db
+    .select({ id: work.id })
+    .from(work)
+    .where(and(eq(work.officialUrl, url), exceptId ? ne(work.id, exceptId) : undefined))
+    .get())
+
+// escape_id_url が同じ回（exceptId 以外）があるか
+export const runEscapeUrlTaken = async (db: Db, url: string, exceptId?: string): Promise<boolean> =>
+  !!(await db
+    .select({ id: run.id })
+    .from(run)
+    .where(and(eq(run.escapeIdUrl, url), exceptId ? ne(run.id, exceptId) : undefined))
+    .get())
