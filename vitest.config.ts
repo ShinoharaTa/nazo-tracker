@@ -7,7 +7,13 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: './wrangler.toml' },
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+        miniflare: {
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            APP_ORIGIN: 'http://127.0.0.1:8787',
+            SESSION_SECRET: 'test-session-secret-0123456789abcdef',
+          },
+        },
       }),
     ],
     test: {

@@ -1,13 +1,17 @@
-// 画面のルート。P0 の UI 基盤では認証・DB を使わず、すべて空状態で返す。
+// 画面のルート。記録・作品などの中身はまだ空状態で返す。
 
 import { Hono } from 'hono'
-import type { Bindings } from '../index'
+import { currentUser, requireUser } from '../auth/middleware'
+import type { AppEnv } from '../env'
 import { Empty, Kpis, Menu, MenuItem, SearchIcon, Switch, Tabs, TopBar } from '../ui/components'
-import { Gallery, galleryRecord } from '../ui/Gallery'
 import { Document, Layout } from '../ui/Layout'
-import { spoilerResponse } from '../ui/spoiler'
 
-const ui = new Hono<{ Bindings: Bindings }>({ strict: false })
+const ui = new Hono<AppEnv>({ strict: false })
+
+// /records/* は /records 自体も含む
+ui.use('/records/*', requireUser)
+ui.use('/stats', requireUser)
+ui.use('/settings/*', requireUser)
 
 type RecordsTab = 'all' | 'pending' | 'wish'
 
@@ -119,7 +123,7 @@ const NotFound = ({ back }: { back: string }) => (
   </>
 )
 
-ui.get('/', (c) => c.redirect('/records', 302))
+ui.get('/', (c) => c.redirect(c.get('user') ? '/records' : '/login', 302))
 
 ui.get('/records', (c) => {
   const tab = toRecordsTab(c.req.query('tab'))
@@ -224,8 +228,9 @@ ui.get('/stats', (c) =>
   ),
 )
 
-ui.get('/settings', (c) =>
-  c.html(
+ui.get('/settings', (c) => {
+  const user = currentUser(c)
+  return c.html(
     <Layout
       title="設定"
       tab="settings"
@@ -235,7 +240,7 @@ ui.get('/settings', (c) =>
           <div class="sect" style="margin-top:4px">
             <h2>表示名</h2>
             <Menu>
-              <MenuItem label="表示名を変える" note="P1 で実装" disabled />
+              <MenuItem label="表示名を変える" note={user.displayName} disabled />
             </Menu>
           </div>
           <div class="sect">
@@ -265,26 +270,37 @@ ui.get('/settings', (c) =>
               <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
             </Menu>
           </div>
+          {user.role === 'owner' ? (
+            <div class="sect">
+              <h2>管理（オーナーのみ）</h2>
+              <Menu>
+                <MenuItem label="承認待ちの提案" note="P4 で実装" disabled />
+              </Menu>
+            </div>
+          ) : null}
           <div class="sect">
-            <h2>管理（オーナーのみ）</h2>
             <Menu>
-              <MenuItem label="承認待ちの提案" note="P4 で実装" disabled />
-            </Menu>
-          </div>
-          <div class="sect">
-            <Menu>
-              <MenuItem label="ログアウト" note="P1 で実装" disabled />
+              <MenuItem label="ログアウト" action="/auth/logout" />
               <MenuItem label="退会" note="P1 で実装" disabled />
             </Menu>
           </div>
         </>
       }
     />,
-  ),
-)
+  )
+})
 
-ui.get('/login', (c) =>
-  c.html(
+const loginMessage = (error: string | undefined, deleted: string | undefined): string | null => {
+  if (deleted === '1') return '退会しました。'
+  if (error === 'denied') return 'ログインがキャンセルされました。'
+  if (error === 'failed') return 'ログインに失敗しました。もう一度お試しください。'
+  return null
+}
+
+ui.get('/login', (c) => {
+  if (c.get('user')) return c.redirect('/records', 302)
+  const message = loginMessage(c.req.query('error'), c.req.query('deleted'))
+  return c.html(
     <Document title="ログイン">
       <div id="app">
         <div class="login">
@@ -292,6 +308,11 @@ ui.get('/login', (c) =>
           <p class="note" style="font-size:14px;margin:0">
             謎解きの参加記録と、遊びたい作品のリスト。
           </p>
+          {message ? (
+            <p class="note" role="status" style="margin:0">
+              {message}
+            </p>
+          ) : null}
           <div class="list">
             <a class="btn pri" href="/auth/google">
               Google でログイン
@@ -309,24 +330,6 @@ ui.get('/login', (c) =>
         </div>
       </div>
     </Document>,
-  ),
-)
-
-// 部品見本。UI_GALLERY=1 のときだけ有効
-ui.use('/_ui/*', async (c, next) => {
-  if (c.env?.UI_GALLERY !== '1') return c.notFound()
-  await next()
-})
-
-ui.get('/_ui', (c) => c.html(<Gallery />))
-
-// 見本の SpoilerCard の取得先。星降る街の記録のネタバレを返す
-ui.get('/_ui/spoiler', (c) => {
-  const r = galleryRecord()
-  return spoilerResponse(
-    c,
-    { memo: r.spoiler, photos: r.photos.filter((p) => p.sp).map((p) => ({ label: p.k })) },
-    { back: '/_ui', tab: 'records' },
   )
 })
 

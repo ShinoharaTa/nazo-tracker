@@ -1,14 +1,53 @@
 import { env } from 'cloudflare:workers'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { attemptStatuses, workKinds } from '../src/db/schema'
 import app from '../src/index'
 import { attemptStatusLabels, workKindLabels } from '../src/ui/labels'
+import { loginAs } from './helpers/auth'
+
+let cookie = ''
+beforeAll(async () => {
+  cookie = (await loginAs(env, { subject: 'ui-test' })).cookie
+})
+
+// ログイン済みで GET する
+const get = (path: string) => app.request(path, { headers: { Cookie: cookie } }, env)
 
 describe('画面ルート', () => {
-  it('/ は /records へ 302', async () => {
-    const res = await app.request('/', {}, env)
+  it('/ は未ログインなら /login、ログイン済みなら /records へ 302', async () => {
+    const anon = await app.request('/', {}, env)
+    expect(anon.status).toBe(302)
+    expect(anon.headers.get('location')).toBe('/login')
+    const res = await get('/')
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('/records')
+  })
+
+  it.each([
+    '/records',
+    '/records/',
+    '/records?tab=pending',
+    '/records/new',
+    '/records/xyz',
+    '/stats',
+    '/stats/',
+    '/settings',
+    '/settings/',
+  ])('未ログインで %s は 302 /login', async (path) => {
+    const res = await app.request(path, {}, env)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/login')
+  })
+
+  it.each([
+    ['/works', 200],
+    ['/works?kind=room', 200],
+    ['/works/xyz', 404],
+    ['/login', 200],
+  ])('未ログインで %s は %i', async (path, status) => {
+    const res = await app.request(path, {}, env)
+    expect(res.status).toBe(status)
+    expect(res.headers.get('content-type')).toContain('text/html')
   })
 
   it.each([
@@ -23,15 +62,28 @@ describe('画面ルート', () => {
     ['/works/xyz', 404],
     ['/stats', 200],
     ['/settings', 200],
-    ['/login', 200],
-  ])('%s は %i', async (path, status) => {
-    const res = await app.request(path, {}, env)
+  ])('ログイン済みで %s は %i', async (path, status) => {
+    const res = await get(path)
     expect(res.status).toBe(status)
     expect(res.headers.get('content-type')).toContain('text/html')
   })
 
+  it.each([
+    ['?error=denied', 'ログインがキャンセルされました。'],
+    ['?error=failed', 'ログインに失敗しました。もう一度お試しください。'],
+    ['?deleted=1', '退会しました。'],
+  ])('/login%s はメッセージを出す', async (q, message) => {
+    const html = await (await app.request(`/login${q}`, {}, env)).text()
+    expect(html).toContain(message)
+  })
+
+  it('/login の未知の ?error= はメッセージを出さない', async () => {
+    const html = await (await app.request('/login?error=constructor', {}, env)).text()
+    expect(html).not.toContain('role="status"')
+  })
+
   it('/records はサイド・下部ナビ・FAB を持ち、記録タブが現在地', async () => {
-    const html = await (await app.request('/records', {}, env)).text()
+    const html = await (await get('/records')).text()
     expect(html).toMatch(/^<!DOCTYPE html>/)
     expect(html).toContain('<aside class="side">')
     expect(html).toContain('<nav class="bn"')
@@ -40,7 +92,7 @@ describe('画面ルート', () => {
   })
 
   it('未知の ?tab= は「すべて」にフォールバック', async () => {
-    const html = await (await app.request('/records?tab=zzz', {}, env)).text()
+    const html = await (await get('/records?tab=zzz')).text()
     expect(html).toContain('<a class="tab on" href="/records" aria-current="page">すべて</a>')
   })
 
@@ -58,14 +110,14 @@ describe('画面ルート', () => {
   })
 
   it('詳細を持つページだけ has-detail が付く', async () => {
-    const withDetail = await (await app.request('/records/new', {}, env)).text()
+    const withDetail = await (await get('/records/new')).text()
     expect(withDetail).toContain('class="book has-detail"')
-    const list = await (await app.request('/records', {}, env)).text()
+    const list = await (await get('/records')).text()
     expect(list).not.toContain('has-detail')
   })
 
   it('/stats は見開き全体を 1 ページで使う', async () => {
-    const html = await (await app.request('/stats', {}, env)).text()
+    const html = await (await get('/stats')).text()
     expect(html).toContain('class="book one"')
   })
 })

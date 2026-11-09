@@ -206,11 +206,13 @@ export const Switch = (props: {
 
 export const Menu = ({ children }: { children?: Child }) => <div class="menu">{children}</div>
 
-// href があればリンク、disabled なら押しても何も起きない aria-disabled のボタン、どちらも無ければ表示だけ
+// href があればリンク、action があればそこへ POST するボタン、disabled なら押しても何も起きない
+// aria-disabled のボタン、どれも無ければ表示だけ
 export const MenuItem = (props: {
   label: Child
   note?: Child
   href?: string
+  action?: string
   disabled?: boolean
 }) => {
   const note = props.note ? <span class="note">{props.note}</span> : null
@@ -220,6 +222,16 @@ export const MenuItem = (props: {
         <span>{props.label}</span>
         {note}
       </button>
+    )
+  }
+  if (props.action) {
+    return (
+      <form method="post" action={props.action}>
+        <button type="submit">
+          <span>{props.label}</span>
+          {note}
+        </button>
+      </form>
     )
   }
   if (props.href) {

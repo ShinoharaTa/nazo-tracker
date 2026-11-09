@@ -816,7 +816,8 @@ button.gtag.on {
   border-radius: 4px;
   overflow: hidden;
 }
-.menu > * {
+.menu > *,
+.menu > form > button {
   min-height: 52px;
   padding: 10px 16px;
   border: none;
@@ -829,7 +830,8 @@ button.gtag.on {
   gap: 10px;
   font-size: 14px;
 }
-.menu > *:last-child {
+.menu > *:last-child,
+.menu > form:last-child > button {
   border-bottom: none;
 }
 .badge {
@@ -914,6 +916,10 @@ a.ticket {
   background: var(--surface);
   color: var(--fg);
   border-color: var(--rule);
+}
+/* MenuItem の action 変種。form の箱を消し、中の button を行として並べる */
+.menu > form {
+  display: contents;
 }
 .menu [aria-disabled="true"] {
   color: var(--muted);

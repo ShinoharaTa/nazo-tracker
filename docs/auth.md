@@ -8,7 +8,7 @@
 ## 2. テーブル
 - `user(id, display_name, role(member / owner), friend_code NULL, default_share_level(none / status / rating / memo; 既定 status、v1 は固定で UI 無し), exclude_from_counts INT 既定 0, created_at, last_seen_at, deleted_at)`
 - `identity(provider, subject, user_id, created_at, last_login_at)` PK(provider, subject)
-- `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session id、30 日、`Secure; HttpOnly; SameSite=Lax`
+- `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session token、30 日、`Secure; HttpOnly; SameSite=Lax`。`id` には token の SHA-256 を入れる（§7）
 - `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at)` — PKCE、10 分
 - `recovery_code(user_id, code_hash, used_at)` PK(user_id, code_hash) — 復旧コード（決定）
 
@@ -60,3 +60,27 @@
 - 画像の配信 `GET /img/:imageId` も同じ `scopedTo` を通す。R2 の公開 URL・署名 URL は作らない。
 - マスタ側のクエリが attempt / wishlist を JOIN してよいのは、`countsFor(workIds)`（匿名人数、DISTINCT user_id の COUNT だけを返す専用関数）と、viewer の friendship を起点にした「フレンド n 人」（`asFriendOf` 経由）の 2 箇所だけ。それ以外は lint で禁止語に。
 - 退会: user を `deleted_at`、identity / session_token / attempt / session（進行ログ）/ attempt_genre / image（R2 含む）/ friendship / friend_request / block / market_visit / wishlist を物理削除（匿名人数からも消える）。request / proposal の `requester_user_id` は NULL。
+
+## 7. セッションとオーナー（P1 で決定）
+
+### セッション
+- token = `crypto.getRandomValues` 32 バイトの base64url（43 文字）。ULID は使わない（推測不能であること）。
+- cookie `session` に token を署名付き（HMAC-SHA256、鍵は secret `SESSION_SECRET`）で置く。属性は `Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`。`Secure` は `APP_ORIGIN` が `https:` のときだけ（開発は http://127.0.0.1 のため。同じ理由で `__Host-` prefix は使わない）。
+- **`session_token.id` には token そのものではなく SHA-256（base64url）を保存する。** D1 の中身が漏れても cookie を作れない。認証・ログアウト・セッション固定対策の削除は、cookie の token をハッシュしてから引く。
+- `expires_at = created_at + 30 日`。スライド延長: 認証済みリクエストで残り 15 日未満なら `expires_at = now + 30 日` に更新し、cookie も出し直す。それ以外は書かない。
+- `user.last_seen_at` はログイン時と、認証済みリクエストで UTC の日付が変わったときだけ更新する。
+- 期限切れ行の掃除はログイン処理の中で行う（`session_token` と `oauth_state` の `expires_at < now` を全ユーザー分削除）。cron は作らない。
+- `ua_hint` = `User-Agent` の先頭 120 文字（無ければ NULL）。
+- 署名不一致・存在しない・期限切れ・`user.deleted_at IS NOT NULL` の cookie は未ログイン扱いにし、cookie を削除する。
+- ログイン成功時は必ず新しい token を発行し、それまでの cookie の行を削除する（セッション固定対策）。
+- ログアウトは `POST /auth/logout` のみ。状態を変える POST は `Origin` が `APP_ORIGIN` と一致するか `Sec-Fetch-Site: same-origin` のときだけ通す（CSRF）。
+- 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない。画面ができる PR-2 までは `/records`）。
+
+### オーナー
+- 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。
+- ログイン時にその identity が含まれていれば `user.role = 'owner'` にする。照合は完全一致（部分一致・大文字小文字の緩和はしない）。**自動降格はしない**（外したいときは D1 を直接更新する）。
+- オーナー用の画面・API にオーナー以外が来たら 404（存在を漏らさない）。
+
+### 仮ログイン（開発用）
+- `GET/POST /_dev/login` で `provider = 'dev'` の identity にログインできる。`AUTH_DEV_LOGIN = "1"`、`APP_ORIGIN` のホストが `127.0.0.1` / `localhost`、リクエストの `Host` が `127.0.0.1` / `localhost` の 3 条件が揃ったときだけ有効で、それ以外は 404。本番の wrangler.toml は `AUTH_DEV_LOGIN = "0"`。
+- 開発は `APP_ORIGIN` と同じ origin（`http://127.0.0.1:8787`）でアクセスする。curl で POST するときは `-H "Origin: http://127.0.0.1:8787"` が必要（CSRF の照合）。

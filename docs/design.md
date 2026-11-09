@@ -297,7 +297,7 @@ flowchart LR
 | Phase | 内容 | 依存 |
 |---|---|---|
 | P0 | 雛形、Hono + D1 + Drizzle、スキーマ v1、`wrangler dev` で `/healthz` | — |
-| P1 | OAuth（Google・Discord）、セッション、users / identities、表示名、`scopedTo` ヘルパ | P0 |
+| P1 | OAuth（Google・Discord）、セッション、user / identity、表示名、`scopedTo` ヘルパ | P0 |
 | P2 | マスタ CRUD（オーナー）、作品/団体/会場/回の閲覧 UI | P1 |
 | P3 | attempt / session の CRUD（難易度・物量・ジャンル・ネタバレメモ含む）、マイリスト、本人の一覧・統計ページ、作品一覧/ページの匿名人数（ぼかし・オプトアウト） | P2 |
 | P4 | リクエスト投稿・一覧、agent トークン、proposal API、承認 UI（差分・却下記憶・自動反映ルール） | P3 |
