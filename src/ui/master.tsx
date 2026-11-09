@@ -1,5 +1,5 @@
 // マスタ（作品・団体・会場）の閲覧画面。データは src/db/master.ts から受け取る。
-// 外部リンクの href には DB の値をそのまま出す（入るのは検証済みの URL だけ）。
+// 外部リンクの href には DB の値を出す。http(s) で始まらない値はリンクにしない（Ext）。
 
 import type { Child } from 'hono/jsx'
 import type {
@@ -56,11 +56,15 @@ const area = (rep: RunRow | null): string => {
   return rep.channel === 'online' ? 'オンライン' : '通販'
 }
 
-const Ext = ({ href, children }: { href: string; children?: Child }) => (
-  <a href={href} rel="noopener noreferrer">
-    {children}
-  </a>
-)
+// http(s) 以外のスキームはリンクにしない
+const Ext = ({ href, children }: { href: string; children?: Child }) =>
+  /^https?:\/\//i.test(href) ? (
+    <a href={href} rel="noopener noreferrer">
+      {children}
+    </a>
+  ) : (
+    <span>{children}</span>
+  )
 
 // 作品一覧の 1 行
 export const WorkTicket = ({ w, selected }: { w: WorkListItem; selected?: boolean }) => {

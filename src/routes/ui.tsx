@@ -146,6 +146,8 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId }: WorksListProps
         items.map((w) => <WorkTicket w={w} selected={w.id === selectedId} />)
       ) : q.trim() ? (
         <Empty>「{q}」に一致する作品はありません</Empty>
+      ) : kind !== 'all' ? (
+        <Empty>この形式の作品はまだありません。</Empty>
       ) : (
         <Empty>作品はまだ登録されていません。</Empty>
       )}

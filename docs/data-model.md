@@ -228,14 +228,15 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 ```
 norm(s):
   t = s.normalize('NFKC').toLowerCase()
-  u = t.replace(/[\s\p{P}\p{S}]/gu, '')          // 空白・句読点・記号。「」『』【】・〜 は \p{P} に入る
+  u = t.replace(/【[^】]*】/gu, '')                // 【…】は中身ごと除去（【追加公演】など）
+        .replace(/[\s\p{P}\p{S}]/gu, '')       // 空白・句読点・記号。「」『』・〜 は \p{P} に入る（括弧文字だけ消える）
   if (u === '') u = t.replace(/\s/gu, '')          // 記号だけの名前は記号を残す
   v = u.replace(/(再演|再々演|20\d\d|第\d+弾)+$/u, '')
   return v === '' ? u : v                          // 「2026」だけの題名を空にしない
 ```
 
 - `name_norm` / `title_norm` は INSERT / UPDATE 時にサーバーが必ず計算する（フォームに項目を出さない）。
-- 結果に `%` `_` `\` は含まれない（全て `\p{P}` / `\p{S}`）ので、LIKE のエスケープは不要。
+- 検索では `norm()` の結果を `LIKE ? ESCAPE '\'` に渡し、`\` `%` `_` をエスケープする（記号だけの名前はフォールバックで記号が残るため、`norm()` の結果に頼らない）。D1 の LIKE パターン上限（50 バイト）に合わせ、本体は UTF-8 で 48 バイト以内に切り詰める（文字の途中では切らない）。
 - 年号を含む別名は alias に残す（検索で当たるように）。
 
 候補スコア:

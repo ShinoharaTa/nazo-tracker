@@ -1,8 +1,8 @@
 // マスタ（作品・団体・会場・販売先・回）の読み取り。全ユーザー共有なので scopedTo を通さない。
 // 記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, desc, eq, exists, inArray, isNull, like, or, type SQL, sql } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/sqlite-core'
+import { and, desc, eq, exists, inArray, isNull, or, type SQL, sql } from 'drizzle-orm'
+import { alias, type SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { norm } from '../lib/norm'
 import type { Db } from './client'
 import {
@@ -22,7 +22,11 @@ import {
 export const PAGE_SIZE = 50
 // 統合済みの鎖をたどる上限。超えたら 404
 const MERGE_HOPS = 5
-const ORG_WORKS_LIMIT = 200
+const ORG_WORKS_LIMIT = 100
+// D1 のバインド変数は 1 文 100 個まで。IN (...) はこの件数ずつに分ける
+const IN_CHUNK = 90
+// D1 の LIKE パターンは 50 バイトまで。前後の % を除いた本体をこのバイト数に収める
+const LIKE_BODY_MAX_BYTES = 48
 
 type WorkKind = (typeof workKinds)[number]
 
@@ -119,7 +123,10 @@ const selectRuns = (db: Db) =>
 const runsByWork = async (db: Db, workIds: string[]): Promise<Map<string, RunRow[]>> => {
   const out = new Map<string, RunRow[]>()
   if (workIds.length === 0) return out
-  const rows = await selectRuns(db).where(inArray(run.workId, workIds))
+  const rows: RunSelect[] = []
+  for (let i = 0; i < workIds.length; i += IN_CHUNK) {
+    rows.push(...(await selectRuns(db).where(inArray(run.workId, workIds.slice(i, i + IN_CHUNK)))))
+  }
   for (const r of rows) {
     const list = out.get(r.workId) ?? []
     list.push(toRunRow(r))
@@ -174,20 +181,36 @@ const kindCondition = (kind: string): SQL | undefined => {
   return eq(work.kind, kind as WorkKind)
 }
 
+// LIKE の本体。\ % _ をエスケープし、UTF-8 で LIKE_BODY_MAX_BYTES 以内に切り詰める（文字・エスケープの途中では切らない）
+const likeBody = (s: string): string => {
+  const enc = new TextEncoder()
+  let out = ''
+  let bytes = 0
+  for (const ch of s) {
+    const piece = ch === '\\' || ch === '%' || ch === '_' ? `\\${ch}` : ch
+    const n = enc.encode(piece).length
+    if (bytes + n > LIKE_BODY_MAX_BYTES) break
+    out += piece
+    bytes += n
+  }
+  return out
+}
+
+const likeEscaped = (col: SQLiteColumn, pat: string): SQL => sql`${col} LIKE ${pat} ESCAPE '\\'`
+
 // 作品題・作品別名・団体名（primary）・団体別名の 4 つを norm() 後の値で部分一致
 const searchCondition = (q: string): SQL | undefined => {
-  const qn = norm(q)
-  if (qn === '') return undefined
-  // norm() の結果に % _ \ は含まれないのでエスケープ不要
-  const pat = `%${qn}%`
+  const body = likeBody(norm(q))
+  if (body === '') return undefined
+  const pat = `%${body}%`
   return or(
-    like(work.titleNorm, pat),
+    likeEscaped(work.titleNorm, pat),
     exists(
-      sql`(SELECT 1 FROM ${workAlias} WHERE ${workAlias.workId} = ${work.id} AND ${workAlias.titleNorm} LIKE ${pat})`,
+      sql`(SELECT 1 FROM ${workAlias} WHERE ${workAlias.workId} = ${work.id} AND ${likeEscaped(workAlias.titleNorm, pat)})`,
     ),
-    like(organization.nameNorm, pat),
+    likeEscaped(organization.nameNorm, pat),
     exists(
-      sql`(SELECT 1 FROM ${organizationAlias} WHERE ${organizationAlias.organizationId} = ${work.primaryOrganizationId} AND ${organizationAlias.nameNorm} LIKE ${pat})`,
+      sql`(SELECT 1 FROM ${organizationAlias} WHERE ${organizationAlias.organizationId} = ${work.primaryOrganizationId} AND ${likeEscaped(organizationAlias.nameNorm, pat)})`,
     ),
   )
 }

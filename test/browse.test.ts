@@ -323,3 +323,44 @@ describe('表示用の関数', () => {
     expect(runStatus(r('sale', null, null), today)).toBe('販売中')
   })
 })
+
+describe('レビュー反映（#42）', () => {
+  it.each([
+    ['日本語 17 文字', 'あいうえおかきくけこさしすせそたち'],
+    ['ASCII 60 文字', 'a'.repeat(60)],
+  ])('長い検索語（%s）でも 200', async (_, q) => {
+    const res = await get(`/works?q=${encodeURIComponent(q)}`)
+    expect(res.status).toBe(200)
+  })
+
+  it.each(['%', '_'])('q=%s はワイルドカードにならない（0 件）', async (q) => {
+    const h = await html(`/works?q=${encodeURIComponent(q)}`)
+    expect(tickets(h)).toBe(0)
+  })
+
+  it('kind 指定で 0 件なら「この形式の作品はまだありません。」', async () => {
+    const h = await html('/works?kind=stroll')
+    expect(tickets(h)).toBe(0)
+    expect(h).toContain('この形式の作品はまだありません。')
+  })
+
+  it('http(s) 以外の official_url はリンクにしない', async () => {
+    const id = await insertWork(env, { title: '危険なURL', officialUrl: 'javascript:alert(1)' })
+    const h = await html(`/works/${id}`)
+    expect(h).not.toContain('href="javascript:')
+    expect(h).toContain('<span>javascript:alert(1)</span>')
+  })
+
+  it('作品 101 件の団体ページも 200（上限 100 件で切る）', async () => {
+    const org = await insertOrg(env, { name: '大量団体' })
+    for (let i = 0; i < 101; i++) {
+      const w = await insertWork(env, { title: `大量${i}`, kind: 'other', orgId: org })
+      await insertRun(env, { workId: w, channel: 'online' })
+    }
+    const res = await get(`/orgs/${org}`)
+    expect(res.status).toBe(200)
+    // 左ページ（作品一覧）を除いた右ページだけ数える
+    const right = (await res.text()).split('class="page pane-r"')[1]
+    expect(tickets(right)).toBe(100)
+  })
+})
