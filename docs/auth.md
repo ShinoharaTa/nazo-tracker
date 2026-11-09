@@ -25,6 +25,7 @@
 決定: Google + Discord から開始 → Bluesky は P6 → X は見送り。
 
 - ID トークンの署名（JWKS）は検証しない。token endpoint から TLS で直接受け取るため（OIDC Core 3.1.3.7）。iss / aud / exp / nonce は照合する。
+- Discord: scope は `identify` のみ、認可 URL に `prompt=none`。token 応答の `token_type` が `Bearer` で `scope` に `identify` を含むことを確かめ、`GET /api/users/@me` の `id` を subject にする。`username` 等は読まない・保存しない。access_token は `/users/@me` を呼んだら捨てる。OIDC ではないので nonce は使わない（`oauth_state.nonce` は NULL）。
 - `<PROVIDER>_CLIENT_ID` と `<PROVIDER>_CLIENT_SECRET` のどちらかが空なら、そのプロバイダは「準備中」（`/login` のボタンは無効、`/auth/<provider>` は 503）。
 
 ## 4. 複数プロバイダの紐付け

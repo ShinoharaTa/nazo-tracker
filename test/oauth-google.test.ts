@@ -78,7 +78,7 @@ describe('GET /auth/:provider', () => {
     )
   })
 
-  it.each(['/auth/twitter', '/auth/discord', '/auth/twitter/callback', '/auth/constructor'])(
+  it.each(['/auth/twitter', '/auth/twitter/callback', '/auth/constructor'])(
     '未知のプロバイダ %s は 404',
     async (path) => {
       expect((await app.request(path, {}, on)).status).toBe(404)
@@ -426,7 +426,7 @@ describe('/login のボタン', () => {
     expect(html).toContain('Google でログイン（準備中）')
   })
 
-  it('GOOGLE_CLIENT_ID があれば /auth/google へのリンク。未登録の Discord は「準備中」', async () => {
+  it('GOOGLE_CLIENT_ID があれば /auth/google へのリンク。未設定の Discord は「準備中」', async () => {
     const html = await (await app.request('/login', {}, on)).text()
     expect(html).toContain('<a class="btn pri" href="/auth/google">Google でログイン</a>')
     expect(html).not.toContain('href="/auth/discord"')
