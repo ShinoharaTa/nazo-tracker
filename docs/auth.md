@@ -54,6 +54,7 @@
 - フレンド申請は `friend_code` 経由のみ（決定）。1 日 20 件まで。pending は相手が承認/拒否するまで 30 日で自動 canceled。
 
 ### 実装上の規約
+- 禁止語チェックは `scripts/check-scoped.mjs`（`npm run lint` に含む）。
 - 記録系のルートは `/api/me/*`（本人。wishlist もここ）と `/api/friends/:userId/*`（射影）のみ。それ以外の URL でユーザー id を取らない。
 - 匿名人数は `/api/works` / `/api/works/:id` のマスタ応答に含め、**サーバー側でぼかしてから返す**（生の人数は返さない）。user_id を返す経路は無い。
 - リポジトリ層: `scopedTo(viewerId)` が `own()` と `asFriendOf(targetUserId)` を返す。`asFriendOf` は friendship / block を検証してから、level 別の列セットだけを持つ型（`FriendAttemptStatus | FriendAttemptRating | FriendAttemptMemo`）を返す（v1 で呼ばれるのは Status のみ）。`spoiler_memo` と `spoiler=1` の image を含む型は `own()` にしか存在しない。これ以外に attempt / session / image を読む経路を作らない。
@@ -74,7 +75,7 @@
 - 署名不一致・存在しない・期限切れ・`user.deleted_at IS NOT NULL` の cookie は未ログイン扱いにし、cookie を削除する。
 - ログイン成功時は必ず新しい token を発行し、それまでの cookie の行を削除する（セッション固定対策）。
 - ログアウトは `POST /auth/logout` のみ。状態を変える POST は `Origin` が `APP_ORIGIN` と一致するか `Sec-Fetch-Site: same-origin` のときだけ通す（CSRF）。
-- 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない。画面ができる PR-2 までは `/records`）。
+- 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない）。
 
 ### オーナー
 - 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。
