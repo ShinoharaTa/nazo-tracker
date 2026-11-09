@@ -4,8 +4,19 @@ import { Hono } from 'hono'
 import { deleteAccount } from '../auth/account'
 import { currentUser, requireUser } from '../auth/middleware'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
+import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
-import { Empty, Kpis, Menu, MenuItem, SearchIcon, Switch, Tabs, TopBar } from '../ui/components'
+import {
+  Empty,
+  Field,
+  Kpis,
+  Menu,
+  MenuItem,
+  SearchIcon,
+  Switch,
+  Tabs,
+  TopBar,
+} from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
 
 const ui = new Hono<AppEnv>({ strict: false })
@@ -230,14 +241,14 @@ ui.get('/stats', (c) =>
   ),
 )
 
-// 設定一覧（左ページ）。/settings と /settings/* で共通
-const SettingsMenu = ({ user }: { user: SessionUser }) => (
+// 設定一覧（左ページ）
+const SettingsList = ({ user }: { user: SessionUser }) => (
   <>
     <TopBar title="設定" />
     <div class="sect" style="margin-top:4px">
       <h2>表示名</h2>
       <Menu>
-        <MenuItem label="表示名を変える" note={user.displayName} disabled />
+        <MenuItem label="表示名を変える" note={user.displayName} href="/settings/name" />
       </Menu>
     </div>
     <div class="sect">
@@ -285,8 +296,84 @@ const SettingsMenu = ({ user }: { user: SessionUser }) => (
 )
 
 ui.get('/settings', (c) =>
-  c.html(<Layout title="設定" tab="settings" left={<SettingsMenu user={currentUser(c)} />} />),
+  c.html(<Layout title="設定" tab="settings" left={<SettingsList user={currentUser(c)} />} />),
 )
+
+const DISPLAY_NAME_MAX = 20
+
+// 制御文字・行/段落区切り・双方向制御（表示を乱すので禁止）
+const FORBIDDEN_CHARS = /[\p{Cc}\p{Zl}\p{Zp}‪-‮⁦-⁩]/u
+// 文字としては数えられるが見えないもの（ハングルのフィラー・ゼロ幅文字・BOM）
+const INVISIBLE_CHARS = /[ᅟᅠㅤﾠ​-‍⁠﻿]/gu
+const VISIBLE_CHAR = /[\p{L}\p{N}\p{P}\p{S}]/u
+
+// NFC 正規化 → trim。判定順は 空 → 制御文字 → 見える文字 → 長さ（コードポイントで 1〜20）
+const parseDisplayName = (raw: string): { name: string; error: string | null } => {
+  const name = raw.normalize('NFC').trim()
+  if (name.length === 0) return { name, error: '表示名を入力してください。' }
+  if (FORBIDDEN_CHARS.test(name)) return { name, error: '表示名に改行や制御文字は使えません。' }
+  if (!VISIBLE_CHAR.test(name.replace(INVISIBLE_CHARS, ''))) {
+    return { name, error: '表示名に見える文字を 1 つ以上入れてください。' }
+  }
+  if ([...name].length > DISPLAY_NAME_MAX) {
+    return { name, error: `表示名は ${DISPLAY_NAME_MAX} 文字以内にしてください。` }
+  }
+  return { name, error: null }
+}
+
+const DisplayNameForm = (props: { value: string; welcome?: boolean; error?: string | null }) => (
+  <>
+    <TopBar back="/settings" label="表示名を変える" />
+    <div class="sect" style="margin-top:4px">
+      {props.welcome ? (
+        <p class="note" role="status">
+          はじめに表示名を決めてください（あとで変えられます）
+        </p>
+      ) : null}
+      {props.error ? (
+        <p class="note" role="alert">
+          {props.error}
+        </p>
+      ) : null}
+      <form method="post" action="/settings/name" class="list">
+        <Field label="表示名" name="displayName" value={props.value} />
+        <button type="submit" class="btn pri">
+          保存
+        </button>
+      </form>
+    </div>
+  </>
+)
+
+const displayNamePage = (user: SessionUser, form: Parameters<typeof DisplayNameForm>[0]) => (
+  <Layout
+    title="表示名を変える"
+    tab="settings"
+    left={<SettingsList user={user} />}
+    right={<DisplayNameForm {...form} />}
+  />
+)
+
+ui.get('/settings/name', async (c) => {
+  const user = currentUser(c)
+  const profile = await scopedTo(c.get('db'), user.id).own().profile()
+  return c.html(
+    displayNamePage(user, {
+      value: profile.displayName,
+      welcome: c.req.query('welcome') === '1',
+    }),
+  )
+})
+
+ui.post('/settings/name', async (c) => {
+  const user = currentUser(c)
+  const body = await c.req.parseBody()
+  const raw = typeof body.displayName === 'string' ? body.displayName : ''
+  const { name, error } = parseDisplayName(raw)
+  if (error) return c.html(displayNamePage(user, { value: name, error }), 400)
+  await scopedTo(c.get('db'), user.id).own().updateDisplayName(name)
+  return c.redirect('/settings', 302)
+})
 
 // 退会の確認（右ページ）。オーナーは退会できない（ロックアウト防止）
 const DeleteAccount = ({ user, error }: { user: SessionUser; error?: string }) => (
@@ -329,7 +416,7 @@ const deletePage = (user: SessionUser, error?: string) => (
   <Layout
     title="退会"
     tab="settings"
-    left={<SettingsMenu user={user} />}
+    left={<SettingsList user={user} />}
     right={<DeleteAccount user={user} error={error} />}
   />
 )
