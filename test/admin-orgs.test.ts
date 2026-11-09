@@ -254,6 +254,13 @@ describe('団体の編集', () => {
     expect((await post('/admin/orgs/nope', { name: 'x' }, owner.cookie)).status).toBe(404)
   })
 
+  it('公開ページ /orgs/:id に note が出ない', async () => {
+    const id = await insertOrg(env, { name: 'メモ団体', note: '内部メモ・ヒミツ' })
+    const html = await (await get(`/orgs/${id}`)).text()
+    expect(html).toContain('メモ団体')
+    expect(html).not.toContain('内部メモ・ヒミツ')
+  })
+
   it('/orgs/:id の「編集」は owner だけ', async () => {
     const id = await insertOrg(env, { name: '公開団体' })
     const ownerHtml = await (await get(`/orgs/${id}`, owner.cookie)).text()

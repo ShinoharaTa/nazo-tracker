@@ -71,7 +71,7 @@ export const OrgForm = ({ action, values, errors = [] }: FormProps) => (
       value={values.escape_id_url}
       placeholder="https://escape.id/〇〇-org/"
     />
-    <Field label="メモ" name="note" value={values.note} multiline />
+    <Field label="メモ（オーナーのみ・公開されません）" name="note" value={values.note} multiline />
     <SubmitButton />
   </form>
 )
