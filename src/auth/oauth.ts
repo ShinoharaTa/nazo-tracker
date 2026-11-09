@@ -1,7 +1,7 @@
 // OAuth の共通処理（docs/auth.md §3・§7）。state は D1 の行と cookie の二重照合、PKCE は S256。
 // code_verifier は D1 にしか置かない。アクセストークン・ID トークンは DB にもログにも書かない
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, lt } from 'drizzle-orm'
 import type { Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import type { CookieOptions } from 'hono/utils/cookie'
@@ -40,18 +40,19 @@ export const beginOAuth = async (c: Context<AppEnv>, provider: OAuthProvider) =>
   const codeChallenge = await sha256Base64url(codeVerifier)
   const nonce = provider.usesNonce ? randomToken(32) : null
 
-  await c
-    .get('db')
-    .insert(oauthState)
-    .values({
-      state,
-      provider: provider.name,
-      codeVerifier,
-      mode: 'login',
-      userId: null,
-      expiresAt: new Date(Date.now() + OAUTH_STATE_MINUTES * 60_000).toISOString(),
-      nonce,
-    })
+  const db = c.get('db')
+  const now = new Date()
+  // 期限切れの行を掃除する（callback まで来なかった state が溜まらないように）
+  await db.delete(oauthState).where(lt(oauthState.expiresAt, now.toISOString()))
+  await db.insert(oauthState).values({
+    state,
+    provider: provider.name,
+    codeVerifier,
+    mode: 'login',
+    userId: null,
+    expiresAt: new Date(now.getTime() + OAUTH_STATE_MINUTES * 60_000).toISOString(),
+    nonce,
+  })
   setCookie(c, OAUTH_COOKIE, state, { ...cookieOptions(c), maxAge: OAUTH_STATE_MINUTES * 60 })
 
   return c.redirect(

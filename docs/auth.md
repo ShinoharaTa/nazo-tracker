@@ -58,12 +58,28 @@
 - フレンド申請は `friend_code` 経由のみ（決定）。1 日 20 件まで。pending は相手が承認/拒否するまで 30 日で自動 canceled。
 
 ### 実装上の規約
+- 禁止語チェックは `scripts/check-scoped.mjs`（`npm run lint` に含む）。
 - 記録系のルートは `/api/me/*`（本人。wishlist もここ）と `/api/friends/:userId/*`（射影）のみ。それ以外の URL でユーザー id を取らない。
 - 匿名人数は `/api/works` / `/api/works/:id` のマスタ応答に含め、**サーバー側でぼかしてから返す**（生の人数は返さない）。user_id を返す経路は無い。
 - リポジトリ層: `scopedTo(viewerId)` が `own()` と `asFriendOf(targetUserId)` を返す。`asFriendOf` は friendship / block を検証してから、level 別の列セットだけを持つ型（`FriendAttemptStatus | FriendAttemptRating | FriendAttemptMemo`）を返す（v1 で呼ばれるのは Status のみ）。`spoiler_memo` と `spoiler=1` の image を含む型は `own()` にしか存在しない。これ以外に attempt / session / image を読む経路を作らない。
 - 画像の配信 `GET /img/:imageId` も同じ `scopedTo` を通す。R2 の公開 URL・署名 URL は作らない。
 - マスタ側のクエリが attempt / wishlist を JOIN してよいのは、`countsFor(workIds)`（匿名人数、DISTINCT user_id の COUNT だけを返す専用関数）と、viewer の friendship を起点にした「フレンド n 人」（`asFriendOf` 経由）の 2 箇所だけ。それ以外は lint で禁止語に。
-- 退会: user を `deleted_at`、identity / session_token / attempt / session（進行ログ）/ attempt_genre / image（R2 含む）/ friendship / friend_request / block / market_visit / wishlist を物理削除（匿名人数からも消える）。request / proposal の `requester_user_id` は NULL。
+- 退会（`POST /settings/delete`。本人のセッション必須、CSRF 適用、URL にユーザー id を取らない。オーナーは退会不可）: 次を `db.batch` の 1 回で順に行う（実装は `src/auth/account.ts`）。匿名人数からも消える。
+
+| # | 文 |
+|---|---|
+| 1 | `DELETE image_report WHERE reporter_user_id = ?`（本人の画像への他人の通報は 2 の cascade で消える） |
+| 2 | `DELETE image WHERE user_id = ?`（R2 の実体削除は P9） |
+| 3 | `DELETE session WHERE user_id = ?`（進行ログ） |
+| 4 | `DELETE attempt_genre WHERE user_id = ?` |
+| 5 | `DELETE attempt WHERE user_id = ?` |
+| 6 | `DELETE wishlist WHERE user_id = ?` / `DELETE market_visit WHERE user_id = ?` |
+| 7 | `DELETE friendship WHERE user_lo = ? OR user_hi = ?` / `DELETE friend_request WHERE from_user_id = ? OR to_user_id = ?` / `DELETE block WHERE user_id = ? OR blocked_user_id = ?` |
+| 8 | `DELETE recovery_code / oauth_state / session_token / identity WHERE user_id = ?` |
+| 9 | `UPDATE request SET requester_user_id = NULL WHERE requester_user_id = ?` |
+| 10 | `UPDATE user SET deleted_at = now, display_name = '退会したユーザー', friend_code = NULL WHERE id = ?` |
+
+  `user` 行は残す（`change_log.actor_user_id` / `proposal.reviewer_user_id` の FK 先）。`deleted_at` の入った user の cookie は未ログイン扱い（§7）。同じアカウントで再ログインすると新しい user になる。
 
 ## 7. セッションとオーナー（P1 で決定）
 
@@ -78,7 +94,7 @@
 - 署名不一致・存在しない・期限切れ・`user.deleted_at IS NOT NULL` の cookie は未ログイン扱いにし、cookie を削除する。
 - ログイン成功時は必ず新しい token を発行し、それまでの cookie の行を削除する（セッション固定対策）。
 - ログアウトは `POST /auth/logout` のみ。状態を変える POST は `Origin` が `APP_ORIGIN` と一致するか `Sec-Fetch-Site: same-origin` のときだけ通す（CSRF）。
-- 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない。画面ができる PR-2 までは `/records`）。
+- 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない）。
 
 ### オーナー
 - 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。
