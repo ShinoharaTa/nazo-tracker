@@ -1,7 +1,7 @@
 // マスタ（作品・団体・会場・販売先・回）の読み取り。全ユーザー共有なので scopedTo を通さない。
 // 記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, desc, eq, exists, inArray, isNull, or, type SQL, sql } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray, isNull, ne, or, type SQL, sql } from 'drizzle-orm'
 import { alias, type SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { norm } from '../lib/norm'
 import type { Db } from './client'
@@ -429,3 +429,219 @@ export const getVenue = async (db: Db, id: string): Promise<Resolved<VenueDetail
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// オーナー画面（/admin/*）用の読み取り。統合済みの行も返す
+// ---------------------------------------------------------------------------
+
+export type AdminListItem = {
+  id: string
+  name: string
+  note: string | null
+  mergedInto: { id: string; name: string } | null
+}
+
+type AdminPage = { q?: string; page?: number }
+
+const mergedOrg = alias(organization, 'merged_org')
+const mergedWork = alias(work, 'merged_work')
+const mergedVenue = alias(venue, 'merged_venue')
+
+const pageOf = <T>(rows: T[]): { items: T[]; hasNext: boolean } => ({
+  items: rows.slice(0, PAGE_SIZE),
+  hasNext: rows.length > PAGE_SIZE,
+})
+
+const mergedRef = (id: string | null, name: string | null) => (id && name ? { id, name } : null)
+
+// 団体。q は団体名・団体別名を norm() 後の値で部分一致
+export const listAdminOrgs = async (db: Db, { q = '', page = 1 }: AdminPage) => {
+  const body = likeBody(norm(q))
+  const pat = `%${body}%`
+  const rows = await db
+    .select({
+      id: organization.id,
+      name: organization.name,
+      mergedId: mergedOrg.id,
+      mergedName: mergedOrg.name,
+    })
+    .from(organization)
+    .leftJoin(mergedOrg, eq(mergedOrg.id, organization.mergedIntoId))
+    .where(
+      body === ''
+        ? undefined
+        : or(
+            likeEscaped(organization.nameNorm, pat),
+            exists(
+              sql`(SELECT 1 FROM ${organizationAlias} WHERE ${organizationAlias.organizationId} = ${organization.id} AND ${likeEscaped(organizationAlias.nameNorm, pat)})`,
+            ),
+          ),
+    )
+    .orderBy(desc(organization.createdAt), desc(organization.id))
+    .limit(PAGE_SIZE + 1)
+    .offset((page - 1) * PAGE_SIZE)
+  return pageOf<AdminListItem>(
+    rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      note: null,
+      mergedInto: mergedRef(r.mergedId, r.mergedName),
+    })),
+  )
+}
+
+// 会場。venue に created_at が無いので id（ULID）の降順 = 登録が新しい順
+export const listAdminVenues = async (db: Db, { q = '', page = 1 }: AdminPage) => {
+  const body = likeBody(norm(q))
+  const rows = await db
+    .select({
+      id: venue.id,
+      name: venue.name,
+      prefecture: venue.prefecture,
+      mergedId: mergedVenue.id,
+      mergedName: mergedVenue.name,
+    })
+    .from(venue)
+    .leftJoin(mergedVenue, eq(mergedVenue.id, venue.mergedIntoId))
+    .where(body === '' ? undefined : likeEscaped(venue.nameNorm, `%${body}%`))
+    .orderBy(desc(venue.id))
+    .limit(PAGE_SIZE + 1)
+    .offset((page - 1) * PAGE_SIZE)
+  return pageOf<AdminListItem>(
+    rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      note: r.prefecture,
+      mergedInto: mergedRef(r.mergedId, r.mergedName),
+    })),
+  )
+}
+
+// 販売先。name_norm 列が無いので LOWER(name) で部分一致。統合は無い。並びは会場と同じ
+export const listAdminShops = async (db: Db, { q = '', page = 1 }: AdminPage) => {
+  const body = likeBody(q.trim().toLowerCase())
+  const rows = await db
+    .select({ id: shop.id, name: shop.name, kind: shop.kind })
+    .from(shop)
+    .where(body === '' ? undefined : sql`LOWER(${shop.name}) LIKE ${`%${body}%`} ESCAPE '\\'`)
+    .orderBy(desc(shop.id))
+    .limit(PAGE_SIZE + 1)
+    .offset((page - 1) * PAGE_SIZE)
+  return pageOf(rows)
+}
+
+// 作品。q は閲覧の作品一覧と同じ 4 つ（統合済みも含める）
+export const listAdminWorks = async (db: Db, { q = '', page = 1 }: AdminPage) => {
+  const rows = await db
+    .select({
+      id: work.id,
+      title: work.title,
+      kind: work.kind,
+      orgName: organization.name,
+      mergedId: mergedWork.id,
+      mergedName: mergedWork.title,
+    })
+    .from(work)
+    .leftJoin(organization, eq(organization.id, work.primaryOrganizationId))
+    .leftJoin(mergedWork, eq(mergedWork.id, work.mergedIntoId))
+    .where(searchCondition(q))
+    .orderBy(desc(work.createdAt), desc(work.id))
+    .limit(PAGE_SIZE + 1)
+    .offset((page - 1) * PAGE_SIZE)
+  return pageOf(
+    rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      kind: r.kind,
+      orgName: r.orgName,
+      mergedInto: mergedRef(r.mergedId, r.mergedName),
+    })),
+  )
+}
+
+export type OrgRow = typeof organization.$inferSelect
+export type OrgAliasRow = typeof organizationAlias.$inferSelect
+export type VenueRow = typeof venue.$inferSelect
+export type ShopRow = typeof shop.$inferSelect
+
+// 編集画面用の行全体。統合済みなら統合先の名前も付ける
+export const getAdminOrg = async (db: Db, id: string) => {
+  const row = await db.select().from(organization).where(eq(organization.id, id)).get()
+  if (!row) return null
+  const [into, aliases] = await Promise.all([
+    row.mergedIntoId
+      ? db
+          .select({ id: organization.id, name: organization.name })
+          .from(organization)
+          .where(eq(organization.id, row.mergedIntoId))
+          .get()
+      : undefined,
+    db
+      .select()
+      .from(organizationAlias)
+      .where(eq(organizationAlias.organizationId, id))
+      .orderBy(organizationAlias.id),
+  ])
+  return { row, mergedInto: into ?? null, aliases }
+}
+
+export const getOrgAliasRow = (db: Db, id: string) =>
+  db.select().from(organizationAlias).where(eq(organizationAlias.id, id)).get()
+
+export const getAdminVenue = async (db: Db, id: string) => {
+  const row = await db.select().from(venue).where(eq(venue.id, id)).get()
+  if (!row) return null
+  const into = row.mergedIntoId
+    ? await db
+        .select({ id: venue.id, name: venue.name })
+        .from(venue)
+        .where(eq(venue.id, row.mergedIntoId))
+        .get()
+    : undefined
+  return { row, mergedInto: into ?? null }
+}
+
+export const getShopRow = (db: Db, id: string) =>
+  db.select().from(shop).where(eq(shop.id, id)).get()
+
+// 選択肢用。未統合の団体を name_norm 順に
+export const orgOptions = (db: Db) =>
+  db
+    .select({ id: organization.id, name: organization.name })
+    .from(organization)
+    .where(isNull(organization.mergedIntoId))
+    .orderBy(organization.nameNorm, organization.id)
+
+// id の団体が存在し、統合済みでないか
+export const isLiveOrg = async (db: Db, id: string): Promise<boolean> =>
+  !!(await db
+    .select({ id: organization.id })
+    .from(organization)
+    .where(and(eq(organization.id, id), isNull(organization.mergedIntoId)))
+    .get())
+
+// escape_id_url か slug が同じ団体（exceptId 以外。統合済みも含む）があるか
+export const orgUniqueTaken = async (
+  db: Db,
+  { escapeIdUrl, slug }: { escapeIdUrl: string | null; slug: string | null },
+  exceptId?: string,
+): Promise<boolean> => {
+  const conds: SQL[] = []
+  if (escapeIdUrl) conds.push(eq(organization.escapeIdUrl, escapeIdUrl))
+  if (slug) conds.push(eq(organization.slug, slug))
+  if (conds.length === 0) return false
+  const row = await db
+    .select({ id: organization.id })
+    .from(organization)
+    .where(and(or(...conds), exceptId ? ne(organization.id, exceptId) : undefined))
+    .get()
+  return !!row
+}
+
+// url が同じ販売先（exceptId 以外）があるか
+export const shopUrlTaken = async (db: Db, url: string, exceptId?: string): Promise<boolean> =>
+  !!(await db
+    .select({ id: shop.id })
+    .from(shop)
+    .where(and(eq(shop.url, url), exceptId ? ne(shop.id, exceptId) : undefined))
+    .get())
