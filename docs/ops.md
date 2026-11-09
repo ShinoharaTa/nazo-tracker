@@ -45,7 +45,7 @@ ssh -L 8787:127.0.0.1:8787 <host>
 
 手元で `http://127.0.0.1:8787` を開く（`APP_ORIGIN` と同じ origin でないと CSRF の照合で POST が 403 になる）。
 
-同じ LAN の別端末から開発機の IP で開くときは、`.dev.vars` を次のようにして `npm run dev -- --ip <IP>` で起動する（`<IP>` はプライベート IPv4、例 `10.1.111.70`）:
+同じ LAN の別端末から開発機の IP で開くときは、`.dev.vars` を次のようにして `npx wrangler dev --ip <IP> --local` で起動する（`npm run dev` は `--ip 127.0.0.1` 固定で、`-- --ip` を重ねると wrangler がエラーになる）（`<IP>` はプライベート IPv4、例 `10.1.111.70`）:
 
 ```sh
 APP_ORIGIN=http://<IP>:8787
