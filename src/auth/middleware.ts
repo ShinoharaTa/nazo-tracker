@@ -77,6 +77,12 @@ export const requireOwner = createMiddleware<AppEnv>(async (c, next) => {
   await next()
 })
 
+// JSON API 用。未ログイン・非オーナーとも JSON の 404（/login へは飛ばさない）
+export const requireOwnerApi = createMiddleware<AppEnv>(async (c, next) => {
+  if (c.get('user')?.role !== 'owner') return c.json({ error: 'not_found' }, 404)
+  await next()
+})
+
 // requireUser を通したルートで、ログイン中のユーザーを取り出す
 export const currentUser = (c: Context<AppEnv>): SessionUser => {
   const u = c.get('user')
