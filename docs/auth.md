@@ -8,7 +8,7 @@
 ## 2. テーブル
 - `user(id, display_name, role(member / owner), friend_code NULL, default_share_level(none / status / rating / memo; 既定 status、v1 は固定で UI 無し), exclude_from_counts INT 既定 0, created_at, last_seen_at, deleted_at)`
 - `identity(provider, subject, user_id, created_at, last_login_at)` PK(provider, subject)
-- `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session token、30 日、`Secure; HttpOnly; SameSite=Lax`。`id` には token の SHA-256 を入れる（§7）
+- `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session token、30 日。属性は §7 を参照（Secure は APP_ORIGIN が https のときのみ）。`id` には token の SHA-256 を入れる（§7）
 - `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at, nonce NULL)` — PKCE、10 分、1 回限り（callback で DELETE RETURNING で取り出す）。`state` は cookie `oauth` とも照合する。`nonce` は OIDC（Google）の ID トークンと照合する値で、Discord では NULL
 - `recovery_code(user_id, code_hash, used_at)` PK(user_id, code_hash) — 復旧コード（決定）
 
@@ -25,6 +25,7 @@
 決定: Google + Discord から開始 → Bluesky は P6 → X は見送り。
 
 - ID トークンの署名（JWKS）は検証しない。token endpoint から TLS で直接受け取るため（OIDC Core 3.1.3.7）。iss / aud / exp / nonce は照合する。
+- Discord: scope は `identify` のみ、認可 URL に `prompt=none`（`prompt=none` は既に認可済みのユーザーの同意画面を省略するだけで、初回は同意画面が出る（Discord 公式 docs））。API は v10 に固定（`/api/v10/oauth2/token`・`/api/v10/users/@me`）。token 応答の `token_type` が `Bearer`（大文字小文字は区別しない）で `scope` に `identify` を含むことを確かめ、`GET /api/v10/users/@me` の `id` を subject にする。`username` 等は読まない・保存しない。access_token は `/users/@me` を呼んだら捨てる。OIDC ではないので nonce は使わない（`oauth_state.nonce` は NULL）。
 - `<PROVIDER>_CLIENT_ID` と `<PROVIDER>_CLIENT_SECRET` のどちらかが空なら、そのプロバイダは「準備中」（`/login` のボタンは無効、`/auth/<provider>` は 503）。
 
 ## 4. 複数プロバイダの紐付け
@@ -93,11 +94,13 @@
 - 署名不一致・存在しない・期限切れ・`user.deleted_at IS NOT NULL` の cookie は未ログイン扱いにし、cookie を削除する。
 - ログイン成功時は必ず新しい token を発行し、それまでの cookie の行を削除する（セッション固定対策）。
 - ログアウトは `POST /auth/logout` のみ。状態を変える POST は `Origin` が `APP_ORIGIN` と一致するか `Sec-Fetch-Site: same-origin` のときだけ通す（CSRF）。
+- hono/csrf はフォーム系 Content-Type の POST のみ Origin を検査する。JSON API は CORS preflight に依存（P2 以降の `/api/*` で注意）。
 - 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない）。
 
 ### オーナー
 - 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。
 - ログイン時にその identity が含まれていれば `user.role = 'owner'` にする。照合は完全一致（部分一致・大文字小文字の緩和はしない）。**自動降格はしない**（外したいときは D1 を直接更新する）。
+- オーナー昇格はログイン時に判定。値を変えたら一度ログアウトして再ログイン。
 - オーナー用の画面・API にオーナー以外が来たら 404（存在を漏らさない）。
 
 ### 仮ログイン（開発用）

@@ -2,6 +2,7 @@
 
 import type { Bindings } from '../../env'
 import type { Provider } from '../login'
+import { discord } from './discord'
 import { google } from './google'
 
 export type OAuthProviderName = Exclude<Provider, 'dev'>
@@ -30,8 +31,11 @@ export type OAuthProvider = {
   ) => Promise<string | null>
 }
 
-// 登録済みのプロバイダ。Discord は PR-5 で足す
-export const oauthProviders: Partial<Record<OAuthProviderName, OAuthProvider>> = { google }
+// 登録済みのプロバイダ
+export const oauthProviders: Partial<Record<OAuthProviderName, OAuthProvider>> = {
+  google,
+  discord,
+}
 
 export const findOAuthProvider = (name: string): OAuthProvider | null =>
   Object.hasOwn(oauthProviders, name) ? (oauthProviders[name as OAuthProviderName] ?? null) : null

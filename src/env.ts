@@ -17,6 +17,10 @@ export type Bindings = {
   GOOGLE_CLIENT_ID?: string
   // Google の OAuth クライアントシークレット（secret）
   GOOGLE_CLIENT_SECRET?: string
+  // Discord の OAuth クライアント ID。空なら Discord ログインは「準備中」
+  DISCORD_CLIENT_ID?: string
+  // Discord の OAuth クライアントシークレット（secret）
+  DISCORD_CLIENT_SECRET?: string
   // "1" のときだけ部品見本 GET /_ui を有効にする
   UI_GALLERY?: string
 }

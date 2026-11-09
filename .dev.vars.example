@@ -9,3 +9,7 @@ OWNER_IDENTITIES=dev:owner
 GOOGLE_CLIENT_ID=
 # secret。本番は `wrangler secret put GOOGLE_CLIENT_SECRET` で入れる
 GOOGLE_CLIENT_SECRET=
+# Discord の OAuth クライアント。CLIENT_ID が空なら Discord ログインは「準備中」
+DISCORD_CLIENT_ID=
+# secret。本番は `wrangler secret put DISCORD_CLIENT_SECRET` で入れる
+DISCORD_CLIENT_SECRET=
