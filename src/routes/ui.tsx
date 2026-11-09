@@ -3,6 +3,8 @@
 import { Hono } from 'hono'
 import { deleteAccount } from '../auth/account'
 import { currentUser, requireUser } from '../auth/middleware'
+import { isProviderReady } from '../auth/oauth'
+import { findOAuthProvider } from '../auth/providers/types'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
@@ -241,8 +243,11 @@ ui.get('/stats', (c) =>
   ),
 )
 
-// 設定一覧（左ページ）
-const SettingsList = ({ user }: { user: SessionUser }) => (
+const linkNote = (linked: Set<string>, provider: string) =>
+  linked.has(provider) ? '連携済み' : '未連携'
+
+// 設定一覧（左ページ）。linked は連携済みの provider 名
+const SettingsList = ({ user, linked }: { user: SessionUser; linked: Set<string> }) => (
   <>
     <TopBar title="設定" />
     <div class="sect" style="margin-top:4px">
@@ -254,8 +259,8 @@ const SettingsList = ({ user }: { user: SessionUser }) => (
     <div class="sect">
       <h2>ログイン方法</h2>
       <Menu>
-        <MenuItem label="Google" note="P1 で実装" disabled />
-        <MenuItem label="Discord" note="P1 で実装" disabled />
+        <MenuItem label="Google" note={linkNote(linked, 'google')} disabled />
+        <MenuItem label="Discord" note={linkNote(linked, 'discord')} disabled />
         <MenuItem label="ほかのログイン方法を連携" note="P6 で実装" disabled />
         <MenuItem label="復旧コード" note="P6 で実装" disabled />
       </Menu>
@@ -295,9 +300,13 @@ const SettingsList = ({ user }: { user: SessionUser }) => (
   </>
 )
 
-ui.get('/settings', (c) =>
-  c.html(<Layout title="設定" tab="settings" left={<SettingsList user={currentUser(c)} />} />),
-)
+ui.get('/settings', async (c) => {
+  const user = currentUser(c)
+  const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
+  return c.html(
+    <Layout title="設定" tab="settings" left={<SettingsList user={user} linked={linked} />} />,
+  )
+})
 
 const DISPLAY_NAME_MAX = 20
 
@@ -345,11 +354,15 @@ const DisplayNameForm = (props: { value: string; welcome?: boolean; error?: stri
   </>
 )
 
-const displayNamePage = (user: SessionUser, form: Parameters<typeof DisplayNameForm>[0]) => (
+const displayNamePage = (
+  user: SessionUser,
+  linked: Set<string>,
+  form: Parameters<typeof DisplayNameForm>[0],
+) => (
   <Layout
     title="表示名を変える"
     tab="settings"
-    left={<SettingsList user={user} />}
+    left={<SettingsList user={user} linked={linked} />}
     right={<DisplayNameForm {...form} />}
   />
 )
@@ -357,8 +370,9 @@ const displayNamePage = (user: SessionUser, form: Parameters<typeof DisplayNameF
 ui.get('/settings/name', async (c) => {
   const user = currentUser(c)
   const profile = await scopedTo(c.get('db'), user.id).own().profile()
+  const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
   return c.html(
-    displayNamePage(user, {
+    displayNamePage(user, linked, {
       value: profile.displayName,
       welcome: c.req.query('welcome') === '1',
     }),
@@ -370,7 +384,10 @@ ui.post('/settings/name', async (c) => {
   const body = await c.req.parseBody()
   const raw = typeof body.displayName === 'string' ? body.displayName : ''
   const { name, error } = parseDisplayName(raw)
-  if (error) return c.html(displayNamePage(user, { value: name, error }), 400)
+  if (error) {
+    const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
+    return c.html(displayNamePage(user, linked, { value: name, error }), 400)
+  }
   await scopedTo(c.get('db'), user.id).own().updateDisplayName(name)
   return c.redirect('/settings', 302)
 })
@@ -414,23 +431,32 @@ const DeleteAccount = ({ user, error }: { user: SessionUser; error?: string }) =
   </>
 )
 
-const deletePage = (user: SessionUser, error?: string) => (
+const deletePage = (user: SessionUser, linked: Set<string>, error?: string) => (
   <Layout
     title="退会"
     tab="settings"
-    left={<SettingsList user={user} />}
+    left={<SettingsList user={user} linked={linked} />}
     right={<DeleteAccount user={user} error={error} />}
   />
 )
 
-ui.get('/settings/delete', (c) => c.html(deletePage(currentUser(c))))
+ui.get('/settings/delete', async (c) => {
+  const user = currentUser(c)
+  return c.html(deletePage(user, await scopedTo(c.get('db'), user.id).own().linkedProviders()))
+})
 
 ui.post('/settings/delete', async (c) => {
   const user = currentUser(c)
-  if (user.role === 'owner') return c.html(deletePage(user), 400)
+  if (user.role === 'owner') {
+    return c.html(
+      deletePage(user, await scopedTo(c.get('db'), user.id).own().linkedProviders()),
+      400,
+    )
+  }
   const body = await c.req.parseBody()
   if (body.confirm !== 'yes') {
-    return c.html(deletePage(user, '確認のチェックを入れてください。'), 400)
+    const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
+    return c.html(deletePage(user, linked, '確認のチェックを入れてください。'), 400)
   }
   await deleteAccount(c.get('db'), user.id)
   clearSessionCookie(c)
@@ -444,9 +470,39 @@ const loginMessage = (error: string | undefined, deleted: string | undefined): s
   return null
 }
 
+// CLIENT_ID か CLIENT_SECRET が未設定（または未登録）のプロバイダは押せない「準備中」のボタンにする
+const LoginButton = ({
+  name,
+  label,
+  ready,
+  primary = false,
+}: {
+  name: string
+  label: string
+  ready: boolean
+  primary?: boolean
+}) => {
+  if (!ready) {
+    return (
+      <button type="button" class="btn" aria-disabled="true" disabled>
+        {label} でログイン（準備中）
+      </button>
+    )
+  }
+  return (
+    <a class={primary ? 'btn pri' : 'btn'} href={`/auth/${name}`}>
+      {label} でログイン
+    </a>
+  )
+}
+
 ui.get('/login', (c) => {
   if (c.get('user')) return c.redirect('/records', 302)
   const message = loginMessage(c.req.query('error'), c.req.query('deleted'))
+  const ready = (name: string) => {
+    const provider = findOAuthProvider(name)
+    return !!provider && isProviderReady(c, provider)
+  }
   return c.html(
     <Document title="ログイン">
       <div id="app">
@@ -461,12 +517,8 @@ ui.get('/login', (c) => {
             </p>
           ) : null}
           <div class="list">
-            <a class="btn pri" href="/auth/google">
-              Google でログイン
-            </a>
-            <a class="btn" href="/auth/discord">
-              Discord でログイン
-            </a>
+            <LoginButton name="google" label="Google" ready={ready('google')} primary />
+            <LoginButton name="discord" label="Discord" ready={ready('discord')} />
           </div>
           <p class="note" style="margin:0">
             メールアドレスは保存しません。ログイン先のアカウント ID だけを使います。

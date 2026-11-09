@@ -4,7 +4,7 @@
 
 import { and, eq, or } from 'drizzle-orm'
 import type { Db } from './client'
-import { block, friendship, user, type userRoles } from './schema'
+import { block, friendship, identity, user, type userRoles } from './schema'
 
 export type OwnProfile = {
   id: string
@@ -18,6 +18,8 @@ export type OwnProfile = {
 export type OwnRepo = {
   profile(): Promise<OwnProfile>
   updateDisplayName(name: string): Promise<void>
+  // 連携済みの provider 名
+  linkedProviders(): Promise<Set<string>>
 }
 
 // P1 は箱だけ。P8 で射影を返すメソッドを足す
@@ -53,6 +55,14 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
   // WHERE は viewerId 固定。ほかの行は更新できない
   async updateDisplayName(name: string) {
     await db.update(user).set({ displayName: name }).where(eq(user.id, viewerId))
+  },
+
+  async linkedProviders() {
+    const rows = await db
+      .select({ provider: identity.provider })
+      .from(identity)
+      .where(eq(identity.userId, viewerId))
+    return new Set(rows.map((r) => r.provider))
   },
 })
 

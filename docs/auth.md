@@ -9,7 +9,7 @@
 - `user(id, display_name, role(member / owner), friend_code NULL, default_share_level(none / status / rating / memo; 既定 status、v1 は固定で UI 無し), exclude_from_counts INT 既定 0, created_at, last_seen_at, deleted_at)`
 - `identity(provider, subject, user_id, created_at, last_login_at)` PK(provider, subject)
 - `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session token、30 日、`Secure; HttpOnly; SameSite=Lax`。`id` には token の SHA-256 を入れる（§7）
-- `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at)` — PKCE、10 分
+- `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at, nonce NULL)` — PKCE、10 分、1 回限り（callback で DELETE RETURNING で取り出す）。`state` は cookie `oauth` とも照合する。`nonce` は OIDC（Google）の ID トークンと照合する値で、Discord では NULL
 - `recovery_code(user_id, code_hash, used_at)` PK(user_id, code_hash) — 復旧コード（決定）
 
 ## 3. プロバイダ別
@@ -23,6 +23,9 @@
 | リスク | 低 | 低 | 仕様変化の追従 | 規約・料金変更が頻繁。開発者契約で用途申告が要る |
 
 決定: Google + Discord から開始 → Bluesky は P6 → X は見送り。
+
+- ID トークンの署名（JWKS）は検証しない。token endpoint から TLS で直接受け取るため（OIDC Core 3.1.3.7）。iss / aud / exp / nonce は照合する。
+- `<PROVIDER>_CLIENT_ID` と `<PROVIDER>_CLIENT_SECRET` のどちらかが空なら、そのプロバイダは「準備中」（`/login` のボタンは無効、`/auth/<provider>` は 503）。
 
 ## 4. 複数プロバイダの紐付け
 - ログイン中に「連携を追加」→ `oauth_state.mode=link` で OAuth → 戻りで `identity` を現在の user に追加。

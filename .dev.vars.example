@@ -5,3 +5,7 @@ APP_ORIGIN=http://127.0.0.1:8787
 SESSION_SECRET=local-dev-session-secret-change-me-0123
 AUTH_DEV_LOGIN=1
 OWNER_IDENTITIES=dev:owner
+# Google の OAuth クライアント。CLIENT_ID が空なら Google ログインは「準備中」
+GOOGLE_CLIENT_ID=
+# secret。本番は `wrangler secret put GOOGLE_CLIENT_SECRET` で入れる
+GOOGLE_CLIENT_SECRET=
