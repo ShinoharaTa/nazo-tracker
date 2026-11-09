@@ -192,6 +192,20 @@ describe('回の作成', () => {
     expect(await runsOf(workId)).toHaveLength(0)
   })
 
+  it('organization_id に統合済みの団体 → 400、行は増えない', async () => {
+    const into = await insertOrg(env, { name: '回の名義の統合先' })
+    const merged = await insertOrg(env, { name: '回の名義の統合元', mergedIntoId: into })
+    const workId = await insertWork(env, { title: '統合済み名義の作品' })
+    const res = await post(
+      `/admin/works/${workId}/runs/new`,
+      { channel: 'online', organization_id: merged },
+      owner.cookie,
+    )
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('名義団体が見つからないか、統合済みです')
+    expect(await runsOf(workId)).toHaveLength(0)
+  })
+
   it('price は 0 と 999999 を許す', async () => {
     const workId = await insertWork(env, { title: '価格境界の作品' })
     for (const price_yen of ['0', '999999']) {

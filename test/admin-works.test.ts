@@ -215,7 +215,7 @@ describe('作品の作成', () => {
 })
 
 describe('作成時の重複チェック', () => {
-  it('同じ題 → 400 で候補を出し行は増えない。confirm=1 を付けた再送で作成', async () => {
+  it('同じ題 → 400 で候補を出し行は増えない。confirm=<norm(title)> を付けた再送で作成', async () => {
     const org = await insertOrg(env, { name: 'ワーディール団体' })
     const existing = await insertWork(env, { title: 'WORDEAL', kind: 'hall', orgId: org })
     const before = await logCount()
@@ -226,8 +226,8 @@ describe('作成時の重複チェック', () => {
     expect(html).toContain(`href="/admin/works/${existing}"`)
     expect(html).toContain('ワーディール団体')
     expect(html).toContain('score 0.85')
-    expect(html).toContain('title')
-    expect(html).toContain('name="confirm" value="1"')
+    expect(html).toContain('同じ題名')
+    expect(html).toContain('name="confirm" value="wordeal"')
     // 送信値は埋め戻す
     expect(html).toContain('value="WORDEAL"')
     expect(await worksTitled('WORDEAL')).toHaveLength(1)
@@ -235,7 +235,7 @@ describe('作成時の重複チェック', () => {
 
     const again = await post(
       '/admin/works/new',
-      { title: 'WORDEAL', kind: 'hall', confirm: '1' },
+      { title: 'WORDEAL', kind: 'hall', confirm: 'wordeal' },
       owner.cookie,
     )
     expect(again.status).toBe(302)
@@ -255,7 +255,37 @@ describe('作成時の重複チェック', () => {
     const html = await res.text()
     expect(html).toContain(`href="/admin/works/${w}"`)
     expect(html).toContain('score 0.95')
-    expect(html).toContain('same_org_title')
+    expect(html).toContain('同じ団体で同じ題名')
+    expect(html).not.toContain('same_org_title')
+  })
+
+  it('確認後に題名を別の重複題に変えて再送 → また候補を出す。同じ題名で再送 → 作成', async () => {
+    await insertWork(env, { title: 'カクニン題名アルファ' })
+    const b = await insertWork(env, { title: 'カクニン題名ブラボー' })
+    const first = await post('/admin/works/new', { title: 'カクニン題名アルファ' }, owner.cookie)
+    expect(first.status).toBe(400)
+    expect(await first.text()).toContain('name="confirm" value="カクニン題名アルファ"')
+
+    // アルファで確認済みのままブラボーに変える
+    const changed = await post(
+      '/admin/works/new',
+      { title: 'カクニン題名ブラボー', confirm: 'カクニン題名アルファ' },
+      owner.cookie,
+    )
+    expect(changed.status).toBe(400)
+    const html = await changed.text()
+    expect(html).toContain('似た作品があります')
+    expect(html).toContain(`href="/admin/works/${b}"`)
+    expect(html).toContain('name="confirm" value="カクニン題名ブラボー"')
+    expect(await worksTitled('カクニン題名ブラボー')).toHaveLength(1)
+
+    const ok = await post(
+      '/admin/works/new',
+      { title: 'カクニン題名ブラボー', confirm: 'カクニン題名ブラボー' },
+      owner.cookie,
+    )
+    expect(ok.status).toBe(302)
+    expect(await worksTitled('カクニン題名ブラボー')).toHaveLength(2)
   })
 
   it('統合済みの作品は候補にしない', async () => {
@@ -270,7 +300,17 @@ describe('作成時の重複チェック', () => {
     expect(res.status).toBe(302)
   })
 
-  it('検証エラーのときは候補を出さない（confirm は送信値を引き継ぐ）', async () => {
+  it('検証エラーで再描画するときも confirm を引き継ぐ', async () => {
+    const res = await post(
+      '/admin/works/new',
+      { title: 'ヒキツギの作品', player_min: '0', confirm: 'ヒキツギの作品' },
+      owner.cookie,
+    )
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('name="confirm" value="ヒキツギの作品"')
+  })
+
+  it('検証エラーのときは候補を出さない', async () => {
     await insertWork(env, { title: 'ケンショウ優先の作品' })
     const res = await post(
       '/admin/works/new',

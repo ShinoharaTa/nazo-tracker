@@ -27,6 +27,7 @@ import {
 } from './components'
 import { Layout } from './Layout'
 import {
+  matchReasonLabel,
   organizationAliasKindLabels,
   runChannelLabels,
   shopKindLabels,
@@ -214,7 +215,7 @@ const DuplicateCandidates = ({ candidates }: { candidates: readonly Candidate[] 
       {candidates.map((c) => (
         <MenuItem
           label={c.name}
-          note={[c.organization?.name, `score ${c.score.toFixed(2)}`, c.reason]
+          note={[c.organization?.name, `score ${c.score.toFixed(2)}`, matchReasonLabel(c.reason)]
             .filter(Boolean)
             .join(' · ')}
           href={`/admin/works/${c.id}`}
@@ -224,22 +225,22 @@ const DuplicateCandidates = ({ candidates }: { candidates: readonly Candidate[] 
   </div>
 )
 
-// candidates があれば上に出し、confirm=1 を hidden で付けて再送で作成させる
+// candidates があれば上に出す。confirm（確認済みの norm(title)）を hidden で付け、同じ題名の再送で作成させる
 export const WorkForm = ({
   action,
   values,
   errors = [],
   orgs,
   candidates = [],
-  confirm = false,
+  confirm,
 }: FormProps & {
   orgs: readonly OrgOption[]
   candidates?: readonly Candidate[]
-  confirm?: boolean
+  confirm?: string
 }) => (
   <form method="post" action={action} class="list">
     {candidates.length ? <DuplicateCandidates candidates={candidates} /> : null}
-    {confirm ? <input type="hidden" name="confirm" value="1" /> : null}
+    {confirm ? <input type="hidden" name="confirm" value={confirm} /> : null}
     <FormErrors errors={errors} />
     <Field label="題名" name="title" value={values.title} required />
     <Select
