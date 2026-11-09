@@ -10,6 +10,7 @@ import {
   insertVenue,
   insertWork,
   insertWorkAlias,
+  insertWorksWithRunBatch,
 } from './helpers/master'
 
 // 未ログインで GET する（閲覧ルートは公開）
@@ -353,10 +354,11 @@ describe('レビュー反映（#42）', () => {
 
   it('作品 101 件の団体ページも 200（上限 100 件で切る）', async () => {
     const org = await insertOrg(env, { name: '大量団体' })
-    for (let i = 0; i < 101; i++) {
-      const w = await insertWork(env, { title: `大量${i}`, kind: 'other', orgId: org })
-      await insertRun(env, { workId: w, channel: 'online' })
-    }
+    await insertWorksWithRunBatch(
+      env,
+      Array.from({ length: 101 }, (_, i) => ({ title: `大量${i}`, kind: 'other', orgId: org })),
+      'online',
+    )
     const res = await get(`/orgs/${org}`)
     expect(res.status).toBe(200)
     // 左ページ（作品一覧）を除いた右ページだけ数える

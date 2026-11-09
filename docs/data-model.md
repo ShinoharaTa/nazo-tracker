@@ -104,9 +104,9 @@ erDiagram
 | ticket_url, price_yen | |
 | escape_type_raw | escape.id `type` の生値（参考のみ。kind 判定には使わない） |
 | note | |
+| created_at / updated_at | |
 
 **持ち帰り謎の販路**: 1 作品に販売サイト・イベントが複数ある前提。販売サイトごとに `run(channel='sale', shop_id)` を 1 行、マーケット出店は `booth_item(work_id)` で紐付ける。作品ページでは `v_work_channels`（work ⋈ run(sale) ⋈ shop ∪ work ⋈ booth_item ⋈ booth ⋈ market_edition）で「どこで売っている/売っていたか」を時系列に一覧する。これはマスタ側の情報で、個人の購入記録とは結び付けない。
-| created_at / updated_at | |
 
 CHECK: `channel='sale' → shop_id NOT NULL`、`channel = 'performance' OR venue_id IS NULL`、`channel = 'sale' OR shop_id IS NULL`（venue_id は performance のみ、shop_id は sale のみ）。
 
