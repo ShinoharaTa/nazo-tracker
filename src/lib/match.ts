@@ -9,16 +9,21 @@ export const trigrams = (s: string): Set<string> => {
   return out
 }
 
-// Dice 係数 2|A∩B| / (|A|+|B|)
+// Dice 係数 2|A∩B| / (|A|+|B|)。小さい方の集合を回す
 export const dice = (a: Set<string>, b: Set<string>): number => {
   if (a.size + b.size === 0) return 0
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a]
   let both = 0
-  for (const x of a) if (b.has(x)) both++
+  for (const x of small) if (large.has(x)) both++
   return (2 * both) / (a.size + b.size)
 }
 
 // 候補の下限（これ未満は「新規」扱い）
 export const SIMILAR_MIN = 0.8
+// similar のスコア上限。title（0.85）より必ず下に置き、段階 escape_id_url > same_org_title > title > similar を保つ
+export const SIMILAR_MAX = 0.84
+// これより短い tn は trigram が 1 つしか無く類似度が当てにならないので、similar の走査をしない
+export const SIMILAR_MIN_LENGTH = 3
 export const CANDIDATES_MAX = 10
 
 export type Candidate = {
@@ -44,7 +49,17 @@ export const rankCandidates = (cs: Candidate[]): Candidate[] => {
 
 const URL_MAX = 2000
 
-// escape.id の URL を run.escape_id_url と比べられる形にする（host 小文字、query / hash 除去、末尾 / 付与）。
+// userinfo（user:pass@）を含むか。含む URL は一致なし扱いにする（呼び出し側で判定）
+export const hasUserinfo = (raw: string): boolean => {
+  try {
+    const u = new URL(raw)
+    return u.username !== '' || u.password !== ''
+  } catch {
+    return false
+  }
+}
+
+// escape.id の URL を run.escape_id_url と比べられる形にする（userinfo・query・hash 除去、host 小文字、末尾 / 付与）。
 // http(s) 以外・解釈できない・長すぎるものは null
 export const normalizeMatchUrl = (raw: string): string | null => {
   if (raw.length > URL_MAX) return null
@@ -55,6 +70,8 @@ export const normalizeMatchUrl = (raw: string): string | null => {
     return null
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+  u.username = ''
+  u.password = ''
   u.search = ''
   u.hash = ''
   if (!u.pathname.endsWith('/')) u.pathname = `${u.pathname}/`

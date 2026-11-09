@@ -1,13 +1,16 @@
 // 名寄せ候補の取得（docs/data-model.md §5）。マスタだけを読む。
 // 記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm'
 import {
   type Candidate,
   dice,
+  hasUserinfo,
   normalizeMatchUrl,
   rankCandidates,
+  SIMILAR_MAX,
   SIMILAR_MIN,
+  SIMILAR_MIN_LENGTH,
   trigrams,
 } from '../lib/match'
 import { norm } from '../lib/norm'
@@ -25,6 +28,11 @@ export type MatchResult = {
   orgNorm: string | null
   works: Candidate[]
   organizations: Candidate[]
+}
+
+// 上限に達したら件数が足りていない。入力値はログに出さない
+const warnIfLimited = (...lists: unknown[][]) => {
+  if (lists.some((l) => l.length === SCAN_LIMIT)) console.warn('match: scan limit reached')
 }
 
 type MergeRow = { id: string; name: string; mergedIntoId: string | null }
@@ -156,7 +164,7 @@ const orgsByNameNorm = async (
   return out
 }
 
-// 4. 未統合の作品名・別名を全件読み、Dice ≥ SIMILAR_MIN を similar に。完全一致は 2・3 で拾うので除く
+// 4. 未統合の作品名・別名を全件読み、Dice ≥ SIMILAR_MIN を similar に（スコアは SIMILAR_MAX まで）。完全一致は 2・3 で拾うので除く
 const similarWorks = async (db: Db, tn: string): Promise<Candidate[]> => {
   const [names, aliases] = await Promise.all([
     db
@@ -164,6 +172,7 @@ const similarWorks = async (db: Db, tn: string): Promise<Candidate[]> => {
       .from(work)
       .leftJoin(organization, eq(organization.id, work.primaryOrganizationId))
       .where(isNull(work.mergedIntoId))
+      .orderBy(desc(work.id))
       .limit(SCAN_LIMIT),
     db
       .select({ ...workColumns, norm: workAlias.titleNorm })
@@ -171,8 +180,10 @@ const similarWorks = async (db: Db, tn: string): Promise<Candidate[]> => {
       .innerJoin(work, eq(work.id, workAlias.workId))
       .leftJoin(organization, eq(organization.id, work.primaryOrganizationId))
       .where(isNull(work.mergedIntoId))
+      .orderBy(desc(workAlias.id))
       .limit(SCAN_LIMIT),
   ])
+  warnIfLimited(names, aliases)
   const t = trigrams(tn)
   const out: Candidate[] = []
   for (const [rows, via] of [
@@ -182,27 +193,30 @@ const similarWorks = async (db: Db, tn: string): Promise<Candidate[]> => {
     for (const w of rows) {
       if (w.norm === tn) continue
       const s = dice(t, trigrams(w.norm))
-      if (s >= SIMILAR_MIN) out.push(toCandidate(w, s, 'similar', via))
+      if (s >= SIMILAR_MIN) out.push(toCandidate(w, Math.min(s, SIMILAR_MAX), 'similar', via))
     }
   }
   return out
 }
 
-// 5. 未統合の団体名・別名を全件読み、Dice ≥ SIMILAR_MIN を similar に
+// 5. 未統合の団体名・別名を全件読み、Dice ≥ SIMILAR_MIN を similar に（スコアは SIMILAR_MAX まで）
 const similarOrgs = async (db: Db, on: string): Promise<Candidate[]> => {
   const [names, aliases] = await Promise.all([
     db
       .select({ id: organization.id, name: organization.name, norm: organization.nameNorm })
       .from(organization)
       .where(isNull(organization.mergedIntoId))
+      .orderBy(desc(organization.id))
       .limit(SCAN_LIMIT),
     db
       .select({ id: organization.id, name: organization.name, norm: organizationAlias.nameNorm })
       .from(organizationAlias)
       .innerJoin(organization, eq(organization.id, organizationAlias.organizationId))
       .where(isNull(organization.mergedIntoId))
+      .orderBy(desc(organizationAlias.id))
       .limit(SCAN_LIMIT),
   ])
+  warnIfLimited(names, aliases)
   const t = trigrams(on)
   const out: Candidate[] = []
   for (const [rows, via] of [
@@ -212,7 +226,15 @@ const similarOrgs = async (db: Db, on: string): Promise<Candidate[]> => {
     for (const o of rows) {
       if (o.norm === on) continue
       const s = dice(t, trigrams(o.norm))
-      if (s >= SIMILAR_MIN) out.push({ id: o.id, name: o.name, score: s, reason: 'similar', via })
+      if (s >= SIMILAR_MIN) {
+        out.push({
+          id: o.id,
+          name: o.name,
+          score: Math.min(s, SIMILAR_MAX),
+          reason: 'similar',
+          via,
+        })
+      }
     }
   }
   return out
@@ -226,7 +248,9 @@ export const findCandidates = async (
 ): Promise<MatchResult> => {
   const title = input.title?.trim() || null
   const orgName = input.org?.trim() || null
-  const url = input.url?.trim() ? normalizeMatchUrl(input.url.trim()) : null
+  const rawUrl = input.url?.trim() ?? ''
+  // userinfo 付きの URL は登録されることが無いので一致を見ない
+  const url = rawUrl && !hasUserinfo(rawUrl) ? normalizeMatchUrl(rawUrl) : null
   const tn = title ? norm(title) : null
   const on = orgName ? norm(orgName) : null
 
@@ -254,7 +278,8 @@ export const findCandidates = async (
       works.push(...(await byTitleNorm(db, tn, ofOrgs, 0.95, 'same_org_title')))
     }
     works.push(...(await byTitleNorm(db, tn, undefined, 0.85, 'title')))
-    works.push(...(await similarWorks(db, tn)))
+    // 3 文字未満は完全一致（2・3）だけで拾う
+    if ([...tn].length >= SIMILAR_MIN_LENGTH) works.push(...(await similarWorks(db, tn)))
   }
 
   if (on) organizations.push(...(await similarOrgs(db, on)))

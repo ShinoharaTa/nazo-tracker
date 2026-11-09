@@ -29,6 +29,9 @@ describe('trigrams / dice', () => {
     )
     expect(normalizeMatchUrl('javascript:alert(1)')).toBeNull()
     expect(normalizeMatchUrl('not a url')).toBeNull()
+    expect(normalizeMatchUrl('https://u:p@escape.id/foo-org/e-bar/')).toBe(
+      'https://escape.id/foo-org/e-bar/',
+    )
   })
 })
 
@@ -56,6 +59,16 @@ describe('GET /api/admin/match', () => {
     ids.merged = await insertWork(env, { title: 'マッチ統合済み作品', mergedIntoId: ids.cat })
     ids.aliased = await insertWork(env, { title: 'マッチ本題', kind: 'room' })
     await insertWorkAlias(env, { workId: ids.aliased, title: 'マッチ旧題', kind: 'former_title' })
+    // Dice 1.0 だが文字列が違う組
+    ids.doki = await insertWork(env, { title: 'どきどき', kind: 'room', orgId: ids.org })
+    ids.doki3 = await insertWork(env, { title: 'どきどきどき', kind: 'room' })
+    // 題名で完全一致、別名で similar に当たる作品
+    ids.pika = await insertWork(env, { title: 'ぴかぴか', kind: 'room' })
+    await insertWorkAlias(env, { workId: ids.pika, title: 'ぴかぴかぴか', kind: 'alt_spelling' })
+    // primary は別団体、run の名義が検証団
+    ids.byRun = await insertWork(env, { title: '名義で当たる作品', kind: 'room', orgId: ids.other })
+    await insertRun(env, { workId: ids.byRun, channel: 'performance', organizationId: ids.org })
+    ids.short = await insertWork(env, { title: '謎', kind: 'room' })
   })
 
   const match = async (p: Record<string, string>): Promise<MatchResult> => {
@@ -69,6 +82,7 @@ describe('GET /api/admin/match', () => {
     const res = await get(q({ title: 'MATCHWORD' }))
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: 'not_found' })
+    expect(res.headers.get('cache-control')).toBe('no-store')
   })
 
   it('member は JSON の 404', async () => {
@@ -176,5 +190,58 @@ describe('GET /api/admin/match', () => {
     const o = r.organizations.find((x) => x.id === ids.org)
     expect(o?.reason).toBe('similar')
     expect(o?.score).toBeGreaterThanOrEqual(0.8)
+  })
+
+  it('Dice 1.0 の similar も 0.84 に丸め、同団体一致より下に並ぶ', async () => {
+    const r = await match({ title: 'どきどき', org: 'マッチ検証団' })
+    expect(r.works[0]).toMatchObject({ id: ids.doki, score: 0.95, reason: 'same_org_title' })
+    const i = r.works.findIndex((w) => w.id === ids.doki3)
+    expect(i).toBeGreaterThan(0)
+    expect(r.works[i]).toMatchObject({ score: 0.84, reason: 'similar' })
+  })
+
+  it('同じ作品が title と別名の similar に当たると title が残る', async () => {
+    const r = await match({ title: 'ぴかぴか' })
+    expect(r.works.filter((w) => w.id === ids.pika)).toEqual([
+      expect.objectContaining({ score: 0.85, reason: 'title', via: 'name' }),
+    ])
+  })
+
+  it('run の団体名義でも same_org_title（primary は別団体）', async () => {
+    const r = await match({ title: '名義で当たる作品', org: 'マッチ検証団' })
+    expect(r.works[0]).toMatchObject({
+      id: ids.byRun,
+      score: 0.95,
+      reason: 'same_org_title',
+      organization: { id: ids.other, name: '別のマッチ団体' },
+    })
+  })
+
+  it('有効だが一致しない url は 200 で空', async () => {
+    const r = await match({ url: 'https://escape.id/nothing-org/e-nothing/' })
+    expect(r.works).toEqual([])
+  })
+
+  it('userinfo 付きの url は一致なし', async () => {
+    const r = await match({ url: 'https://u:p@escape.id/matchorg-org/e-matchword/' })
+    expect(r.works).toEqual([])
+  })
+
+  it('1〜2 文字の title は完全一致だけ', async () => {
+    const r = await match({ title: '謎' })
+    expect(r.works).toEqual([expect.objectContaining({ id: ids.short, reason: 'title' })])
+    expect((await match({ title: 'ぬぬ' })).works).toEqual([])
+  })
+
+  it('title / org が 200 文字を超えると 400', async () => {
+    const long = '謎'.repeat(201)
+    const t = await get(q({ title: long }), owner)
+    expect(t.status).toBe(400)
+    expect(await t.json()).toEqual({ error: 'title_too_long' })
+    const o = await get(q({ title: 'MATCHWORD', org: long }), owner)
+    expect(o.status).toBe(400)
+    expect(await o.json()).toEqual({ error: 'org_too_long' })
+    // ちょうど 200 文字は通る
+    expect((await get(q({ title: '謎'.repeat(200) }), owner)).status).toBe(200)
   })
 })

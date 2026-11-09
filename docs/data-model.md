@@ -248,15 +248,16 @@ norm(s):
 
 候補の取り方（`src/lib/match.ts` の純関数 + `src/db/match.ts` の `findCandidates`）:
 - trigram: `norm()` 後の文字列の長さ 3 の部分文字列の集合（パディング無し、コードポイント単位）。3 文字未満は文字列そのもの 1 つ。Dice = `2|A∩B| / (|A|+|B|)`。
-- 1 は `url` を正規化（host 小文字、query / hash 除去、末尾 `/` 付与。http(s) 以外は 400）して `run.escape_id_url` と完全一致。返す候補に `runId` を付ける。
+- 1 は `url` を正規化（host 小文字、query / hash 除去、末尾 `/` 付与。http(s) 以外は 400）して `run.escape_id_url` と完全一致。返す候補に `runId` を付ける。userinfo（`user:pass@`）付きの URL は一致なし。
 - 2 の団体は `norm(org)` を `organization.name_norm` / `organization_alias.name_norm` に完全一致で引き、統合済みは統合先へ解決する。団体の作品 = `primary_organization_id` がその団体か、その団体名義の run を持つ作品（団体ページと同じ）。
 - 2・3 の題名一致は `work.title_norm` と `work_alias.title_norm` の両方を見る（別名で当たれば `via: 'alias'`）。
-- 4 の候補集合は未統合の `work(id, title_norm)` と `work_alias(work_id, title_norm)` を **全件（各上限 5000 行）** 読んで JS で Dice を測る。5000 件を超えるようになったら、tn の各 trigram で LIKE を掛けて事前に絞り込む方式に切り替える。
-- 団体候補: `norm(org)` の完全一致 → 1.0（`reason: 'name'`）、未統合の団体名・別名との Dice ≥ 0.8 → そのスコア（`reason: 'similar'`）。
+- 4 の候補集合は未統合の `work(id, title_norm)` と `work_alias(work_id, title_norm)` を **全件（各上限 5000 行、`id DESC`）** 読んで JS で Dice を測る。上限に達したら `console.warn` を出す（入力値は出さない）。5000 件を超えるようになったら、tn の各 trigram で LIKE を掛けて事前に絞り込む方式に切り替える。tn が 3 文字未満なら 4 は走査しない（完全一致は 2・3 で拾う）。
+- similar のスコアは `min(Dice, 0.84)`。段階 `escape_id_url`（1.0）> `same_org_title`（0.95）> `title`（0.85）> `similar`（≤ 0.84）が常に保たれ、同じ作品が複数の段階に当たったら上の段階の `reason` が残る。
+- 団体候補: `norm(org)` の完全一致 → 1.0（`reason: 'name'`）、未統合の団体名・別名との Dice ≥ 0.8 → `min(Dice, 0.84)`（`reason: 'similar'`）。
 - 統合済みの作品・団体は候補に出さない。同じ id は最大スコアだけ残し、降順で各 10 件。
 
 API `GET /api/admin/match?title=&org=&url=`（オーナーのみ。非オーナーは `404 {"error":"not_found"}`、`Cache-Control: no-store`）:
-- `title` と `url` が両方空 → `400 {"error":"title_or_url_required"}`。`url` が http(s) の URL でない → `400 {"error":"invalid_url"}`。
+- `title` と `url` が両方空 → `400 {"error":"title_or_url_required"}`。`url` が http(s) の URL でない → `400 {"error":"invalid_url"}`。`title` / `org` が trim 後 200 文字（コードポイント）超 → `400 {"error":"title_too_long"}` / `{"error":"org_too_long"}`。
 - 200 の本文。`titleNorm` / `orgNorm` は入力が無ければ `null`。`reason` は作品が `escape_id_url` / `same_org_title` / `title` / `similar`、団体が `name` / `similar`。
   ```json
   { "titleNorm": "wordeal", "orgNorm": "crazylemon",
