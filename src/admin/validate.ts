@@ -34,18 +34,21 @@ export const formOf = (body: Record<string, unknown>, names: readonly string[]):
 export const emptyForm = (names: readonly string[]): Form =>
   Object.fromEntries(names.map((n) => [n, '']))
 
-// 長さはコードポイントで数える。multiline でなければ改行不可
+// 長さはコードポイントで数える。制御文字は不可（multiline のときだけ改行 \r \n を許す）
 export const str =
   (max: number, { multiline = false }: { multiline?: boolean } = {}): Parser<string> =>
   (raw) => {
-    if (!multiline && /[\r\n]/.test(raw)) return ng('に改行は使えません。')
+    const rest = multiline ? raw.replace(/[\r\n]/g, '') : raw
+    if (/\p{Cc}/u.test(rest)) return ng('に改行や制御文字は使えません。')
     if ([...raw].length > max) return ng(`は ${max} 文字以内にしてください。`)
     return ok(raw)
   }
 
-// http(s) の絶対 URL だけ（href に出すため javascript: などは拒否）
+// http(s) の絶対 URL だけ（href に出すため javascript: などは拒否）。保存値は正規化後の href。
+// new URL() はタブ・改行を黙って除去するので、空白を含む入力は先に拒否する
 export const url = (): Parser<string> => (raw) => {
   if (raw.length > URL_MAX) return ng(`は ${URL_MAX} 文字以内にしてください。`)
+  if (/\s/.test(raw)) return ng('に空白は使えません。')
   let u: URL
   try {
     u = new URL(raw)
@@ -55,7 +58,7 @@ export const url = (): Parser<string> => (raw) => {
   if (u.protocol !== 'http:' && u.protocol !== 'https:') {
     return ng('は http:// か https:// で始まる URL にしてください。')
   }
-  return ok(raw)
+  return ok(u.href)
 }
 
 // YYYY-MM-DD で実在する日
@@ -89,7 +92,7 @@ export const oneOf =
 export const escapeOrgUrl = (): Parser<string> => (raw) => {
   const base = url()(raw)
   if (!base.ok) return base
-  const u = new URL(raw)
+  const u = new URL(base.value)
   u.search = ''
   u.hash = ''
   if (!u.pathname.endsWith('/')) u.pathname = `${u.pathname}/`

@@ -103,6 +103,8 @@ describe('会場', () => {
     ['organization_id が統合済み', { name: 'エラー会場', organization_id: 'MERGED' }],
     ['organization_id が存在しない', { name: 'エラー会場', organization_id: 'nope' }],
     ['名前が空', { name: '', prefecture: '東京都' }],
+    ['address が 201 文字', { name: 'エラー会場', address: 'あ'.repeat(201) }],
+    ['address に改行', { name: 'エラー会場', address: '渋谷区\n1-2-3' }],
   ])('%s → 400', async (_, form) => {
     const body = form.organization_id === 'MERGED' ? { ...form, organization_id: mergedOrg } : form
     const res = await post('/admin/venues/new', body, owner.cookie)
@@ -219,6 +221,32 @@ describe('販売先', () => {
     const html = await (await get('/admin/shops?q=booth', owner.cookie)).text()
     expect(html).toContain(`href="/admin/shops/${id}"`)
     expect(html).toContain('BOOTH')
+  })
+
+  it('url にタブ → 400', async () => {
+    const res = await post(
+      '/admin/shops/new',
+      { name: 'タブ通販', kind: 'other', url: 'https://tab.example/\tx' },
+      owner.cookie,
+    )
+    expect(res.status).toBe(400)
+    expect(await count('shop', 'name = ?', 'タブ通販')).toBe(0)
+  })
+
+  it('GET /admin/shops/:id は 200 で値が埋まる', async () => {
+    const id = await insertShop(env, {
+      name: '埋め戻し通販',
+      kind: 'physical_store',
+      url: 'https://fill.example/',
+      organizationId: org,
+    })
+    const res = await get(`/admin/shops/${id}`, owner.cookie)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('value="埋め戻し通販"')
+    expect(html).toContain('value="https://fill.example/"')
+    expect(html).toContain('<option value="physical_store" selected="">')
+    expect(html).toContain(`<option value="${org}" selected="">`)
   })
 
   it('存在しない id は 404', async () => {

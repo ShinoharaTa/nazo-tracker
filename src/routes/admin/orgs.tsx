@@ -131,6 +131,9 @@ orgs.post('/org-aliases/:id/delete', async (c) => {
   const db = c.get('db')
   const a = await getOrgAliasRow(db, c.req.param('id'))
   if (!a) return c.html(notFound(), 404)
+  // 親団体が統合済みなら追加と同じく 400
+  const o = await getAdminOrg(db, a.organizationId)
+  if (o?.row.mergedIntoId) return c.html(mergedPage(o.mergedInto), 400)
   await deleteOrgAlias(db, a, currentUser(c).id)
   return c.redirect(`/admin/orgs/${a.organizationId}`, 302)
 })

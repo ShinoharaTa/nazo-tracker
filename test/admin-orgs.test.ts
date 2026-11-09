@@ -141,6 +141,8 @@ describe('団体の作成', () => {
     ['名前が空', { name: '' }],
     ['名前が 201 文字', { name: 'あ'.repeat(201) }],
     ['名前に改行', { name: 'ア\nイ' }],
+    ['名前に制御文字', { name: 'ア\u0007イ' }],
+    ['site_url にタブ', { name: 'エラー団体', site_url: 'https://exa\tmple.com/' }],
     ['site_url が javascript:', { name: 'エラー団体', site_url: 'javascript:alert(1)' }],
     [
       'escape_id_url が -org/ で終わらない',
@@ -331,6 +333,21 @@ describe('団体の別名', () => {
     expect((await post(`/admin/org-aliases/${aliasId}/delete`, {}, owner.cookie)).status).toBe(404)
   })
 
+  it('親団体が統合済みなら別名の削除は 400（行は残る）', async () => {
+    const into = await insertOrg(env, { name: '別名統合先' })
+    const id = await insertOrg(env, { name: '別名統合元', mergedIntoId: into })
+    const aliasId = await insertOrgAlias(env, {
+      organizationId: id,
+      name: '残す別名',
+      kind: 'label',
+    })
+    expect((await post(`/admin/org-aliases/${aliasId}/delete`, {}, owner.cookie)).status).toBe(400)
+    expect(
+      await env.DB.prepare('SELECT 1 FROM organization_alias WHERE id = ?').bind(aliasId).first(),
+    ).not.toBeNull()
+    expect(await logsOf(aliasId)).toHaveLength(0)
+  })
+
   it('member は別名を削除できない（404）', async () => {
     const id = await insertOrg(env, { name: '別名守り団体' })
     const aliasId = await insertOrgAlias(env, { organizationId: id, name: '残る', kind: 'label' })
@@ -342,6 +359,31 @@ describe('団体の別名', () => {
 })
 
 describe('管理一覧', () => {
+  it('51 件で 1 頁目に次頁リンク、page=2 に 1 件と前頁リンク', async () => {
+    for (let i = 0; i < 51; i++) await insertOrg(env, { name: `ページ団体${i}` })
+    const p1 = await (await get('/admin/orgs?q=ページ団体', owner.cookie)).text()
+    expect(p1.match(/href="\/admin\/orgs\/(?!new")[^"]+"/g)).toHaveLength(50)
+    expect(p1).toContain('次の 50 件')
+    expect(p1).toContain(
+      'href="/admin/orgs?q=%E3%83%9A%E3%83%BC%E3%82%B8%E5%9B%A3%E4%BD%93&amp;page=2"',
+    )
+    const p2 = await (await get('/admin/orgs?q=ページ団体&page=2', owner.cookie)).text()
+    expect(p2.match(/href="\/admin\/orgs\/(?!new")[^"]+"/g)).toHaveLength(1)
+    expect(p2).toContain('ページ団体0')
+    expect(p2).toContain('前の 50 件')
+    expect(p2).not.toContain('次の 50 件')
+  })
+
+  it('GET /admin/works/:id は P2-4 まで 404（Layout 付き）', async () => {
+    const id = await insertWork(env, { title: '編集はまだ', kind: 'room' })
+    const res = await get(`/admin/works/${id}`, owner.cookie)
+    expect(res.status).toBe(404)
+    const html = await res.text()
+    expect(html).toContain('<!DOCTYPE html>')
+    expect(html).toContain('見つかりませんでした')
+    expect(html).toContain('href="/admin/works"')
+  })
+
   it('統合済みも出し、note に統合先。q は別名でも当たる', async () => {
     const into = await insertOrg(env, { name: 'イチラン統合先' })
     await insertOrg(env, { name: 'イチラン統合元', mergedIntoId: into })

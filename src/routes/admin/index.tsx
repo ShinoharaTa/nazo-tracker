@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { requireOwner } from '../../auth/middleware'
 import { listAdminOrgs, listAdminShops, listAdminVenues, listAdminWorks } from '../../db/master'
 import type { AppEnv } from '../../env'
-import { AdminList, type AdminListRow, AdminPage } from '../../ui/admin'
+import { AdminList, type AdminListRow, AdminNotFound, AdminPage } from '../../ui/admin'
 import { Menu, MenuItem, TopBar } from '../../ui/components'
 import { shopKindLabels, workKindLabels } from '../../ui/labels'
 import orgs from './orgs'
@@ -157,6 +157,16 @@ admin.get('/shops', async (c) => {
     }),
   )
 })
+
+// 作品の編集は P2-4 で差し替える。それまでは Layout 付きの 404
+admin.get('/works/:id', (c) =>
+  c.html(
+    <AdminPage title="見つかりませんでした">
+      <AdminNotFound back="/admin/works" />
+    </AdminPage>,
+    404,
+  ),
+)
 
 admin.route('/', orgs)
 admin.route('/', venues)
