@@ -282,7 +282,8 @@ export const findCandidates = async (
     if ([...tn].length >= SIMILAR_MIN_LENGTH) works.push(...(await similarWorks(db, tn)))
   }
 
-  if (on) organizations.push(...(await similarOrgs(db, on)))
+  // 作品と同じく、3 文字未満は完全一致（orgsByNameNorm）だけで拾う
+  if (on && [...on].length >= SIMILAR_MIN_LENGTH) organizations.push(...(await similarOrgs(db, on)))
 
   return {
     titleNorm: tn,

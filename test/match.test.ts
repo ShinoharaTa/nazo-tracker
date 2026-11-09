@@ -69,6 +69,7 @@ describe('GET /api/admin/match', () => {
     ids.byRun = await insertWork(env, { title: '名義で当たる作品', kind: 'room', orgId: ids.other })
     await insertRun(env, { workId: ids.byRun, channel: 'performance', organizationId: ids.org })
     ids.short = await insertWork(env, { title: '謎', kind: 'room' })
+    ids.shortOrg = await insertOrg(env, { name: 'ナゾ' })
   })
 
   const match = async (p: Record<string, string>): Promise<MatchResult> => {
@@ -231,6 +232,14 @@ describe('GET /api/admin/match', () => {
     const r = await match({ title: '謎' })
     expect(r.works).toEqual([expect.objectContaining({ id: ids.short, reason: 'title' })])
     expect((await match({ title: 'ぬぬ' })).works).toEqual([])
+  })
+
+  it('2 文字の org は完全一致だけ（similar は走らない）', async () => {
+    const r = await match({ title: 'MATCHWORD', org: 'ナゾ' })
+    expect(r.orgNorm).toBe('ナゾ')
+    expect(r.organizations).toEqual([
+      { id: ids.shortOrg, name: 'ナゾ', score: 1, reason: 'name', via: 'name' },
+    ])
   })
 
   it('title / org が 200 文字を超えると 400', async () => {
