@@ -289,6 +289,8 @@ organization A → B: `work.primary_organization_id` / `run.organization_id`（`
 
 venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` を B に → A の `merged_into_id` → change_log（`merge` 1 行）。venue に alias 表は無いので旧名は change_log にだけ残る。
 
+統合済みを指す自己 FK も統合先へ向け直す（3 表とも `UPDATE … SET merged_into_id=B WHERE merged_into_id=A` を同じ batch に入れ、C → A → B の鎖を C → B に畳む。change_log には出さない）。
+
 統合済みを指す FK を残さない（管理画面の選択肢は未統合の行だけなので、残すと次の保存で NULL になる）。統合後の公開ページ `/works/A` `/orgs/A` `/venues/A` は統合先へ 302。確認画面には記録・マイリストの件数を出さない。
 
 ## 6. 本人向け統計（`/api/me/stats`）

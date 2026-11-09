@@ -162,6 +162,8 @@ describe('作品の統合', () => {
     expect(html).toContain('統合する')
     expect(html).toContain('回 2 件、別名 1 件、出店 1 件')
     expect(html).toContain('件数は表示しません')
+    expect(html).toContain('マイリストで両方に入れていた人は統合先側の 1 件だけが残ります')
+    expect(html).toContain('「統合元の謎」の題名は「統合先の謎」の旧題として残ります')
 
     const res = await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)
     expect(res.status).toBe(302)
@@ -174,6 +176,7 @@ describe('作品の統合', () => {
       ['attempt', 'work_id'],
       ['wishlist', 'work_id'],
       ['booth_item', 'work_id'],
+      ['work', 'merged_into_id'],
     ]) {
       expect(await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = ?`, a), table).toBe(0)
     }
@@ -240,6 +243,18 @@ describe('作品の統合', () => {
     expect(await row('work', a)).toMatchObject({ official_url: 'https://example.com/dup-a' })
     expect(await row('work', b)).toMatchObject({ official_url: 'https://example.com/dup-b' })
     expect(await logsOf(b)).toHaveLength(0)
+  })
+
+  it('A と B の title_norm が同じなら旧題の別名を足さず、確認画面もそう書く', async () => {
+    const a = await insertWork(env, { title: '同題の謎（再演）' })
+    const b = await insertWork(env, { title: '同題の謎' })
+    const page = await (await get(`/admin/works/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).toContain('同じ題名が統合先にあるため旧題は追加しません')
+    expect(page).not.toContain('の旧題として残ります')
+    expect(
+      (await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(await count('SELECT COUNT(*) AS n FROM work_alias WHERE work_id = ?', b)).toBe(0)
   })
 
   it('A == B / B が統合済み / B が無い / into 無し / confirm 無し → 400 で何も変わらない', async () => {
@@ -362,6 +377,7 @@ describe('団体の統合', () => {
       ['shop', 'organization_id'],
       ['booth', 'organization_id'],
       ['organization_alias', 'organization_id'],
+      ['organization', 'merged_into_id'],
     ]) {
       expect(await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = ?`, a), table).toBe(0)
     }
@@ -391,6 +407,20 @@ describe('団体の統合', () => {
     const pub = await get(`/orgs/${a}`)
     expect(pub.status).toBe(302)
     expect(pub.headers.get('location')).toMatch(new RegExp(`/orgs/${b}$`))
+  })
+
+  it('A と B の name_norm が同じなら former_name を足さず、確認画面もそう書く', async () => {
+    const a = await insertOrg(env, { name: '同名ﾀﾞﾝﾀｲ' })
+    const b = await insertOrg(env, { name: '同名ダンタイ' })
+    const page = await (await get(`/admin/orgs/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).toContain('同じ名前が統合先にあるため旧名は追加しません')
+    expect(page).not.toContain('の旧名として残ります')
+    expect(
+      (await post(`/admin/orgs/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(
+      await count('SELECT COUNT(*) AS n FROM organization_alias WHERE organization_id = ?', b),
+    ).toBe(0)
   })
 
   it('B に escape_id_url があれば移さない', async () => {
@@ -435,8 +465,13 @@ describe('会場の統合', () => {
     const res = await post(`/admin/venues/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe(`/admin/venues/${b}?merged=1`)
-    for (const table of ['run', 'session', 'market_edition']) {
-      expect(await count(`SELECT COUNT(*) AS n FROM ${table} WHERE venue_id = ?`, a), table).toBe(0)
+    for (const [table, col] of [
+      ['run', 'venue_id'],
+      ['session', 'venue_id'],
+      ['market_edition', 'venue_id'],
+      ['venue', 'merged_into_id'],
+    ]) {
+      expect(await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = ?`, a), table).toBe(0)
     }
     expect((await row('run', r))?.venue_id).toBe(b)
     expect((await row('session', sid))?.venue_id).toBe(b)
@@ -447,5 +482,34 @@ describe('会場の統合', () => {
     const pub = await get(`/venues/${a}`)
     expect(pub.status).toBe(302)
     expect(pub.headers.get('location')).toMatch(new RegExp(`/venues/${b}$`))
+  })
+})
+
+describe('統合の鎖を畳む', () => {
+  it('C → A 済みで A → B を統合すると C.merged_into_id が B になる（作品・団体・会場）', async () => {
+    const wb = await insertWork(env, { title: '鎖の謎B' })
+    const wa = await insertWork(env, { title: '鎖の謎A' })
+    const wc = await insertWork(env, { title: '鎖の謎C', mergedIntoId: wa })
+    const ob = await insertOrg(env, { name: '鎖団体B' })
+    const oa = await insertOrg(env, { name: '鎖団体A' })
+    const oc = await insertOrg(env, { name: '鎖団体C', mergedIntoId: oa })
+    const vb = await insertVenue(env, { name: '鎖会場B' })
+    const va = await insertVenue(env, { name: '鎖会場A' })
+    const vc = await insertVenue(env, { name: '鎖会場C', mergedIntoId: va })
+    for (const [base, a, b] of [
+      ['works', wa, wb],
+      ['orgs', oa, ob],
+      ['venues', va, vb],
+    ]) {
+      const res = await post(`/admin/${base}/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)
+      expect(res.status, base).toBe(302)
+    }
+    expect((await row('work', wc))?.merged_into_id).toBe(wb)
+    expect((await row('organization', oc))?.merged_into_id).toBe(ob)
+    expect((await row('venue', vc))?.merged_into_id).toBe(vb)
+    // C の行は change_log に出さない
+    expect(await logsOf(wc)).toHaveLength(0)
+    expect(await logsOf(oc)).toHaveLength(0)
+    expect(await logsOf(vc)).toHaveLength(0)
   })
 })

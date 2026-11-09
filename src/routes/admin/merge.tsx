@@ -11,10 +11,12 @@ import {
   getAdminWork,
   type OrgRow,
   orgMergeCounts,
+  orgNameNormTaken,
   type VenueRow,
   venueMergeCounts,
   type WorkRow,
   workMergeCounts,
+  workTitleNormTaken,
 } from '../../db/master'
 import { mergeOrganization, mergeVenue, mergeWork } from '../../db/merge'
 import type { AppEnv } from '../../env'
@@ -60,10 +62,17 @@ const workEntity: Entity<WorkRow> = {
     ['公式サイト', r.officialUrl],
   ],
   notes: async (db, a, b) => {
-    const n = await workMergeCounts(db, a.id)
+    const [n, taken] = await Promise.all([
+      workMergeCounts(db, a.id),
+      workTitleNormTaken(db, { fromId: a.id, intoId: b.id }, a.titleNorm),
+    ])
     return [
       `「${b.title}」に付け替わるもの: 回 ${n.runs} 件、別名 ${n.aliases} 件、出店 ${n.boothItems} 件。記録とマイリストも自動で付け替えます（件数は表示しません）。`,
-      `「${a.title}」の題名は「${b.title}」の旧題として残ります。「${a.title}」は統合済みになり、作品ページは「${b.title}」へ転送されます。`,
+      'マイリストで両方に入れていた人は統合先側の 1 件だけが残ります。',
+      taken
+        ? '同じ題名が統合先にあるため旧題は追加しません。'
+        : `「${a.title}」の題名は「${b.title}」の旧題として残ります。`,
+      `「${a.title}」は統合済みになり、作品ページは「${b.title}」へ転送されます。`,
     ]
   },
   merge: mergeWork,
@@ -79,10 +88,16 @@ const orgEntity: Entity<OrgRow> = {
     ['公式サイト', r.siteUrl],
   ],
   notes: async (db, a, b) => {
-    const n = await orgMergeCounts(db, a.id)
+    const [n, taken] = await Promise.all([
+      orgMergeCounts(db, a.id),
+      orgNameNormTaken(db, { fromId: a.id, intoId: b.id }, a.nameNorm),
+    ])
     return [
       `「${b.name}」に付け替わるもの: 作品 ${n.works} 件、回 ${n.runs} 件、会場 ${n.venues} 件、販売先 ${n.shops} 件、出店 ${n.booths} 件、別名 ${n.aliases} 件。回の名義の表記は書き換えません。`,
-      `「${a.name}」の名前は「${b.name}」の旧名として残ります。「${a.name}」は統合済みになり、団体ページは「${b.name}」へ転送されます。`,
+      taken
+        ? '同じ名前が統合先にあるため旧名は追加しません。'
+        : `「${a.name}」の名前は「${b.name}」の旧名として残ります。`,
+      `「${a.name}」は統合済みになり、団体ページは「${b.name}」へ転送されます。`,
     ]
   },
   merge: mergeOrganization,

@@ -114,6 +114,8 @@ export const mergeWork = async (
     db.update(boothItem).set({ workId: b.id }).where(eq(boothItem.workId, a.id)),
     db.update(workAlias).set({ workId: b.id }).where(eq(workAlias.workId, a.id)),
     ...extra,
+    // A に統合済みの行（C → A）も B に向け直して鎖を畳む（change_log には出さない）
+    db.update(work).set({ mergedIntoId: b.id }).where(eq(work.mergedIntoId, a.id)),
     db.update(work).set({ mergedIntoId: b.id, updatedAt: now }).where(eq(work.id, a.id)),
     logChange(db, {
       table: work,
@@ -208,6 +210,7 @@ export const mergeOrganization = async (
       .set({ organizationId: b.id })
       .where(eq(organizationAlias.organizationId, a.id)),
     ...extra,
+    db.update(organization).set({ mergedIntoId: b.id }).where(eq(organization.mergedIntoId, a.id)),
     db
       .update(organization)
       .set({ mergedIntoId: b.id, updatedAt: now })
@@ -235,6 +238,7 @@ export const mergeVenue = async (
     db.update(run).set({ venueId: b.id, updatedAt: now }).where(eq(run.venueId, a.id)),
     db.update(session).set({ venueId: b.id }).where(eq(session.venueId, a.id)),
     db.update(marketEdition).set({ venueId: b.id }).where(eq(marketEdition.venueId, a.id)),
+    db.update(venue).set({ mergedIntoId: b.id }).where(eq(venue.mergedIntoId, a.id)),
     db.update(venue).set({ mergedIntoId: b.id }).where(eq(venue.id, a.id)),
     logChange(db, {
       table: venue,
