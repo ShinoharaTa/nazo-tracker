@@ -24,6 +24,9 @@
 
 決定: Google + Discord から開始 → Bluesky は P6 → X は見送り。
 
+- ID トークンの署名（JWKS）は検証しない。token endpoint から TLS で直接受け取るため（OIDC Core 3.1.3.7）。iss / aud / exp / nonce は照合する。
+- `<PROVIDER>_CLIENT_ID` と `<PROVIDER>_CLIENT_SECRET` のどちらかが空なら、そのプロバイダは「準備中」（`/login` のボタンは無効、`/auth/<provider>` は 503）。
+
 ## 4. 複数プロバイダの紐付け
 - ログイン中に「連携を追加」→ `oauth_state.mode=link` で OAuth → 戻りで `identity` を現在の user に追加。
 - 既に別 user に紐付いた identity なら拒否（アカウント統合は v1 では行わない）。

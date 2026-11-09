@@ -311,7 +311,7 @@ const loginMessage = (error: string | undefined, deleted: string | undefined): s
   return null
 }
 
-// CLIENT_ID が未設定（または未登録）のプロバイダは押せない「準備中」のボタンにする
+// CLIENT_ID か CLIENT_SECRET が未設定（または未登録）のプロバイダは押せない「準備中」のボタンにする
 const LoginButton = ({
   name,
   label,
@@ -325,7 +325,7 @@ const LoginButton = ({
 }) => {
   if (!ready) {
     return (
-      <button type="button" class="btn" aria-disabled="true">
+      <button type="button" class="btn" aria-disabled="true" disabled>
         {label} でログイン（準備中）
       </button>
     )

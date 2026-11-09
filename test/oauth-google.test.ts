@@ -65,6 +65,19 @@ describe('GET /auth/:provider', () => {
     expect(await res.text()).toBe('Google ログインは準備中です')
   })
 
+  it('GOOGLE_CLIENT_SECRET が空でも 503', async () => {
+    const res = await app.request('/auth/google', {}, { ...on, GOOGLE_CLIENT_SECRET: '' })
+    expect(res.status).toBe(503)
+    expect(await res.text()).toBe('Google ログインは準備中です')
+  })
+
+  it('APP_ORIGIN の末尾の / は落として redirect_uri を作る', async () => {
+    const { location } = await begin({ ...on, APP_ORIGIN: 'http://127.0.0.1:8787/' })
+    expect(location.searchParams.get('redirect_uri')).toBe(
+      'http://127.0.0.1:8787/auth/google/callback',
+    )
+  })
+
   it.each(['/auth/twitter', '/auth/discord', '/auth/twitter/callback', '/auth/constructor'])(
     '未知のプロバイダ %s は 404',
     async (path) => {
@@ -161,7 +174,7 @@ describe('GET /auth/google/callback の失敗', () => {
     expect(second.headers.get('location')).toBe('/login?error=failed')
   })
 
-  it('?error=access_denied は /login?error=denied で、oauth cookie を消す', async () => {
+  it('?error=access_denied は /login?error=denied で、oauth cookie を消す。D1 の行は残る', async () => {
     const { state, cookie } = await begin()
     const res = await callback(`error=access_denied&state=${state}`, cookie)
     expect(res.status).toBe(302)
@@ -169,6 +182,49 @@ describe('GET /auth/google/callback の失敗', () => {
     expect(
       res.headers.getSetCookie().some((sc) => sc.startsWith('oauth=;') && /Max-Age=0/.test(sc)),
     ).toBe(true)
+    expect(await stateRow(state)).not.toBeNull()
+  })
+
+  it('code が無ければ failed', async () => {
+    const fetchSpy = mockToken({})
+    const { state, cookie } = await begin()
+    const res = await callback(`state=${state}`, cookie)
+    expect(res.headers.get('location')).toBe('/login?error=failed')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('token 応答が JSON でなければ failed', async () => {
+    const { state, cookie } = await begin()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>oops</html>'))
+    const res = await callback(`state=${state}&code=c`, cookie)
+    expect(res.headers.get('location')).toBe('/login?error=failed')
+  })
+
+  it('失敗時の console.error に code・id_token・access_token の値を出さない', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const code = 'secret-code-value'
+    const accessToken = 'secret-access-token-value'
+
+    // token endpoint が非 2xx（応答本文にもトークンらしき値を入れておく）
+    const a = await begin()
+    mockToken({ error: 'invalid_grant', access_token: accessToken }, 400)
+    expect(
+      (await callback(`state=${a.state}&code=${code}`, a.cookie)).headers.get('location'),
+    ).toBe('/login?error=failed')
+
+    // ID トークンが不正（nonce 不一致）
+    const b = await begin()
+    const idToken = jwt(claims('other-nonce'))
+    mockToken({ access_token: accessToken, id_token: idToken })
+    expect(
+      (await callback(`state=${b.state}&code=${code}`, b.cookie)).headers.get('location'),
+    ).toBe('/login?error=failed')
+
+    expect(errors).toHaveBeenCalled()
+    const out = errors.mock.calls.map((args) => args.map(String).join(' ')).join('\n')
+    for (const secret of [code, accessToken, idToken, ...idToken.split('.')]) {
+      expect(out).not.toContain(secret)
+    }
   })
 
   it('token endpoint が非 2xx なら failed', async () => {
@@ -276,6 +332,28 @@ describe('GET /auth/google/callback の成功', () => {
     expect(html).toMatch(/<span>Discord<\/span><span class="note">未連携<\/span>/)
   })
 
+  it('ログイン中に callback に来たら session を張り替え、旧 session_token 行を消す', async () => {
+    const { cookie: oldCookie, userId } = await loginAs(env, { subject: 'oauth-relogin' })
+    const oldIds = (
+      await env.DB.prepare('SELECT id FROM session_token WHERE user_id = ?')
+        .bind(userId)
+        .all<{ id: string }>()
+    ).results.map((r) => r.id)
+    expect(oldIds).toHaveLength(1)
+
+    const { state, nonce, cookie } = await begin()
+    mockToken({ id_token: jwt(claims(nonce, { sub: 'google-relogin' })) })
+    const res = await callback(`state=${state}&code=c`, `${oldCookie}; ${cookie}`)
+    expect(res.headers.get('location')).toBe('/records')
+    const newCookie = sessionCookieOf(res)
+    expect(newCookie).not.toBeNull()
+    expect(newCookie).not.toBe(oldCookie)
+    const left = await env.DB.prepare('SELECT 1 FROM session_token WHERE id = ?')
+      .bind(oldIds[0])
+      .first()
+    expect(left).toBeNull()
+  })
+
   it("OWNER_IDENTITIES = 'google:<sub>' なら owner になる", async () => {
     const sub = 'google-owner'
     const e = { ...on, OWNER_IDENTITIES: `google:${sub}` }
@@ -339,7 +417,13 @@ describe('/login のボタン', () => {
   it('GOOGLE_CLIENT_ID が無ければ Google は「準備中」で無効', async () => {
     const html = await (await app.request('/login', {}, env)).text()
     expect(html).not.toContain('href="/auth/google"')
-    expect(html).toContain('aria-disabled="true">Google でログイン（準備中）</button>')
+    expect(html).toMatch(/aria-disabled="true" disabled="">Google でログイン（準備中）<\/button>/)
+  })
+
+  it('GOOGLE_CLIENT_SECRET が空でも「準備中」で無効', async () => {
+    const html = await (await app.request('/login', {}, { ...on, GOOGLE_CLIENT_SECRET: '' })).text()
+    expect(html).not.toContain('href="/auth/google"')
+    expect(html).toContain('Google でログイン（準備中）')
   })
 
   it('GOOGLE_CLIENT_ID があれば /auth/google へのリンク。未登録の Discord は「準備中」', async () => {

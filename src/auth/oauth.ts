@@ -22,13 +22,14 @@ const cookieOptions = (c: Context<AppEnv>): CookieOptions => ({
   secure: c.env.APP_ORIGIN.startsWith('https:'),
 })
 
-// redirect_uri は Host ヘッダではなく APP_ORIGIN から組み立てる
+// redirect_uri は Host ヘッダではなく APP_ORIGIN から組み立てる（末尾の / は落とす）
 const redirectUriOf = (c: Context<AppEnv>, provider: OAuthProvider) =>
-  `${c.env.APP_ORIGIN}/auth/${provider.name}/callback`
+  `${c.env.APP_ORIGIN.replace(/\/+$/, '')}/auth/${provider.name}/callback`
 
-// CLIENT_ID が入っていれば使える。未設定なら /login のボタンは「準備中」、/auth/<provider> は 503
+// CLIENT_ID と CLIENT_SECRET の両方が入っていれば使える。
+// どちらかが空なら /login のボタンは「準備中」、/auth/<provider> は 503
 export const isProviderReady = (c: Context<AppEnv>, provider: OAuthProvider): boolean =>
-  !!provider.clientId(c.env)
+  !!provider.clientId(c.env) && !!provider.clientSecret(c.env)
 
 export const beginOAuth = async (c: Context<AppEnv>, provider: OAuthProvider) => {
   const clientId = provider.clientId(c.env)
@@ -78,7 +79,6 @@ const failed = (provider: OAuthProvider, reason: string): OAuthResult => {
 export const completeOAuth = async (
   c: Context<AppEnv>,
   provider: OAuthProvider,
-  deps: { fetch: typeof fetch } = { fetch: (...args) => fetch(...args) },
 ): Promise<OAuthResult> => {
   const cookieState = getCookie(c, OAUTH_COOKIE)
   // callback では成否に関わらず oauth cookie を消す
@@ -111,7 +111,7 @@ export const completeOAuth = async (
   // 4〜5. token endpoint → subject。トークンはこのブロックを抜けたら捨てる
   let subject: string | null
   try {
-    const res = await deps.fetch(provider.tokenUrl, {
+    const res = await fetch(provider.tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -128,7 +128,7 @@ export const completeOAuth = async (
     })
     if (!res.ok) return failed(provider, `token endpoint が ${res.status}`)
     const token: unknown = await res.json()
-    subject = await provider.subjectOf(token, { clientId, nonce: row.nonce, fetch: deps.fetch })
+    subject = await provider.subjectOf(token, { clientId, nonce: row.nonce })
   } catch (e) {
     return failed(provider, `token の取得に失敗: ${e instanceof Error ? e.name : 'unknown'}`)
   }

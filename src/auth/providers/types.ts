@@ -26,7 +26,7 @@ export type OAuthProvider = {
   // token endpoint の応答（JSON）から subject を取り出す。検証に失敗したら null
   subjectOf: (
     token: unknown,
-    ctx: { clientId: string; nonce: string | null; fetch: typeof fetch },
+    ctx: { clientId: string; nonce: string | null },
   ) => Promise<string | null>
 }
 
