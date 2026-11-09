@@ -300,15 +300,23 @@ ui.get('/settings', (c) =>
 
 const DISPLAY_NAME_MAX = 20
 
-// NFC 正規化 → trim。長さはコードポイントで 1〜20、改行・制御文字は不可
+// 制御文字・行/段落区切り・双方向制御（表示を乱すので禁止）
+const FORBIDDEN_CHARS = /[\p{Cc}\p{Zl}\p{Zp}‪-‮⁦-⁩]/u
+// 文字としては数えられるが見えないもの（ハングルのフィラー・ゼロ幅文字・BOM）
+const INVISIBLE_CHARS = /[ᅟᅠㅤﾠ​-‍⁠﻿]/gu
+const VISIBLE_CHAR = /[\p{L}\p{N}\p{P}\p{S}]/u
+
+// NFC 正規化 → trim。判定順は 空 → 制御文字 → 見える文字 → 長さ（コードポイントで 1〜20）
 const parseDisplayName = (raw: string): { name: string; error: string | null } => {
   const name = raw.normalize('NFC').trim()
-  const len = [...name].length
-  if (len === 0) return { name, error: '表示名を入力してください。' }
-  if (len > DISPLAY_NAME_MAX) {
+  if (name.length === 0) return { name, error: '表示名を入力してください。' }
+  if (FORBIDDEN_CHARS.test(name)) return { name, error: '表示名に改行や制御文字は使えません。' }
+  if (!VISIBLE_CHAR.test(name.replace(INVISIBLE_CHARS, ''))) {
+    return { name, error: '表示名に見える文字を 1 つ以上入れてください。' }
+  }
+  if ([...name].length > DISPLAY_NAME_MAX) {
     return { name, error: `表示名は ${DISPLAY_NAME_MAX} 文字以内にしてください。` }
   }
-  if (/\p{Cc}/u.test(name)) return { name, error: '表示名に改行や制御文字は使えません。' }
   return { name, error: null }
 }
 

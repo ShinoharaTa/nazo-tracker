@@ -78,6 +78,10 @@ describe('POST /settings/name', () => {
     ['21 文字', 'あ'.repeat(21)],
     ['改行入り', 'あい\nうえ'],
     ['制御文字入り', 'あい\u0007うえ'],
+    ['ゼロ幅スペース 3 つだけ', '​​​'],
+    ['ハングルフィラー（U+3164）だけ', 'ㅤ'],
+    ['RLO（U+202E）入り', 'あい‮うえ'],
+    ['行区切り（U+2028）入り', 'あい うえ'],
   ])('%s は 400 で同じフォームとエラー文、保存しない', async (_, name) => {
     const { cookie, userId } = await loginAs(env, { subject: 'sn-bad' })
     const res = await post(name, cookie)
@@ -104,6 +108,13 @@ describe('POST /settings/name', () => {
     expect(await displayNameOf(userId)).toBe(name)
   })
 
+  it('ZWJ でつないだ絵文字は通る', async () => {
+    const { cookie, userId } = await loginAs(env, { subject: 'sn-zwj' })
+    const name = '👨‍👩‍👧'
+    expect((await post(name, cookie)).status).toBe(302)
+    expect(await displayNameOf(userId)).toBe(name)
+  })
+
   it('NFC 正規化と trim をしてから保存する', async () => {
     const { cookie, userId } = await loginAs(env, { subject: 'sn-nfc' })
     // か + 結合用濁点 → が
@@ -111,7 +122,7 @@ describe('POST /settings/name', () => {
     expect(await displayNameOf(userId)).toBe('がぎ')
   })
 
-  it('HTML は保存され、/settings ではエスケープして出る', async () => {
+  it('HTML は保存され、/settings と /settings/name の value ではエスケープして出る', async () => {
     const { cookie, userId } = await loginAs(env, { subject: 'sn-xss' })
     const name = '"><script>'
     expect((await post(name, cookie)).status).toBe(302)
@@ -119,6 +130,9 @@ describe('POST /settings/name', () => {
     const html = await (await get('/settings', cookie)).text()
     expect(html).not.toContain('"><script>')
     expect(html).toContain('&quot;&gt;&lt;script&gt;')
+    const form = await (await get('/settings/name', cookie)).text()
+    expect(form).not.toContain('"><script>')
+    expect(form).toContain('value="&quot;&gt;&lt;script&gt;"')
   })
 
   it('ほかの user の表示名は変わらない', async () => {

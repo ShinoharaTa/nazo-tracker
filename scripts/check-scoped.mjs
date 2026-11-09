@@ -1,5 +1,6 @@
 // 記録系テーブルを scopedTo 以外から読ませないための検査（docs/auth.md §6 実装上の規約）。
-// src/**/*.{ts,tsx} で src/db/schema からの named import に禁止語があり、許可リスト外なら exit 1。
+// src/**/*.{ts,tsx} で src/db/schema からの import / re-export に禁止語があり、許可リスト外なら exit 1。
+// `import * as` と `export *` は全テーブルを持ち出せるので、許可リスト外なら名前に関係なく違反。
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -16,7 +17,13 @@ const forbidden = new Set([
   'wishlist',
   'marketVisit',
 ])
-const allowed = new Set(['src/db/scoped.ts', 'src/db/counts.ts', 'src/auth/account.ts'])
+const allowed = new Set([
+  'src/db/scoped.ts',
+  'src/db/counts.ts',
+  'src/auth/account.ts',
+  // drizzle に schema 全体を渡すため import * as schema が要る
+  'src/db/client.ts',
+])
 
 const walk = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -25,16 +32,52 @@ const walk = (dir) =>
     return /\.tsx?$/.test(e.name) ? [p] : []
   })
 
-const importRe = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g
+// 文字列リテラルは残し、// と /* */ のコメントだけを空白に置き換える
+// （コメント内の import を拾わない・コメントで import 文を分断して検査をすり抜けさせない）
+const stripComments = (src) => {
+  let out = ''
+  let i = 0
+  while (i < src.length) {
+    const ch = src[i]
+    const next = src[i + 1]
+    if (ch === '/' && next === '/') {
+      while (i < src.length && src[i] !== '\n') i++
+      out += ' '
+    } else if (ch === '/' && next === '*') {
+      const end = src.indexOf('*/', i + 2)
+      i = end === -1 ? src.length : end + 2
+      out += ' '
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      let j = i + 1
+      while (j < src.length && src[j] !== ch) j += src[j] === '\\' ? 2 : 1
+      out += src.slice(i, j + 1)
+      i = j + 1
+    } else {
+      out += ch
+      i++
+    }
+  }
+  return out
+}
+
+// import { a, type b as c } from '…' / export { … } from '…'
+const namedRe = /\b(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g
+// import * as X from '…' / export * from '…' / export * as X from '…'
+const starRe = /\b(?:import|export)\s+(?:type\s+)?\*\s*(?:as\s+[\w$]+\s+)?from\s*['"]([^'"]+)['"]/g
+
+const isSchema = (file, spec) =>
+  spec.startsWith('.') && resolve(dirname(file), spec).replace(/\.(ts|js)$/, '') === schemaPath
 
 const violations = []
 for (const file of walk(join(root, 'src'))) {
   const rel = relative(root, file)
   if (allowed.has(rel)) continue
-  const src = readFileSync(file, 'utf8')
-  for (const m of src.matchAll(importRe)) {
-    if (!m[2].startsWith('.')) continue
-    if (resolve(dirname(file), m[2]).replace(/\.ts$/, '') !== schemaPath) continue
+  const src = stripComments(readFileSync(file, 'utf8'))
+  for (const m of src.matchAll(starRe)) {
+    if (isSchema(file, m[1])) violations.push(`${rel}: *（schema 全体）`)
+  }
+  for (const m of src.matchAll(namedRe)) {
+    if (!isSchema(file, m[2])) continue
     const names = m[1]
       .split(',')
       .map(
