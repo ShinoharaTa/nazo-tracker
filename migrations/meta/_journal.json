@@ -15,6 +15,13 @@
       "when": 1794110471364,
       "tag": "0001_seed_genre",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794139299594,
+      "tag": "0002_schema_hardening",
+      "breakpoints": true
     }
   ]
 }
