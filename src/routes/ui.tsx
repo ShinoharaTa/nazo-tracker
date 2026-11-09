@@ -1,8 +1,9 @@
 // 画面のルート。記録・作品などの中身はまだ空状態で返す。
 
 import { Hono } from 'hono'
+import { deleteAccount } from '../auth/account'
 import { currentUser, requireUser } from '../auth/middleware'
-import type { SessionUser } from '../auth/session'
+import { clearSessionCookie, type SessionUser } from '../auth/session'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
 import {
@@ -288,7 +289,7 @@ const SettingsList = ({ user }: { user: SessionUser }) => (
     <div class="sect">
       <Menu>
         <MenuItem label="ログアウト" action="/auth/logout" />
-        <MenuItem label="退会" note="P1 で実装" disabled />
+        <MenuItem label="退会" href="/settings/delete" />
       </Menu>
     </div>
   </>
@@ -372,6 +373,68 @@ ui.post('/settings/name', async (c) => {
   if (error) return c.html(displayNamePage(user, { value: name, error }), 400)
   await scopedTo(c.get('db'), user.id).own().updateDisplayName(name)
   return c.redirect('/settings', 302)
+})
+
+// 退会の確認（右ページ）。オーナーは退会できない（ロックアウト防止）
+const DeleteAccount = ({ user, error }: { user: SessionUser; error?: string }) => (
+  <>
+    <TopBar back="/settings" label="退会" />
+    <div class="sect" style="margin-top:4px">
+      <h2>退会すると消えるもの</h2>
+      <ul>
+        <li>記録・進行ログ・写真</li>
+        <li>マイリスト</li>
+        <li>フレンド関係（申請・ブロックを含む）</li>
+        <li>ログイン連携</li>
+        <li>この操作は元に戻せません。</li>
+      </ul>
+      <p class="note">補足</p>
+      <ul>
+        <li>同じアカウントで再ログインすると、新規ユーザーになります。</li>
+        <li>作品マスタへのリクエストは、匿名化して残ります。</li>
+      </ul>
+    </div>
+    {user.role === 'owner' ? (
+      <p class="note">オーナーは退会できません。</p>
+    ) : (
+      <form method="post" action="/settings/delete" class="sect">
+        {error ? (
+          <p class="note" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <label>
+          <input type="checkbox" name="confirm" value="yes" /> 上の内容を確認しました
+        </label>
+        <button type="submit" class="btn danger">
+          退会する
+        </button>
+      </form>
+    )}
+  </>
+)
+
+const deletePage = (user: SessionUser, error?: string) => (
+  <Layout
+    title="退会"
+    tab="settings"
+    left={<SettingsList user={user} />}
+    right={<DeleteAccount user={user} error={error} />}
+  />
+)
+
+ui.get('/settings/delete', (c) => c.html(deletePage(currentUser(c))))
+
+ui.post('/settings/delete', async (c) => {
+  const user = currentUser(c)
+  if (user.role === 'owner') return c.html(deletePage(user), 400)
+  const body = await c.req.parseBody()
+  if (body.confirm !== 'yes') {
+    return c.html(deletePage(user, '確認のチェックを入れてください。'), 400)
+  }
+  await deleteAccount(c.get('db'), user.id)
+  clearSessionCookie(c)
+  return c.redirect('/login?deleted=1', 302)
 })
 
 const loginMessage = (error: string | undefined, deleted: string | undefined): string | null => {
