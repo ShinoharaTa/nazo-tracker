@@ -19,7 +19,9 @@ APP_ORIGIN = "https://nazo.shino3.net"
 AUTH_DEV_LOGIN = "0"
 # オーナーにする identity（provider:subject のカンマ区切り、完全一致）。例: "discord:123456789012345678"
 OWNER_IDENTITIES = ""
+# Google の OAuth クライアント ID。空のあいだは Google ログインが「準備中」になる
+GOOGLE_CLIENT_ID = ""
 # "1" のときだけ部品見本 GET /_ui を有効にする。ローカルでは .dev.vars で上書きする
 UI_GALLERY = "0"
 
-# SESSION_SECRET は secret。`wrangler secret put SESSION_SECRET` で入れる（ローカルは .dev.vars）
+# SESSION_SECRET・GOOGLE_CLIENT_SECRET は secret。`wrangler secret put <NAME>` で入れる（ローカルは .dev.vars）

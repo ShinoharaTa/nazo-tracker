@@ -13,6 +13,10 @@ export type Bindings = {
   AUTH_DEV_LOGIN?: string
   // オーナーにする identity。provider:subject のカンマ区切り
   OWNER_IDENTITIES?: string
+  // Google の OAuth クライアント ID。空なら Google ログインは「準備中」
+  GOOGLE_CLIENT_ID?: string
+  // Google の OAuth クライアントシークレット（secret）
+  GOOGLE_CLIENT_SECRET?: string
   // "1" のときだけ部品見本 GET /_ui を有効にする
   UI_GALLERY?: string
 }

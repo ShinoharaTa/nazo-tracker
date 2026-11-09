@@ -1,7 +1,11 @@
 // 画面のルート。記録・作品などの中身はまだ空状態で返す。
 
+import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { currentUser, requireUser } from '../auth/middleware'
+import { isProviderReady } from '../auth/oauth'
+import { findOAuthProvider } from '../auth/providers/types'
+import { identity } from '../db/schema'
 import type { AppEnv } from '../env'
 import { Empty, Kpis, Menu, MenuItem, SearchIcon, Switch, Tabs, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
@@ -228,8 +232,18 @@ ui.get('/stats', (c) =>
   ),
 )
 
-ui.get('/settings', (c) => {
+ui.get('/settings', async (c) => {
   const user = currentUser(c)
+  const linked = new Set(
+    (
+      await c
+        .get('db')
+        .select({ provider: identity.provider })
+        .from(identity)
+        .where(eq(identity.userId, user.id))
+    ).map((r) => r.provider),
+  )
+  const linkNote = (provider: string) => (linked.has(provider) ? '連携済み' : '未連携')
   return c.html(
     <Layout
       title="設定"
@@ -246,8 +260,8 @@ ui.get('/settings', (c) => {
           <div class="sect">
             <h2>ログイン方法</h2>
             <Menu>
-              <MenuItem label="Google" note="P1 で実装" disabled />
-              <MenuItem label="Discord" note="P1 で実装" disabled />
+              <MenuItem label="Google" note={linkNote('google')} disabled />
+              <MenuItem label="Discord" note={linkNote('discord')} disabled />
               <MenuItem label="ほかのログイン方法を連携" note="P6 で実装" disabled />
               <MenuItem label="復旧コード" note="P6 で実装" disabled />
             </Menu>
@@ -297,9 +311,39 @@ const loginMessage = (error: string | undefined, deleted: string | undefined): s
   return null
 }
 
+// CLIENT_ID が未設定（または未登録）のプロバイダは押せない「準備中」のボタンにする
+const LoginButton = ({
+  name,
+  label,
+  ready,
+  primary = false,
+}: {
+  name: string
+  label: string
+  ready: boolean
+  primary?: boolean
+}) => {
+  if (!ready) {
+    return (
+      <button type="button" class="btn" aria-disabled="true">
+        {label} でログイン（準備中）
+      </button>
+    )
+  }
+  return (
+    <a class={primary ? 'btn pri' : 'btn'} href={`/auth/${name}`}>
+      {label} でログイン
+    </a>
+  )
+}
+
 ui.get('/login', (c) => {
   if (c.get('user')) return c.redirect('/records', 302)
   const message = loginMessage(c.req.query('error'), c.req.query('deleted'))
+  const ready = (name: string) => {
+    const provider = findOAuthProvider(name)
+    return !!provider && isProviderReady(c, provider)
+  }
   return c.html(
     <Document title="ログイン">
       <div id="app">
@@ -314,12 +358,8 @@ ui.get('/login', (c) => {
             </p>
           ) : null}
           <div class="list">
-            <a class="btn pri" href="/auth/google">
-              Google でログイン
-            </a>
-            <a class="btn" href="/auth/discord">
-              Discord でログイン
-            </a>
+            <LoginButton name="google" label="Google" ready={ready('google')} primary />
+            <LoginButton name="discord" label="Discord" ready={ready('discord')} />
           </div>
           <p class="note" style="margin:0">
             メールアドレスは保存しません。ログイン先のアカウント ID だけを使います。

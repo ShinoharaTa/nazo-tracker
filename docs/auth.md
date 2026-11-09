@@ -9,7 +9,7 @@
 - `user(id, display_name, role(member / owner), friend_code NULL, default_share_level(none / status / rating / memo; 既定 status、v1 は固定で UI 無し), exclude_from_counts INT 既定 0, created_at, last_seen_at, deleted_at)`
 - `identity(provider, subject, user_id, created_at, last_login_at)` PK(provider, subject)
 - `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session token、30 日、`Secure; HttpOnly; SameSite=Lax`。`id` には token の SHA-256 を入れる（§7）
-- `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at)` — PKCE、10 分
+- `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at, nonce NULL)` — PKCE、10 分、1 回限り（callback で DELETE RETURNING で取り出す）。`state` は cookie `oauth` とも照合する。`nonce` は OIDC（Google）の ID トークンと照合する値で、Discord では NULL
 - `recovery_code(user_id, code_hash, used_at)` PK(user_id, code_hash) — 復旧コード（決定）
 
 ## 3. プロバイダ別

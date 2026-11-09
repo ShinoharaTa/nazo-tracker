@@ -921,7 +921,8 @@ a.ticket {
 .menu > form {
   display: contents;
 }
-.menu [aria-disabled="true"] {
+.menu [aria-disabled="true"],
+.btn[aria-disabled="true"] {
   color: var(--muted);
   cursor: not-allowed;
 }
