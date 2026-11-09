@@ -1,8 +1,22 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { attemptStatuses, workKinds } from '../src/db/schema'
+import {
+  attemptStatuses,
+  organizationAliasKinds,
+  runChannels,
+  shopKinds,
+  workAliasKinds,
+  workKinds,
+} from '../src/db/schema'
 import app from '../src/index'
-import { attemptStatusLabels, workKindLabels } from '../src/ui/labels'
+import {
+  attemptStatusLabels,
+  organizationAliasKindLabels,
+  runChannelLabels,
+  shopKindLabels,
+  workAliasKindLabels,
+  workKindLabels,
+} from '../src/ui/labels'
 import { loginAs } from './helpers/auth'
 
 let cookie = ''
@@ -187,5 +201,14 @@ describe('labels', () => {
 
   it('attemptStatuses の全値にラベルがある', () => {
     expect(Object.keys(attemptStatusLabels).sort()).toEqual([...attemptStatuses].sort())
+  })
+
+  it.each([
+    ['runChannels', runChannelLabels, runChannels],
+    ['workAliasKinds', workAliasKindLabels, workAliasKinds],
+    ['organizationAliasKinds', organizationAliasKindLabels, organizationAliasKinds],
+    ['shopKinds', shopKindLabels, shopKinds],
+  ] as const)('%s の全値にラベルがある', (_, labels, values) => {
+    expect(Object.keys(labels).sort()).toEqual([...values].sort())
   })
 })

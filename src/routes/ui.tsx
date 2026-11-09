@@ -1,4 +1,4 @@
-// 画面のルート。記録・作品などの中身はまだ空状態で返す。
+// 画面のルート。作品・団体・会場はマスタの実データ、記録などの中身はまだ空状態で返す。
 
 import { Hono } from 'hono'
 import { deleteAccount } from '../auth/account'
@@ -6,20 +6,25 @@ import { currentUser, requireUser } from '../auth/middleware'
 import { isProviderReady } from '../auth/oauth'
 import { findOAuthProvider } from '../auth/providers/types'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
+import type { Db } from '../db/client'
+import { getOrg, getVenue, getWork, listWorks, type WorkListItem } from '../db/master'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
+import { todayJst } from '../lib/time'
 import {
   Empty,
   Field,
   Kpis,
   Menu,
   MenuItem,
+  Pager,
   SearchIcon,
   Switch,
   Tabs,
   TopBar,
 } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
+import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
 
 const ui = new Hono<AppEnv>({ strict: false })
 
@@ -77,7 +82,7 @@ const RecordsList = ({ tab }: { tab: RecordsTab }) => (
 )
 
 // 作品一覧の形式フィルタ。LINE と Web はモックに合わせて 1 つにまとめる。
-// online は line / web をまとめた UI 上だけの値（workKinds には無い）。P2 で DB の条件（kind IN ('line', 'web')）に変換する
+// online は line / web をまとめた UI 上だけの値（workKinds には無い）。listWorks が kind IN ('line', 'web') に変換する
 const kindFilters: readonly { key: string; label: string }[] = [
   { key: 'all', label: 'すべて' },
   { key: 'hall', label: '公演' },
@@ -87,7 +92,25 @@ const kindFilters: readonly { key: string; label: string }[] = [
   { key: 'online', label: 'LINE・Web' },
 ]
 
-const WorksList = ({ kind, q }: { kind: string; q: string }) => (
+const worksHref = (params: { kind?: string; q?: string }) => {
+  const sp = new URLSearchParams()
+  if (params.kind && params.kind !== 'all') sp.set('kind', params.kind)
+  if (params.q) sp.set('q', params.q)
+  const qs = sp.toString()
+  return qs ? `/works?${qs}` : '/works'
+}
+
+type WorksListProps = {
+  kind: string
+  q: string
+  page: number
+  items: WorkListItem[]
+  hasNext: boolean
+  selectedId?: string
+}
+
+// 作品一覧（左ページ）
+const WorksList = ({ kind, q, page, items, hasNext, selectedId }: WorksListProps) => (
   <>
     <TopBar title="作品" />
     <form class="search" method="get" action="/works">
@@ -103,7 +126,7 @@ const WorksList = ({ kind, q }: { kind: string; q: string }) => (
     </form>
     <nav class="chips" aria-label="形式で絞り込む">
       {kindFilters.map((f) => {
-        const href = f.key === 'all' ? '/works' : `/works?kind=${f.key}`
+        const href = worksHref({ kind: f.key, q })
         return f.key === kind ? (
           <a class="fchip on" href={href} aria-current="page">
             {f.label}
@@ -119,17 +142,39 @@ const WorksList = ({ kind, q }: { kind: string; q: string }) => (
       <p class="note">ルーム型は都道府県 → 店舗の順でも探せます（P10）。</p>
     ) : null}
     <div class="list">
-      <Empty>
-        作品はまだ登録されていません。
-        <br />
-        作品マスタは P2 で入ります。
-      </Empty>
+      {items.length ? (
+        items.map((w) => <WorkTicket w={w} selected={w.id === selectedId} />)
+      ) : q.trim() ? (
+        <Empty>「{q}」に一致する作品はありません</Empty>
+      ) : (
+        <Empty>作品はまだ登録されていません。</Empty>
+      )}
     </div>
+    <Pager
+      base="/works"
+      page={page}
+      hasNext={hasNext}
+      params={{ kind: kind === 'all' ? '' : kind, q }}
+    />
     <p class="note" style="margin-top:14px">
       人数は 5 人未満のとき「少数」と表示します。誰が記録したかは表示しません。
     </p>
   </>
 )
+
+// 詳細ページの左に出す一覧（1 頁目・フィルタ無し）
+const defaultWorksList = async (db: Db, selectedId?: string) => {
+  const { items, hasNext } = await listWorks(db, { page: 1 })
+  return (
+    <WorksList kind="all" q="" page={1} items={items} hasNext={hasNext} selectedId={selectedId} />
+  )
+}
+
+// 1 始まり。不正値は 1
+const toPage = (v: string | undefined): number => {
+  if (!v || !/^[1-9]\d{0,8}$/.test(v)) return 1
+  return Number(v)
+}
 
 const NotFound = ({ back }: { back: string }) => (
   <>
@@ -185,24 +230,76 @@ ui.get('/records/:id', (c) =>
   ),
 )
 
-ui.get('/works', (c) => {
+ui.get('/works', async (c) => {
   const k = c.req.query('kind') ?? 'all'
   const kind = kindFilters.some((f) => f.key === k) ? k : 'all'
   const q = c.req.query('q') ?? ''
-  return c.html(<Layout title="作品" tab="works" left={<WorksList kind={kind} q={q} />} />)
+  const page = toPage(c.req.query('page'))
+  const { items, hasNext } = await listWorks(c.get('db'), { q, kind, page })
+  return c.html(
+    <Layout
+      title="作品"
+      tab="works"
+      left={<WorksList kind={kind} q={q} page={page} items={items} hasNext={hasNext} />}
+    />,
+  )
 })
 
-ui.get('/works/:id', (c) =>
-  c.html(
-    <Layout
-      title="見つかりませんでした"
-      tab="works"
-      left={<WorksList kind="all" q="" />}
-      right={<NotFound back="/works" />}
-    />,
-    404,
-  ),
+// 作品・団体・会場の詳細で共通の 404（左は作品一覧）
+const masterNotFound = async (db: Db) => (
+  <Layout
+    title="見つかりませんでした"
+    tab="works"
+    left={await defaultWorksList(db)}
+    right={<NotFound back="/works" />}
+  />
 )
+
+// 統合済みの行は統合先へ 302（Location は自サイトの相対パスだけ）
+ui.get('/works/:id', async (c) => {
+  const db = c.get('db')
+  const r = await getWork(db, c.req.param('id'))
+  if (!r) return c.html(await masterNotFound(db), 404)
+  if ('redirect' in r) return c.redirect(`/works/${encodeURIComponent(r.redirect)}`, 302)
+  return c.html(
+    <Layout
+      title={r.found.title}
+      tab="works"
+      left={await defaultWorksList(db, r.found.id)}
+      right={<WorkDetail w={r.found} today={todayJst()} />}
+    />,
+  )
+})
+
+ui.get('/orgs/:id', async (c) => {
+  const db = c.get('db')
+  const r = await getOrg(db, c.req.param('id'))
+  if (!r) return c.html(await masterNotFound(db), 404)
+  if ('redirect' in r) return c.redirect(`/orgs/${encodeURIComponent(r.redirect)}`, 302)
+  return c.html(
+    <Layout
+      title={r.found.name}
+      tab="works"
+      left={await defaultWorksList(db)}
+      right={<OrgDetail o={r.found} />}
+    />,
+  )
+})
+
+ui.get('/venues/:id', async (c) => {
+  const db = c.get('db')
+  const r = await getVenue(db, c.req.param('id'))
+  if (!r) return c.html(await masterNotFound(db), 404)
+  if ('redirect' in r) return c.redirect(`/venues/${encodeURIComponent(r.redirect)}`, 302)
+  return c.html(
+    <Layout
+      title={r.found.name}
+      tab="works"
+      left={await defaultWorksList(db)}
+      right={<VenueDetail v={r.found} today={todayJst()} />}
+    />,
+  )
+})
 
 ui.get('/stats', (c) =>
   c.html(
