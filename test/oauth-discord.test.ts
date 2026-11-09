@@ -11,8 +11,8 @@ const on: Cloudflare.Env = {
   DISCORD_CLIENT_SECRET: 'test-discord-secret',
 }
 
-const TOKEN_URL = 'https://discord.com/api/oauth2/token'
-const ME_URL = 'https://discord.com/api/users/@me'
+const TOKEN_URL = 'https://discord.com/api/v10/oauth2/token'
+const ME_URL = 'https://discord.com/api/v10/users/@me'
 
 const oauthCookieOf = (res: Response) =>
   res.headers.getSetCookie().find((sc) => sc.startsWith('oauth=') && !sc.startsWith('oauth=;'))
@@ -201,6 +201,18 @@ describe('GET /auth/discord/callback の失敗', () => {
     expect(res.headers.get('location')).toBe('/login?error=failed')
   })
 
+  it('/users/@me が JSON でなければ failed', async () => {
+    const { state, cookie } = await begin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input)
+      if (url === TOKEN_URL) return Response.json(token())
+      if (url === ME_URL) return new Response('<html>oops</html>', { status: 200 })
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    const res = await callback(`state=${state}&code=c`, cookie)
+    expect(res.headers.get('location')).toBe('/login?error=failed')
+  })
+
   it('/users/@me の fetch が例外を投げたら failed', async () => {
     const { state, cookie } = await begin()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -246,7 +258,7 @@ describe('GET /auth/discord/callback の失敗', () => {
 })
 
 describe('GET /auth/discord/callback の成功', () => {
-  it('token endpoint に PKCE の code_verifier を送り、/users/@me を Bearer で呼び、identity(discord, id) を作って 302 /records', async () => {
+  it('token endpoint に PKCE の code_verifier を送り、/users/@me を Bearer で呼び、identity(discord, id) を作って初回は 302 /settings/name?welcome=1。2 回目は /records', async () => {
     const id = '987654321098765432'
     const { state, cookie } = await begin()
     const row = await stateRow(state)
@@ -260,7 +272,7 @@ describe('GET /auth/discord/callback の成功', () => {
     })
     const res = await callback(`state=${state}&code=the-code`, cookie)
     expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('/records')
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
 
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     const [tokenUrl, tokenInit] = fetchSpy.mock.calls[0]
@@ -315,13 +327,22 @@ describe('GET /auth/discord/callback の成功', () => {
     expect(html).toMatch(/<span>Google<\/span><span class="note">未連携<\/span>/)
   })
 
+  it("token_type が小文字の 'bearer' でも通る", async () => {
+    const id = '222222222222222222'
+    const { state, cookie } = await begin()
+    mockDiscord({ tokenBody: token({ token_type: 'bearer' }), meBody: { id } })
+    const res = await callback(`state=${state}&code=c`, cookie)
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
+    expect(await identityOf(id)).not.toBeNull()
+  })
+
   it("OWNER_IDENTITIES = 'discord:<id>' なら owner になる", async () => {
     const id = '111111111111111111'
     const e = { ...on, OWNER_IDENTITIES: `discord:${id}` }
     const { state, cookie } = await begin(e)
     mockDiscord({ meBody: { id } })
     const res = await callback(`state=${state}&code=c`, cookie, e)
-    expect(res.headers.get('location')).toBe('/records')
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
     const u = await env.DB.prepare(
       "SELECT u.role FROM user u JOIN identity i ON i.user_id = u.id WHERE i.provider = 'discord' AND i.subject = ?",
     )
