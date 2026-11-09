@@ -7,7 +7,15 @@ import type { Db } from '../../db/client'
 import { getAdminVenue, orgOptions, type VenueRow } from '../../db/master'
 import { createVenue, updateVenue } from '../../db/master-write'
 import type { AppEnv } from '../../env'
-import { AdminNotFound, AdminPage, MergedNotice, Saved, VenueForm } from '../../ui/admin'
+import {
+  AdminNotFound,
+  AdminPage,
+  MergedDone,
+  MergedNotice,
+  MergeSection,
+  Saved,
+  VenueForm,
+} from '../../ui/admin'
 import { TopBar } from '../../ui/components'
 
 const venues = new Hono<AppEnv>({ strict: false })
@@ -34,12 +42,22 @@ const mergedPage = (into: { id: string; name: string } | null) => (
 
 const formPage = async (
   db: Db,
-  p: { title: string; action: string; values: Form; errors?: readonly string[]; saved?: boolean },
+  p: {
+    title: string
+    action: string
+    values: Form
+    errors?: readonly string[]
+    saved?: boolean
+    merged?: boolean
+    // 編集のときだけ。統合の節を出す
+    id?: string
+  },
 ) => (
   <AdminPage title={p.title}>
     <TopBar back="/admin/venues" label={p.title} />
     <div class="sect" style="margin-top:4px">
       {p.saved ? <Saved /> : null}
+      {p.merged ? <MergedDone /> : null}
       <VenueForm
         action={p.action}
         values={p.values}
@@ -47,6 +65,7 @@ const formPage = async (
         orgs={await orgOptions(db)}
       />
     </div>
+    {p.id ? <MergeSection label="会場" href={`/admin/venues?merge_from=${p.id}`} /> : null}
   </AdminPage>
 )
 
@@ -90,6 +109,8 @@ venues.get('/venues/:id', async (c) => {
       action: `/admin/venues/${r.row.id}`,
       values: venueFormOf(r.row),
       saved: c.req.query('saved') === '1',
+      merged: c.req.query('merged') === '1',
+      id: r.row.id,
     }),
   )
 })
@@ -108,6 +129,7 @@ venues.post('/venues/:id', async (c) => {
         action: `/admin/venues/${r.row.id}`,
         values: form,
         errors: v.errors,
+        id: r.row.id,
       }),
       400,
     )

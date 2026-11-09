@@ -6,6 +6,9 @@ import { alias, type SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { norm } from '../lib/norm'
 import type { Db } from './client'
 import {
+  booth,
+  boothItem,
+  marketEdition,
   organization,
   organizationAlias,
   type organizationAliasKinds,
@@ -714,3 +717,83 @@ export const runEscapeUrlTaken = async (db: Db, url: string, exceptId?: string):
     .from(run)
     .where(and(eq(run.escapeIdUrl, url), exceptId ? ne(run.id, exceptId) : undefined))
     .get())
+
+// ---------------------------------------------------------------------------
+// 統合（/admin/*/:id/merge）の確認画面と事前検査。マスタ表の件数だけ（記録・マイリストは数えない）
+// ---------------------------------------------------------------------------
+
+export const workMergeCounts = async (db: Db, id: string) => {
+  const [runs, aliases, boothItems] = await Promise.all([
+    db.$count(run, eq(run.workId, id)),
+    db.$count(workAlias, eq(workAlias.workId, id)),
+    db.$count(boothItem, eq(boothItem.workId, id)),
+  ])
+  return { runs, aliases, boothItems }
+}
+
+export const orgMergeCounts = async (db: Db, id: string) => {
+  const [works, runs, venues, shops, booths, aliases] = await Promise.all([
+    db.$count(work, eq(work.primaryOrganizationId, id)),
+    db.$count(run, eq(run.organizationId, id)),
+    db.$count(venue, eq(venue.organizationId, id)),
+    db.$count(shop, eq(shop.organizationId, id)),
+    db.$count(booth, eq(booth.organizationId, id)),
+    db.$count(organizationAlias, eq(organizationAlias.organizationId, id)),
+  ])
+  return { works, runs, venues, shops, booths, aliases }
+}
+
+export const venueMergeCounts = async (db: Db, id: string) => {
+  const [runs, marketEditions] = await Promise.all([
+    db.$count(run, eq(run.venueId, id)),
+    db.$count(marketEdition, eq(marketEdition.venueId, id)),
+  ])
+  return { runs, marketEditions }
+}
+
+// 統合後の B（B 本体の題名・B の別名・B へ移る A の別名）に titleNorm があるか。あれば旧題の別名を足さない
+export const workTitleNormTaken = async (
+  db: Db,
+  { fromId, intoId }: { fromId: string; intoId: string },
+  titleNorm: string,
+): Promise<boolean> => {
+  const [w, a] = await Promise.all([
+    db
+      .select({ id: work.id })
+      .from(work)
+      .where(and(eq(work.id, intoId), eq(work.titleNorm, titleNorm)))
+      .get(),
+    db
+      .select({ id: workAlias.id })
+      .from(workAlias)
+      .where(and(inArray(workAlias.workId, [fromId, intoId]), eq(workAlias.titleNorm, titleNorm)))
+      .get(),
+  ])
+  return !!(w || a)
+}
+
+// 団体版。nameNorm が統合後の B の名前・別名にあるか
+export const orgNameNormTaken = async (
+  db: Db,
+  { fromId, intoId }: { fromId: string; intoId: string },
+  nameNorm: string,
+): Promise<boolean> => {
+  const [o, a] = await Promise.all([
+    db
+      .select({ id: organization.id })
+      .from(organization)
+      .where(and(eq(organization.id, intoId), eq(organization.nameNorm, nameNorm)))
+      .get(),
+    db
+      .select({ id: organizationAlias.id })
+      .from(organizationAlias)
+      .where(
+        and(
+          inArray(organizationAlias.organizationId, [fromId, intoId]),
+          eq(organizationAlias.nameNorm, nameNorm),
+        ),
+      )
+      .get(),
+  ])
+  return !!(o || a)
+}

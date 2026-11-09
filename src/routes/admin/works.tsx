@@ -28,7 +28,9 @@ import { type Candidate, SIMILAR_MIN } from '../../lib/match'
 import {
   AdminNotFound,
   AdminPage,
+  MergedDone,
   MergedNotice,
+  MergeSection,
   Saved,
   WorkAliasSection,
   WorkForm,
@@ -94,12 +96,14 @@ const editPage = async (
     aliasValues?: Form
     aliasErrors?: readonly string[]
     saved?: boolean
+    merged?: boolean
   },
 ) => (
   <AdminPage title="作品を編集">
     <TopBar back="/admin/works" label="作品を編集" />
     <div class="sect" style="margin-top:4px">
       {p.saved ? <Saved /> : null}
+      {p.merged ? <MergedDone /> : null}
       <WorkForm
         action={`/admin/works/${p.row.id}`}
         values={p.values ?? workFormOf(p.row)}
@@ -114,6 +118,7 @@ const editPage = async (
       values={p.aliasValues ?? emptyForm(workAliasFields)}
       errors={p.aliasErrors}
     />
+    <MergeSection label="作品" href={`/admin/works?merge_from=${p.row.id}`} />
   </AdminPage>
 )
 
@@ -148,7 +153,13 @@ works.get('/works/:id', async (c) => {
   const w = await getAdminWork(db, c.req.param('id'))
   if (!w) return c.html(notFound(), 404)
   if (w.row.mergedIntoId) return c.html(mergedPage(w.mergedInto))
-  return c.html(await editPage(db, { ...w, saved: c.req.query('saved') === '1' }))
+  return c.html(
+    await editPage(db, {
+      ...w,
+      saved: c.req.query('saved') === '1',
+      merged: c.req.query('merged') === '1',
+    }),
+  )
 })
 
 // 編集時は重複チェックをしない

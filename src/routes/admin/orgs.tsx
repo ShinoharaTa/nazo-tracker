@@ -17,7 +17,9 @@ import type { AppEnv } from '../../env'
 import {
   AdminNotFound,
   AdminPage,
+  MergedDone,
   MergedNotice,
+  MergeSection,
   OrgAliasSection,
   OrgForm,
   Saved,
@@ -63,11 +65,13 @@ const editPage = (p: {
   aliasValues?: Form
   aliasErrors?: readonly string[]
   saved?: boolean
+  merged?: boolean
 }) => (
   <AdminPage title="団体を編集">
     <TopBar back="/admin/orgs" label="団体を編集" />
     <div class="sect" style="margin-top:4px">
       {p.saved ? <Saved /> : null}
+      {p.merged ? <MergedDone /> : null}
       <OrgForm
         action={`/admin/orgs/${p.row.id}`}
         values={p.values ?? orgFormOf(p.row)}
@@ -80,6 +84,7 @@ const editPage = (p: {
       values={p.aliasValues ?? emptyForm(orgAliasFields)}
       errors={p.aliasErrors}
     />
+    <MergeSection label="団体" href={`/admin/orgs?merge_from=${p.row.id}`} />
   </AdminPage>
 )
 
@@ -98,7 +103,9 @@ orgs.get('/orgs/:id', async (c) => {
   const o = await getAdminOrg(c.get('db'), c.req.param('id'))
   if (!o) return c.html(notFound(), 404)
   if (o.row.mergedIntoId) return c.html(mergedPage(o.mergedInto))
-  return c.html(editPage({ ...o, saved: c.req.query('saved') === '1' }))
+  return c.html(
+    editPage({ ...o, saved: c.req.query('saved') === '1', merged: c.req.query('merged') === '1' }),
+  )
 })
 
 orgs.post('/orgs/:id', async (c) => {

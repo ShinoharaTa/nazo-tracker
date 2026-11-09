@@ -3,11 +3,27 @@
 
 import { Hono } from 'hono'
 import { requireOwner } from '../../auth/middleware'
-import { listAdminOrgs, listAdminShops, listAdminVenues, listAdminWorks } from '../../db/master'
+import type { Db } from '../../db/client'
+import {
+  getAdminOrg,
+  getAdminVenue,
+  getAdminWork,
+  listAdminOrgs,
+  listAdminShops,
+  listAdminVenues,
+  listAdminWorks,
+} from '../../db/master'
 import type { AppEnv } from '../../env'
-import { AdminList, type AdminListRow, AdminPage } from '../../ui/admin'
+import {
+  AdminList,
+  type AdminListRow,
+  AdminNotFound,
+  AdminPage,
+  type MergeFrom,
+} from '../../ui/admin'
 import { Menu, MenuItem, TopBar } from '../../ui/components'
 import { shopKindLabels, workKindLabels } from '../../ui/labels'
+import merge from './merge'
 import orgs from './orgs'
 import runs from './runs'
 import shops from './shops'
@@ -27,6 +43,35 @@ const toPage = (v: string | undefined): number => {
 
 const mergedNote = (m: { name: string } | null, note?: string | null) =>
   m ? `統合済み → ${m.name}` : note
+
+// ?merge_from=A（統合先を選ぶモード）の A。A が無い・統合済みなら 'missing'、指定が無ければ undefined
+const mergeFromOf = async <R extends { id: string; mergedIntoId: string | null }>(
+  db: Db,
+  id: string | undefined,
+  base: string,
+  get: (db: Db, id: string) => Promise<{ row: R } | null>,
+  name: (row: R) => string,
+): Promise<MergeFrom | 'missing' | undefined> => {
+  if (!id) return undefined
+  const a = await get(db, id)
+  if (!a || a.row.mergedIntoId) return 'missing'
+  return {
+    id: a.row.id,
+    name: name(a.row),
+    back: `${base}/${a.row.id}`,
+    action: `${base}/${a.row.id}/merge`,
+  }
+}
+
+// 統合先の候補にできるか（A 自身と統合済みの行は不可）
+const mergeTarget = (m: MergeFrom | undefined, id: string, merged: unknown) =>
+  m && id !== m.id && !merged ? id : undefined
+
+const notFoundPage = (back: string) => (
+  <AdminPage title="見つかりませんでした">
+    <AdminNotFound back={back} />
+  </AdminPage>
+)
 
 admin.get('/', (c) =>
   c.html(
@@ -73,6 +118,7 @@ const listPage = (p: {
   page: number
   hasNext: boolean
   rows: AdminListRow[]
+  mergeFrom?: MergeFrom
 }) => (
   <AdminPage title={p.label}>
     <AdminList {...p} />
@@ -80,9 +126,18 @@ const listPage = (p: {
 )
 
 admin.get('/works', async (c) => {
+  const db = c.get('db')
+  const m = await mergeFromOf(
+    db,
+    c.req.query('merge_from'),
+    '/admin/works',
+    getAdminWork,
+    (r) => r.title,
+  )
+  if (m === 'missing') return c.html(notFoundPage('/admin/works'), 404)
   const q = c.req.query('q') ?? ''
   const page = toPage(c.req.query('page'))
-  const { items, hasNext } = await listAdminWorks(c.get('db'), { q, page })
+  const { items, hasNext } = await listAdminWorks(db, { q, page })
   const rows = items.map((w) => ({
     href: `/admin/works/${w.id}`,
     label: w.title,
@@ -90,6 +145,7 @@ admin.get('/works', async (c) => {
       w.mergedInto,
       [w.kind ? workKindLabels[w.kind] : null, w.orgName].filter(Boolean).join(' · ') || null,
     ),
+    mergeInto: mergeTarget(m, w.id, w.mergedInto),
   }))
   return c.html(
     listPage({
@@ -100,18 +156,29 @@ admin.get('/works', async (c) => {
       page,
       hasNext,
       rows,
+      mergeFrom: m,
     }),
   )
 })
 
 admin.get('/orgs', async (c) => {
+  const db = c.get('db')
+  const m = await mergeFromOf(
+    db,
+    c.req.query('merge_from'),
+    '/admin/orgs',
+    getAdminOrg,
+    (r) => r.name,
+  )
+  if (m === 'missing') return c.html(notFoundPage('/admin/orgs'), 404)
   const q = c.req.query('q') ?? ''
   const page = toPage(c.req.query('page'))
-  const { items, hasNext } = await listAdminOrgs(c.get('db'), { q, page })
+  const { items, hasNext } = await listAdminOrgs(db, { q, page })
   const rows = items.map((o) => ({
     href: `/admin/orgs/${o.id}`,
     label: o.name,
     note: mergedNote(o.mergedInto, o.note),
+    mergeInto: mergeTarget(m, o.id, o.mergedInto),
   }))
   return c.html(
     listPage({
@@ -122,18 +189,29 @@ admin.get('/orgs', async (c) => {
       page,
       hasNext,
       rows,
+      mergeFrom: m,
     }),
   )
 })
 
 admin.get('/venues', async (c) => {
+  const db = c.get('db')
+  const m = await mergeFromOf(
+    db,
+    c.req.query('merge_from'),
+    '/admin/venues',
+    getAdminVenue,
+    (r) => r.name,
+  )
+  if (m === 'missing') return c.html(notFoundPage('/admin/venues'), 404)
   const q = c.req.query('q') ?? ''
   const page = toPage(c.req.query('page'))
-  const { items, hasNext } = await listAdminVenues(c.get('db'), { q, page })
+  const { items, hasNext } = await listAdminVenues(db, { q, page })
   const rows = items.map((v) => ({
     href: `/admin/venues/${v.id}`,
     label: v.name,
     note: mergedNote(v.mergedInto, v.note),
+    mergeInto: mergeTarget(m, v.id, v.mergedInto),
   }))
   return c.html(
     listPage({
@@ -144,6 +222,7 @@ admin.get('/venues', async (c) => {
       page,
       hasNext,
       rows,
+      mergeFrom: m,
     }),
   )
 })
@@ -171,6 +250,7 @@ admin.get('/shops', async (c) => {
 })
 
 admin.route('/', works)
+admin.route('/', merge)
 admin.route('/', runs)
 admin.route('/', orgs)
 admin.route('/', venues)
