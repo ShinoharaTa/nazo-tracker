@@ -115,6 +115,20 @@ describe('GET /auth/:provider', () => {
     )
   })
 
+  it('begin で期限切れの oauth_state を消す。有効な行は残る', async () => {
+    const insert = (state: string, expiresAt: string) =>
+      env.DB.prepare(
+        "INSERT INTO oauth_state (state, provider, code_verifier, mode, expires_at) VALUES (?1, 'google', ?1, 'login', ?2)",
+      )
+        .bind(state, expiresAt)
+        .run()
+    await insert('gc-expired', new Date(Date.now() - 1000).toISOString())
+    await insert('gc-valid', new Date(Date.now() + 60_000).toISOString())
+    await begin()
+    expect(await stateRow('gc-expired')).toBeNull()
+    expect(await stateRow('gc-valid')).not.toBeNull()
+  })
+
   it('ログイン中なら 302 /records（oauth_state は作らない）', async () => {
     const { cookie } = await loginAs(env, { subject: 'oauth-already' })
     const before = await env.DB.prepare('SELECT COUNT(*) AS n FROM oauth_state').first<{
@@ -169,7 +183,7 @@ describe('GET /auth/google/callback の失敗', () => {
     const { state, nonce, cookie } = await begin()
     mockToken({ id_token: jwt(claims(nonce, { sub: 'twice' })) })
     const first = await callback(`state=${state}&code=c`, cookie)
-    expect(first.headers.get('location')).toBe('/records')
+    expect(first.headers.get('location')).toBe('/settings/name?welcome=1')
     const second = await callback(`state=${state}&code=c`, cookie)
     expect(second.headers.get('location')).toBe('/login?error=failed')
   })
@@ -261,14 +275,14 @@ describe('GET /auth/google/callback の失敗', () => {
 })
 
 describe('GET /auth/google/callback の成功', () => {
-  it('token endpoint に PKCE の code_verifier を送り、identity と session を作って 302 /records。2 回目も /records', async () => {
+  it('token endpoint に PKCE の code_verifier を送り、identity と session を作って初回は 302 /settings/name?welcome=1。2 回目は /records', async () => {
     const sub = 'google-happy'
     const first = await begin()
     const row = await stateRow(first.state)
     const fetchSpy = mockToken({ access_token: 'at', id_token: jwt(claims(first.nonce, { sub })) })
     const res = await callback(`state=${first.state}&code=the-code`, first.cookie)
     expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('/records')
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
 
     // token endpoint への要求
     expect(fetchSpy).toHaveBeenCalledTimes(1)
@@ -332,7 +346,7 @@ describe('GET /auth/google/callback の成功', () => {
     expect(html).toMatch(/<span>Discord<\/span><span class="note">未連携<\/span>/)
   })
 
-  it('ログイン中に callback に来たら session を張り替え、旧 session_token 行を消す', async () => {
+  it('ログイン中に callback に来たら session を張り替え、旧 session_token 行を消す（新規 identity なので welcome=1）', async () => {
     const { cookie: oldCookie, userId } = await loginAs(env, { subject: 'oauth-relogin' })
     const oldIds = (
       await env.DB.prepare('SELECT id FROM session_token WHERE user_id = ?')
@@ -344,7 +358,7 @@ describe('GET /auth/google/callback の成功', () => {
     const { state, nonce, cookie } = await begin()
     mockToken({ id_token: jwt(claims(nonce, { sub: 'google-relogin' })) })
     const res = await callback(`state=${state}&code=c`, `${oldCookie}; ${cookie}`)
-    expect(res.headers.get('location')).toBe('/records')
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
     const newCookie = sessionCookieOf(res)
     expect(newCookie).not.toBeNull()
     expect(newCookie).not.toBe(oldCookie)
@@ -360,7 +374,7 @@ describe('GET /auth/google/callback の成功', () => {
     const { state, nonce, cookie } = await begin(e)
     mockToken({ id_token: jwt(claims(nonce, { sub })) })
     const res = await callback(`state=${state}&code=c`, cookie, e)
-    expect(res.headers.get('location')).toBe('/records')
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
     const u = await env.DB.prepare(
       "SELECT u.role FROM user u JOIN identity i ON i.user_id = u.id WHERE i.provider = 'google' AND i.subject = ?",
     )

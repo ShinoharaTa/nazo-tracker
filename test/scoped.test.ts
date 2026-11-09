@@ -42,6 +42,16 @@ describe('scopedTo().own()', () => {
     expect((await scopedTo(db, a).own().profile()).displayName).toBe('えー')
     expect((await scopedTo(db, b).own().profile()).displayName).toBe('ななしさん')
   })
+
+  it('linkedProviders() は自分の identity だけ。他人の identity は混ざらない', async () => {
+    await env.DB.prepare(
+      "INSERT INTO identity (provider, subject, user_id, created_at) VALUES ('google', 'scoped-b-google', ?, ?)",
+    )
+      .bind(b, now)
+      .run()
+    expect(await scopedTo(db, a).own().linkedProviders()).toEqual(new Set(['dev']))
+    expect(await scopedTo(db, b).own().linkedProviders()).toEqual(new Set(['dev', 'google']))
+  })
 })
 
 describe('scopedTo().asFriendOf()', () => {

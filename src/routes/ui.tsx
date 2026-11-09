@@ -1,14 +1,11 @@
 // 画面のルート。記録・作品などの中身はまだ空状態で返す。
 
-import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { deleteAccount } from '../auth/account'
 import { currentUser, requireUser } from '../auth/middleware'
 import { isProviderReady } from '../auth/oauth'
 import { findOAuthProvider } from '../auth/providers/types'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
-import type { Db } from '../db/client'
-import { identity } from '../db/schema'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
 import {
@@ -246,17 +243,6 @@ ui.get('/stats', (c) =>
   ),
 )
 
-// 連携済みの provider 名
-const linkedProviders = async (db: Db, userId: string) =>
-  new Set(
-    (
-      await db
-        .select({ provider: identity.provider })
-        .from(identity)
-        .where(eq(identity.userId, userId))
-    ).map((r) => r.provider),
-  )
-
 const linkNote = (linked: Set<string>, provider: string) =>
   linked.has(provider) ? '連携済み' : '未連携'
 
@@ -316,7 +302,7 @@ const SettingsList = ({ user, linked }: { user: SessionUser; linked: Set<string>
 
 ui.get('/settings', async (c) => {
   const user = currentUser(c)
-  const linked = await linkedProviders(c.get('db'), user.id)
+  const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
   return c.html(
     <Layout title="設定" tab="settings" left={<SettingsList user={user} linked={linked} />} />,
   )
@@ -384,7 +370,7 @@ const displayNamePage = (
 ui.get('/settings/name', async (c) => {
   const user = currentUser(c)
   const profile = await scopedTo(c.get('db'), user.id).own().profile()
-  const linked = await linkedProviders(c.get('db'), user.id)
+  const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
   return c.html(
     displayNamePage(user, linked, {
       value: profile.displayName,
@@ -399,7 +385,7 @@ ui.post('/settings/name', async (c) => {
   const raw = typeof body.displayName === 'string' ? body.displayName : ''
   const { name, error } = parseDisplayName(raw)
   if (error) {
-    const linked = await linkedProviders(c.get('db'), user.id)
+    const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
     return c.html(displayNamePage(user, linked, { value: name, error }), 400)
   }
   await scopedTo(c.get('db'), user.id).own().updateDisplayName(name)
@@ -456,17 +442,20 @@ const deletePage = (user: SessionUser, linked: Set<string>, error?: string) => (
 
 ui.get('/settings/delete', async (c) => {
   const user = currentUser(c)
-  return c.html(deletePage(user, await linkedProviders(c.get('db'), user.id)))
+  return c.html(deletePage(user, await scopedTo(c.get('db'), user.id).own().linkedProviders()))
 })
 
 ui.post('/settings/delete', async (c) => {
   const user = currentUser(c)
   if (user.role === 'owner') {
-    return c.html(deletePage(user, await linkedProviders(c.get('db'), user.id)), 400)
+    return c.html(
+      deletePage(user, await scopedTo(c.get('db'), user.id).own().linkedProviders()),
+      400,
+    )
   }
   const body = await c.req.parseBody()
   if (body.confirm !== 'yes') {
-    const linked = await linkedProviders(c.get('db'), user.id)
+    const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
     return c.html(deletePage(user, linked, '確認のチェックを入れてください。'), 400)
   }
   await deleteAccount(c.get('db'), user.id)
