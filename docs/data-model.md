@@ -344,7 +344,7 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 | 挑戦数 | attempt のうち status ∈ {cleared, failed, dropped} |
 | クリア数 / 失敗数 / 断念数 | status 別 |
 | 成功率（挑戦ベース） | cleared / (cleared + failed)。トグル「断念を失敗に含める」 |
-| 成功率（作品ベース） | work ごとの最新 attempt で同上 |
+| 成功率（作品ベース） | work ごとの代表 attempt で同上。代表は結果（cleared / failed / dropped）が付いた attempt のうち attempt_no 最大（同値なら created_at 最大）。最新が買った・進行中ならその前の結果を使い、結果が 1 件も無い work は分母に入れない |
 | 進行中 / 買った（積み謎） | status = in_progress / purchased |
 | 月別・年別件数 | finished_on（NULL なら started_on、さらに NULL なら created_at）の年月 |
 | 形式別・団体別・会場/都道府県別 | work.kind / run.organization_id → work.primary_organization_id / venue.prefecture |
@@ -374,7 +374,11 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 
 ビュー（D1 で定義、クエリ側は必ず `user_id` 条件を付ける）:
 - `v_attempt_enriched`（`migrations/0004_v_attempt_enriched.sql`、P3 で作成）: attempt ⋈ work ⋈ run(LEFT) ⋈ venue(LEFT) ⋈ organization(LEFT、`run.organization_id` → `work.primary_organization_id`)。列は attempt の `spoiler_memo` 以外の全列 + `last_played_on` / `session_count` / `session_duration_sec`（session の MAX / COUNT / SUM）+ `display_on`（§3 attempt）+ `work_title` / `work_kind` / `org_id` / `org_name` / `run_channel` / `run_start_on` / `run_end_on` / `venue_id` / `venue_name` / `venue_prefecture`。**`spoiler_memo` は含めない。** 読むのは `src/db/scoped.ts` だけ（`check:scoped` の禁止語に `vAttemptEnriched`）
-- 集計ビュー（`v_attempt_monthly` / `v_attempt_by_difficulty` / `v_attempt_by_genre`）は作らない。統計は 1 ユーザー分の `v_attempt_enriched` をアプリ側で集計する（P3 の統計で実装）
+- 集計ビュー（`v_attempt_monthly` / `v_attempt_by_difficulty` / `v_attempt_by_genre`）は作らない。統計は 1 ユーザー分の `v_attempt_enriched` をアプリ側で集計する（`src/lib/stats.ts`、純関数）。読むのは `own().statsRows()`（`created_at DESC` で最大 5000 行。超えたら直近 5000 件で集計し、画面に「直近 5000 件だけを集計しています」と出す）
+
+**P3 で出す指標**（HTML の `/stats`。JSON の `/api/me/stats` は出す段階で足す）: 挑戦数（プレイ = クリア＋失敗、内訳にクリア / 失敗 / 断念）、成功率（挑戦ベース・作品ベース）、積み謎（買った＋進行中）、難易度別の成功率（1〜5 の 5 行）、ジャンル別の成功率（分母 1 以上、成功率 → 件数の降順）、形式別の成功率（`work_kind` NULL は「形式未設定」）、月別の参加数（年ごと 12 か月。基準日は上の「月別・年別件数」、`created_at` は JST の日付にする）、マイリストの件数とうちプレイ済み。「断念を失敗に含める」は GET パラメータ `drop=fail`、年は `year`（2000〜今年、不正値は今年）。
+
+**P7 に送る指標**: 年別件数、団体別・会場/都道府県別、合計プレイ時間、同行者トップ、再挑戦数、物量の平均、評価の分布、得意傾向の表すべて（マイリストの登録からの経過日数を含む）。
 
 ### フレンド向け射影（`/api/friends/:userId/attempts`）
 | level | 返す列 |

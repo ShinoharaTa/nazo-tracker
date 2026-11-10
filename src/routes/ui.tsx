@@ -1,4 +1,4 @@
-// 画面のルート。作品・団体・会場はマスタの実データ。記録（/records/*）は routes/records.tsx、統計などの中身はまだ空状態で返す。
+// 画面のルート。作品・団体・会場はマスタの実データ。記録（/records/*）は routes/records.tsx、統計は本人の記録を集計する（src/lib/stats.ts）。
 
 import { type Context, Hono } from 'hono'
 import { deleteAccount } from '../auth/account'
@@ -8,23 +8,15 @@ import { findOAuthProvider } from '../auth/providers/types'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
 import type { Db } from '../db/client'
 import { countsFor, type WorkCounts } from '../db/counts'
-import { getOrg, getVenue, getWork, listWorks, type WorkListItem } from '../db/master'
+import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
+import { computeStats } from '../lib/stats'
 import { todayJst } from '../lib/time'
-import {
-  Empty,
-  Field,
-  Kpis,
-  Menu,
-  MenuItem,
-  Pager,
-  SearchIcon,
-  Switch,
-  TopBar,
-} from '../ui/components'
+import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
 import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
+import { StatsPage } from '../ui/stats'
 
 const ui = new Hono<AppEnv>({ strict: false })
 
@@ -278,44 +270,50 @@ ui.get('/venues/:id', async (c) => {
   )
 })
 
-ui.get('/stats', (c) =>
-  c.html(
+// year は 4 桁で STATS_MIN_YEAR〜今年（JST）。それ以外は今年
+const STATS_MIN_YEAR = 2000
+const toStatsYear = (v: string | undefined, thisYear: number): number => {
+  if (!v || !/^\d{4}$/.test(v)) return thisYear
+  const n = Number(v)
+  return n >= STATS_MIN_YEAR && n <= thisYear ? n : thisYear
+}
+
+ui.get('/stats', async (c) => {
+  const db = c.get('db')
+  const own = scopedTo(db, currentUser(c).id).own()
+  const thisYear = Number(todayJst().slice(0, 4))
+  const year = toStatsYear(c.req.query('year'), thisYear)
+  const dropAsFail = c.req.query('drop') === 'fail'
+  const [{ rows, genres, capped }, wishlist] = await Promise.all([
+    own.statsRows(),
+    own.wishlistSummary(),
+  ])
+  // ラベルは並び順（同率・同数ならラベル順）にも使うので集計の前に引く。archived のジャンルも出す
+  const genreRows = await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
+  const stats = computeStats(rows, genres, new Map(genreRows.map((g) => [g.id, g.label])), {
+    dropAsFail,
+    year,
+  })
+  c.header('Cache-Control', 'private, no-store')
+  return c.html(
     <Layout
       title="統計"
       tab="stats"
       single
       left={
-        <>
-          <TopBar title="統計" />
-          <Kpis
-            items={[
-              { label: 'プレイ', value: 0, note: 'クリア 0 / 失敗 0' },
-              { label: '成功率', value: '0%', note: '断念を除く' },
-              { label: '積み謎', value: 0, note: '買った・進行中' },
-            ]}
-          />
-          <Switch label="断念を失敗に含める" name="dropAsFail" disabled />
-          <div class="sect">
-            <h2>難易度別の成功率</h2>
-            <Empty>まだデータがありません。</Empty>
-          </div>
-          <div class="sect">
-            <h2>得意なジャンル</h2>
-            <Empty>まだデータがありません。</Empty>
-          </div>
-          <div class="sect">
-            <h2>月別の参加数</h2>
-            <Empty>まだデータがありません。</Empty>
-          </div>
-          <p class="note" style="margin-top:14px">
-            成功率 = クリア
-            ÷（クリア＋失敗）。買った・進行中は含めません。統計は自分だけに表示されます。
-          </p>
-        </>
+        <StatsPage
+          stats={stats}
+          dropAsFail={dropAsFail}
+          year={year}
+          thisYear={thisYear}
+          minYear={STATS_MIN_YEAR}
+          capped={capped}
+          wishlist={wishlist}
+        />
       }
     />,
-  ),
-)
+  )
+})
 
 const linkNote = (linked: Set<string>, provider: string) =>
   linked.has(provider) ? '連携済み' : '未連携'

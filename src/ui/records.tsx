@@ -85,7 +85,7 @@ const WishRow = ({ w }: { w: OwnWishRow }) => (
       chip={
         w.latestStatus ? <StatusChip status={w.latestStatus} /> : <span class="mark">未プレイ</span>
       }
-      extra={`登録 ${isoToJstDate(w.createdAt)}`}
+      extra={`登録 ${isoToJstDate(w.createdAt) ?? '—'}`}
     />
     <form method="post" action="/records/wishlist/delete">
       <input type="hidden" name="work_id" value={w.workId} />
