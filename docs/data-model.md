@@ -269,7 +269,29 @@ API `GET /api/admin/match?title=&org=&url=`（オーナーのみ。非オーナ�
 
 Claude は候補を**計算せず**、API `GET /api/admin/match?title=&org=` の結果を提案に添える。オーナーは承認画面で「既存に紐付け / 新規作成 / マージ」を選ぶ。
 
-マージ手順（サーバー側トランザクション）: 旧→新へ run / attempt / booth_item の FK 付け替え（attempt_genre / image は attempt 経由で追従） → 旧 title を新の alias に → 旧行 `merged_into_id` 設定（削除しない）→ change_log。
+マージ手順（A → B。`db.batch` の 1 回 = D1 の 1 トランザクション。実装は `src/db/merge.ts`、画面は `/admin/{works,orgs,venues}/:id/merge`）。旧行は削除せず `merged_into_id` を立てる。A・B が存在し未統合で A ≠ B であることを事前に確かめる（違えば 400、A が無ければ 404）。統合できるのは work / organization / venue だけ。**shop と run は統合しない**（`merged_into_id` が無い）。
+
+work A → B:
+
+| # | 文 |
+|---|---|
+| 1 | `UPDATE run SET work_id=B, updated_at=now WHERE work_id=A` |
+| 2 | `UPDATE attempt SET work_id=B WHERE work_id=A`（`run_id` はそのまま。`attempt_no` の重複は許容。attempt_genre / image は attempt 経由で追従） |
+| 3 | `DELETE FROM wishlist WHERE work_id=A AND user_id IN (SELECT user_id FROM wishlist WHERE work_id=B)` → `UPDATE wishlist SET work_id=B WHERE work_id=A`（PK `(user_id, work_id)` の衝突回避。両方に入れていた人は B の行が残る） |
+| 4 | `UPDATE booth_item SET work_id=B WHERE work_id=A` |
+| 5 | `UPDATE work_alias SET work_id=B WHERE work_id=A` |
+| 6 | 統合後の B（B の題名・B と A の別名）に `title_norm = A.title_norm` が無ければ `INSERT work_alias(B, A.title, A.title_norm, 'former_title')` |
+| 7 | `B.official_url IS NULL AND A.official_url IS NOT NULL` なら `UPDATE work SET official_url=NULL WHERE id=A` → `UPDATE work SET official_url=A.official_url WHERE id=B`（UNIQUE 列は統合先が空のときだけ引き継ぐ。衝突しない） |
+| 8 | `UPDATE work SET merged_into_id=B, updated_at=now WHERE id=A` |
+| 9 | change_log: (`work`, A, `merge`, before=A, after=統合後の A) を 1 行。6 を実行したら (`work_alias`, 新 id, `create`)、7 を実行したら (`work`, B, `update`) も |
+
+organization A → B: `work.primary_organization_id` / `run.organization_id`（`billed_as` は書き換えない）/ `venue.organization_id` / `shop.organization_id` / `booth.organization_id` を B に → `organization_alias` を B に → A.name を `former_name` alias として B に（統合後の B の名前・別名に同じ `name_norm` が無ければ）→ `escape_id_url` と `slug`（slug は URL から導くので組で扱う）を、B の `escape_id_url` が NULL で A にあるときだけ B へ移す → A の `merged_into_id` → change_log（`merge` 1 行 + 別名の `create` + B の `update`）。
+
+venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` を B に → A の `merged_into_id` → change_log（`merge` 1 行）。venue に alias 表は無いので旧名は change_log にだけ残る。
+
+統合済みを指す自己 FK も統合先へ向け直す（3 表とも `UPDATE … SET merged_into_id=B WHERE merged_into_id=A` を同じ batch に入れ、C → A → B の鎖を C → B に畳む。change_log には出さない）。
+
+統合済みを指す FK を残さない（管理画面の選択肢は未統合の行だけなので、残すと次の保存で NULL になる）。統合後の公開ページ `/works/A` `/orgs/A` `/venues/A` は統合先へ 302。確認画面には記録・マイリストの件数を出さない。
 
 ## 6. 本人向け統計（`/api/me/stats`）
 

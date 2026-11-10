@@ -289,7 +289,7 @@ flowchart LR
 
 - 識別子: `run.escape_id_url`（正規化後 UNIQUE）、`work.official_url`、`work.title_norm`（NFKC・空白/記号除去・小文字・年号/「再演」除去）、`organization.slug`（escape.id org slug）+ `organization_alias`。
 - 候補提示: URL 一致 > 同団体内の title_norm 一致 > 類似度 ≥ 0.8。提案には必ず `match_candidates[]`。オーナーが「既存に紐付け / 新規 / マージ」を選ぶ。
-- マージ: `works.merged_into_id`、attempt / run を付け替え、旧タイトルは alias に。団体も同様。
+- マージ: `work.merged_into_id`、attempt / run を付け替え、旧タイトルは alias に。団体・会場も同様（手順は data-model.md §5）。
 - 団体改名: alias `kind = former_name, until`。run の `billed_as` は書き換えない。
 
 ## 9. 段階分け

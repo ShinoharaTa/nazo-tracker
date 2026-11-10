@@ -65,6 +65,7 @@
 - リポジトリ層: `scopedTo(viewerId)` が `own()` と `asFriendOf(targetUserId)` を返す。`asFriendOf` は friendship / block を検証してから、level 別の列セットだけを持つ型（`FriendAttemptStatus | FriendAttemptRating | FriendAttemptMemo`）を返す（v1 で呼ばれるのは Status のみ）。`spoiler_memo` と `spoiler=1` の image を含む型は `own()` にしか存在しない。これ以外に attempt / session / image を読む経路を作らない。
 - 画像の配信 `GET /img/:imageId` も同じ `scopedTo` を通す。R2 の公開 URL・署名 URL は作らない。
 - マスタ側のクエリが attempt / wishlist を JOIN してよいのは、`countsFor(workIds)`（匿名人数、DISTINCT user_id の COUNT だけを返す専用関数）と、viewer の friendship を起点にした「フレンド n 人」（`asFriendOf` 経由）の 2 箇所だけ。それ以外は lint で禁止語に。
+  - 例外: マスタの統合（`src/db/merge.ts`、data-model.md §5）は attempt / wishlist / session の FK を **UPDATE / DELETE するだけ**で、行も件数も SELECT しない。`scripts/check-scoped.mjs` の許可リストに入っている。
 - 退会（`POST /settings/delete`。本人のセッション必須、CSRF 適用、URL にユーザー id を取らない。オーナーは退会不可）: 次を `db.batch` の 1 回で順に行う（実装は `src/auth/account.ts`）。匿名人数からも消える。
 
 | # | 文 |

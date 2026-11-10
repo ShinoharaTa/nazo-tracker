@@ -471,9 +471,39 @@ export const RunForm = ({
   </form>
 )
 
-export type AdminListRow = { href: string; label: string; note?: string | null }
+export type AdminListRow = {
+  href: string
+  label: string
+  note?: string | null
+  // 統合先を選ぶモードで「ここに統合」を出す行の id（A 自身と統合済みの行には付けない）
+  mergeInto?: string
+}
 
-// 管理一覧。base は /admin/orgs など。newHref が無ければ「新規」を出さない
+// 統合先を選ぶモード（?merge_from=A）。action は A の確認画面 /admin/works/A/merge など
+export type MergeFrom = { id: string; name: string; back: string; action: string }
+
+// 統合先を選ぶモードの行。名前は編集ページへのリンク、右に「ここに統合」（GET で確認画面へ）
+const MergeTargetRow = ({ row, action }: { row: AdminListRow; action: string }) => (
+  <div class="card">
+    <div class="row">
+      <span>
+        <a href={row.href}>{row.label}</a>
+        {row.note ? <span class="note"> {row.note}</span> : null}
+      </span>
+      {row.mergeInto ? (
+        <form method="get" action={action}>
+          <input type="hidden" name="into" value={row.mergeInto} />
+          <button type="submit" class="btn">
+            ここに統合
+          </button>
+        </form>
+      ) : null}
+    </div>
+  </div>
+)
+
+// 管理一覧。base は /admin/orgs など。newHref が無ければ「新規」を出さない。
+// mergeFrom があれば統合先を選ぶモード（新規は出さず、検索とページ送りで merge_from を保つ）
 export const AdminList = (props: {
   label: string
   base: string
@@ -482,40 +512,129 @@ export const AdminList = (props: {
   page: number
   hasNext: boolean
   rows: readonly AdminListRow[]
-}) => (
-  <>
-    <TopBar
-      back="/admin"
-      label={props.label}
-      action={
-        props.newHref ? (
-          <a class="btn ghost" style="min-height:40px" href={props.newHref}>
-            ＋ 新規
-          </a>
-        ) : undefined
-      }
-    />
-    <form class="search" method="get" action={props.base}>
-      <SearchIcon />
-      <input
-        type="search"
-        name="q"
-        value={props.q}
-        placeholder="名前で検索"
-        aria-label={`${props.label}を検索`}
+  mergeFrom?: MergeFrom
+}) => {
+  const m = props.mergeFrom
+  return (
+    <>
+      <TopBar
+        back={m ? m.back : '/admin'}
+        label={m ? '統合先を選ぶ' : props.label}
+        action={
+          !m && props.newHref ? (
+            <a class="btn ghost" style="min-height:40px" href={props.newHref}>
+              ＋ 新規
+            </a>
+          ) : undefined
+        }
       />
-    </form>
-    {props.rows.length ? (
-      <Menu>
-        {props.rows.map((r) => (
-          <MenuItem label={r.label} note={r.note ?? undefined} href={r.href} />
+      {m ? <p class="note">「{m.name}」をまとめる先を選んでください。</p> : null}
+      <form class="search" method="get" action={props.base}>
+        <SearchIcon />
+        {m ? <input type="hidden" name="merge_from" value={m.id} /> : null}
+        <input
+          type="search"
+          name="q"
+          value={props.q}
+          placeholder="名前で検索"
+          aria-label={`${props.label}を検索`}
+        />
+      </form>
+      {props.rows.length ? (
+        m ? (
+          <div class="list">
+            {props.rows.map((r) => (
+              <MergeTargetRow row={r} action={m.action} />
+            ))}
+          </div>
+        ) : (
+          <Menu>
+            {props.rows.map((r) => (
+              <MenuItem label={r.label} note={r.note ?? undefined} href={r.href} />
+            ))}
+          </Menu>
+        )
+      ) : props.q.trim() ? (
+        <Empty>「{props.q}」に一致するものはありません</Empty>
+      ) : (
+        <Empty>まだ登録されていません。</Empty>
+      )}
+      <Pager
+        base={props.base}
+        page={props.page}
+        hasNext={props.hasNext}
+        params={m ? { merge_from: m.id, q: props.q } : { q: props.q }}
+      />
+    </>
+  )
+}
+
+// 統合したあとの統合先の編集ページ（?merged=1）
+export const MergedDone = () => (
+  <p class="note" role="status">
+    統合しました
+  </p>
+)
+
+// 編集ページ末尾の「別の〇〇に統合する」節。href は統合先を選ぶ一覧（?merge_from=）
+export const MergeSection = ({ label, href }: { label: string; href: string }) => (
+  <div class="sect">
+    <h2>別の{label}に統合する</h2>
+    <p class="note">
+      重複して登録した{label}を、別の{label}にまとめます。
+    </p>
+    <a class="btn" href={href}>
+      統合先を選ぶ
+    </a>
+  </div>
+)
+
+export type MergeSide = { label: string; name: string; href: string; rows: [string, string][] }
+
+const MergeSideCard = ({ side }: { side: MergeSide }) => (
+  <div class="card">
+    <p class="note">{side.label}</p>
+    <p>
+      <a href={side.href}>{side.name}</a>
+    </p>
+    {side.rows.length ? (
+      <dl class="kv">
+        {side.rows.map(([k, v]) => (
+          <>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
+          </>
         ))}
-      </Menu>
-    ) : props.q.trim() ? (
-      <Empty>「{props.q}」に一致するものはありません</Empty>
-    ) : (
-      <Empty>まだ登録されていません。</Empty>
-    )}
-    <Pager base={props.base} page={props.page} hasNext={props.hasNext} params={{ q: props.q }} />
-  </>
+      </dl>
+    ) : null}
+  </div>
+)
+
+// 統合の確認画面。POST は同じ URL に into と confirm=yes
+export const MergeConfirm = (props: {
+  action: string
+  into: string
+  a: MergeSide
+  b: MergeSide
+  notes: readonly string[]
+  errors?: readonly string[]
+}) => (
+  <div class="sect" style="margin-top:4px">
+    <div class="list">
+      <MergeSideCard side={props.a} />
+      <MergeSideCard side={props.b} />
+    </div>
+    <form method="post" action={props.action} class="list">
+      <FormErrors errors={props.errors ?? []} />
+      {props.notes.map((n) => (
+        <p class="note">{n}</p>
+      ))}
+      <p class="note">元に戻せません。</p>
+      <input type="hidden" name="into" value={props.into} />
+      <Checkbox label="確認しました" name="confirm" value="yes" />
+      <button type="submit" class="btn danger">
+        統合する
+      </button>
+    </form>
+  </div>
 )

@@ -21,6 +21,8 @@ const allowed = new Set([
   'src/db/scoped.ts',
   'src/db/counts.ts',
   'src/auth/account.ts',
+  // 統合時の FK 付け替え（UPDATE / DELETE のみ。行を SELECT しない）
+  'src/db/merge.ts',
   // drizzle に schema 全体を渡すため import * as schema が要る
   'src/db/client.ts',
 ])
