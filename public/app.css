@@ -22,7 +22,7 @@
   --info: #1c1c1c;
   --warn: #1c1c1c;
   --sans: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
-  --hand: "Klee One", "Noto Sans JP", serif;
+  --hand: "Klee One", "Noto Sans JP", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
 }
@@ -93,9 +93,9 @@ a {
 .top h1,
 .top h2 {
   margin: 0;
-  font-family: var(--hand);
+  font-family: var(--sans);
   font-size: 28px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.04em;
 }
 .sub {
@@ -696,9 +696,9 @@ button.gtag.on {
 }
 .sheet h3 {
   margin: 0;
-  font-family: var(--hand);
+  font-family: var(--sans);
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 700;
 }
 .pick {
   display: flex;
@@ -899,9 +899,9 @@ button.gtag.on {
   gap: 18px;
 }
 .login h1 {
-  font-family: var(--hand);
+  font-family: var(--sans);
   font-size: 38px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.06em;
   margin: 0;
   border-bottom: 2px solid var(--rule);
@@ -1118,9 +1118,9 @@ dialog.sheet::backdrop {
     padding: 8px 0;
   }
   .brand {
-    font-family: var(--hand);
+    font-family: var(--sans);
     font-size: 24px;
-    font-weight: 600;
+    font-weight: 700;
     border-bottom: 2px solid var(--rule);
     padding-bottom: 6px;
     margin-right: 16px;
@@ -1227,7 +1227,7 @@ dialog.sheet::backdrop {
     padding: 40px 0;
   }
   .cover .big {
-    font-family: var(--hand);
+    font-family: var(--sans);
     font-size: 22px;
     color: var(--fg);
   }

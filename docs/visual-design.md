@@ -14,7 +14,7 @@ ux-review-2.md（以下 UR2）の M1〜M6 / R1〜R14 / O1〜O7 と矛盾しな�
 | 用途 | 書体 | ウェイト | 判断 |
 |---|---|---|---|
 | 本文・ラベル・一覧・ボタン・節見出し（.sect h2） | **Noto Sans JP** | 400 / 500 / 700 | 採用。Zen Kaku Gothic New は**捨てる** |
-| ページ見出し（.top h1）・.brand・.login h1・.cover .big・.sheet h3 | **Klee One** | 600 | **残す**。ただし 20px 以上の短い見出しだけ。手帳らしさはここで持つ |
+| ページ見出し（.top h1）・.brand・.login h1・.cover .big・.sheet h3 | **Noto Sans JP** | 700 | Klee One は明朝のように見えて読みにくいので見出しにも使わない（#75） |
 | 手書きの書き込み（新設 `.pen`、§3 青ペン） | Klee One | 600 | 残す。12 字程度までの短い注記だけ |
 | 数字（日付 stub・KPI・.num・棒の値・月別・.sub の日付） | **IBM Plex Mono** | 500 / 600 | **残す**。桁揃えのため。数字以外（ラベル・「記録」など）には使わない |
 
