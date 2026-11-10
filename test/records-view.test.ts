@@ -200,7 +200,10 @@ describe('GET /records/:id', () => {
     expect(res.status).toBe(200)
     const h = await res.text()
     expect(h).toContain('閲覧テストの謎')
-    expect(h).toContain('class="chip st-cleared"')
+    // 結果の行: 大きい印と、一覧と同じ displayOn の日付（蛍光ペン）。作成直後でなければハンコは無い
+    expect(h).toContain('<span class="chip lg st-cleared">クリア</span>')
+    expect(h).toContain('<span class="res-date hl">2026.10.01</span>')
+    expect(h).not.toContain('stamp')
     expect(h).toContain(`href="/works/${ids.work}"`)
     expect(h).toContain('ルーム · 閲覧テスト団 · 大阪府')
     expect(h).toContain(`href="/records/${ids.cleared}/spoiler"`)
@@ -224,7 +227,9 @@ describe('GET /records/:id', () => {
 
   it('?saved=1 で「保存しました」', async () => {
     const h = await (await get(`/records/${ids.purchased}?saved=1`)).text()
-    expect(h).toContain('<p class="note" role="status">保存しました</p>')
+    expect(h).toContain(
+      '<p class="note" role="status"><span class="hl draw saved">保存しました</span></p>',
+    )
   })
 
   it('ログイン中の /records/* は Cache-Control: private, no-store', async () => {
@@ -235,7 +240,8 @@ describe('GET /records/:id', () => {
 
   it('?created=1 で保存の案内', async () => {
     const h = await (await get(`/records/${ids.purchased}?created=1`)).text()
-    expect(h).toContain('保存しました。日付・同行者・評価も足せます')
+    expect(h).toContain('<span class="hl draw">保存しました。日付・同行者・評価も足せます</span>')
+    expect(h).toContain('<span class="chip lg st-purchased stamp">買った</span>')
     expect(h).toContain('<b>–/5</b>')
   })
 

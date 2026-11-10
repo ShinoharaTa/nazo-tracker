@@ -465,14 +465,14 @@ export const RecordDetail = ({
       />
       {created ? (
         <div class="hint" role="status">
-          <span>保存しました。日付・同行者・評価も足せます</span>
+          <span class="hl draw">保存しました。日付・同行者・評価も足せます</span>
           <a class="btn" href={`/records/${a.id}/edit`}>
             足す
           </a>
         </div>
       ) : saved ? (
         <p class="note" role="status">
-          保存しました
+          <span class="hl draw saved">保存しました</span>
         </p>
       ) : null}
       <div class="card">
@@ -484,12 +484,18 @@ export const RecordDetail = ({
             {a.work.title}
           </span>
         </div>
-        <div class="row" style="justify-content:flex-start">
-          <StatusChip status={a.status} />
-          {a.attemptNo >= 2 ? <span class="note">{a.attemptNo}回目</span> : null}
-          {latest ? (
-            <span class="note">
-              {[latest.progressNote, `${a.sessionCount} 日目`].filter(Boolean).join(' · ')}
+        <div class="res">
+          <StatusChip status={a.status} size="lg" stamp={!!created} />
+          {a.displayOn ? <span class="res-date hl">{a.displayOn.replaceAll('-', '.')}</span> : null}
+          {a.attemptNo >= 2 || latest ? (
+            <span class="pen">
+              {[
+                a.attemptNo >= 2 ? `${a.attemptNo}回目` : null,
+                latest?.progressNote,
+                latest ? `${a.sessionCount} 日目` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </span>
           ) : null}
         </div>

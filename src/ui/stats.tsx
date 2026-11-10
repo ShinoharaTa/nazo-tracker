@@ -56,14 +56,15 @@ export const StatsPage = (p: StatsPageProps) => {
       <Kpis
         items={[
           {
+            label: '成功率',
+            hero: true,
+            value: pct(summary.rate),
+            note: `作品ベース ${pct(summary.rateByWork)}`,
+          },
+          {
             label: 'プレイ',
             value: summary.played,
             note: `クリア ${summary.cleared} / 失敗 ${summary.failed} / 断念 ${summary.dropped}`,
-          },
-          {
-            label: '成功率',
-            value: pct(summary.rate),
-            note: `作品ベース ${pct(summary.rateByWork)}`,
           },
           { label: '積み謎', value: summary.backlog, note: '買った・進行中' },
         ]}

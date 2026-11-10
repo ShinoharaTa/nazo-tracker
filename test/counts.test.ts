@@ -168,27 +168,25 @@ describe('人数の表示', () => {
 
   it('/works/:id: 4 人はそのまま「4 人」', async () => {
     const page = await html(`/works/${ids.four}`)
-    expect(page).toMatch(/<span>プレイ済み<\/span><b>4 人<\/b>/)
-    // マイリストは 0 なので .num が 1 つだけ
-    expect(page.match(/class="num"/g)?.length).toBe(1)
+    // マイリストは 0 なので出さない
+    expect(page).toContain('<p class="work-nums">プレイ済み 4 人</p>')
     expect(page).not.toContain('まだ記録はありません')
   })
 
-  it('/works/:id: 両方 0 なら「まだ記録はありません」で .nums を出さない', async () => {
+  it('/works/:id: 両方 0 なら「まだ記録はありません」で .work-nums を出さない', async () => {
     const page = await html(`/works/${ids.none}`)
     expect(page).toContain('まだ記録はありません')
-    expect(page).not.toContain('class="nums"')
+    expect(page).not.toContain('class="work-nums"')
   })
 
-  it('/works/:id: マイリストだけの作品は .num がマイリストの 1 つ', async () => {
+  it('/works/:id: マイリストだけの作品はマイリストだけを出す', async () => {
     const page = await html(`/works/${ids.wishOnly}`)
-    expect(page.match(/class="num"/g)?.length).toBe(1)
-    expect(page).toMatch(/<span>マイリスト<\/span><b>1 人<\/b>/)
+    expect(page).toContain('<p class="work-nums">マイリスト 1 人</p>')
   })
 
   it('/works/:id: 5 人ちょうどは実数で「5 人」', async () => {
     const page = await html(`/works/${ids.five}`)
-    expect(page).toMatch(/<span>プレイ済み<\/span><b>5 人<\/b>/)
+    expect(page).toContain('<p class="work-nums">プレイ済み 5 人</p>')
     const list = await html(`/works?q=${encodeURIComponent('ちょうど 5 人')}`)
     expect(ticketOf(list, ids.five)).toContain('<span class="chip">プレイ済み 5 人</span>')
   })
@@ -203,9 +201,9 @@ describe('人数の表示', () => {
 
   it('/works/:id の人数表示はログインの有無で変わらない', async () => {
     const { cookie } = await loginAs(env, { subject: 'counts-viewer' })
-    // 人数の部分（.num と「まだ記録はありません」）と一覧の chip
+    // 人数の部分（.work-nums と「まだ記録はありません」）と一覧の chip
     const countsPart = (page: string) => [
-      ...(page.match(/<div class="num"><span>[^<]*<\/span><b>[^<]*<\/b><\/div>/g) ?? []),
+      ...(page.match(/<p class="work-nums">[^<]*<\/p>/g) ?? []),
       ...(page.match(/<p class="note">まだ記録はありません<\/p>/g) ?? []),
       ...(page.match(/<span class="chip">プレイ済み [^<]*<\/span>/g) ?? []),
     ]

@@ -13,17 +13,23 @@
   --muted: #6b6a66;
   --accent: #1c1c1c;
   --accent-ink: #fffefa;
-  --danger: #1c1c1c;
+  --danger: var(--pen-red);
+  /* ペン: 蛍光ペン（意味は持たせない）・赤ペン（失敗・期限・戻せない操作）・青ペン（文字リンク・手書きの注記） */
+  --hl: #ffe45c;
+  --pen-red: #b4302a;
+  --pen-blue: #1f4fa3;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --info: #1c1c1c;
   --warn: #1c1c1c;
-  --sans: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif;
-  --hand: "Klee One", "Zen Kaku Gothic New", serif;
+  --sans: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  --hand: "Klee One", "Noto Sans JP", serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
 }
 html,
 body {
   height: 100%;
+  font-variant-numeric: tabular-nums;
 }
 body {
   margin: 0;
@@ -88,7 +94,7 @@ a {
 .top h2 {
   margin: 0;
   font-family: var(--hand);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -161,16 +167,16 @@ a {
 }
 .stub .m {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .stub .d {
   font-family: var(--mono);
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 500;
 }
 .stub .nd {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   text-align: center;
   line-height: 1.3;
@@ -192,7 +198,7 @@ a {
   gap: 8px;
 }
 .meta {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -200,9 +206,10 @@ a {
   min-width: 0;
 }
 .title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 26px;
+  font-feature-settings: "palt";
 }
 /* list: cut long titles at 2 lines; detail pages show the full title */
 .ticket .title {
@@ -239,6 +246,8 @@ a {
   border-style: double;
   border-width: 3px;
   padding: 1px 6px;
+  border-color: var(--pen-red);
+  color: var(--pen-red);
 }
 .st-dropped {
   border-color: var(--muted);
@@ -346,7 +355,7 @@ nav.bn a.on::before {
   font-weight: 700;
 }
 .note {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.6;
 }
@@ -368,9 +377,9 @@ nav.bn a.on::before {
 }
 .sect h2 {
   margin: 0;
-  font-family: var(--hand);
-  font-size: 16px;
-  font-weight: 600;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
   color: var(--fg);
   padding-bottom: 2px;
   border-bottom: 1px dashed var(--line);
@@ -404,12 +413,12 @@ nav.bn a.on::before {
 }
 .num span {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .num b {
   font-family: var(--mono);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
 }
 .btn {
@@ -430,6 +439,8 @@ nav.bn a.on::before {
 }
 .btn.danger {
   border-style: dashed;
+  color: var(--pen-red);
+  border-color: var(--pen-red);
 }
 .btns {
   display: flex;
@@ -549,7 +560,7 @@ button.gtag.on {
   display: flex;
   align-items: flex-end;
   padding: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .ph.sp {
@@ -763,7 +774,8 @@ button.gtag.on {
   gap: 3px;
   height: 100%;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.2;
   color: var(--muted);
 }
 .col i {
@@ -786,12 +798,12 @@ button.gtag.on {
 }
 .kpi span {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .kpi b {
   font-family: var(--mono);
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 600;
 }
 .switch {
@@ -897,7 +909,7 @@ button.gtag.on {
 }
 .proto {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 2px;
@@ -953,9 +965,9 @@ a.ticket {
 }
 /* 戻る版 TopBar の見出し（h1.sub）は .sub と同じ見た目にする */
 .top h1.sub {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 400;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
   letter-spacing: normal;
   color: var(--muted);
 }
@@ -1031,7 +1043,7 @@ input.sw:disabled {
 /* SpoilerCard: 本文は public/app.js が表示操作時に取得して .spoil-body に入れる */
 .spoil-title {
   margin: 0;
-  color: var(--danger);
+  color: var(--pen-red);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1249,5 +1261,145 @@ dialog.sheet::backdrop {
   }
   .toast {
     bottom: 40px;
+  }
+}
+
+/* ===== ペンと重心 ===== */
+/* 蛍光ペン: 字の下に引く。意味は持たせず、muted の字には引かない（AA を切る） */
+.hl {
+  background: linear-gradient(transparent 58%, var(--hl) 58%, var(--hl) 94%, transparent 94%)
+    no-repeat;
+  background-size: 100% 100%;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.hl {
+  padding-inline: 0.12em;
+}
+/* .note（muted）の中の「保存しました」は字を --fg にしてから引く */
+.hl.saved {
+  color: var(--fg);
+}
+/* 青ペン: 枠の無い文字リンクは青＋下線（メニューの a は除く） */
+a:not([class]):not(nav a, .menu > a),
+a.meta,
+.kv a,
+.card a:not(.btn) {
+  color: var(--pen-blue);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* 手書きの注記。下線なしでリンクと形を分ける */
+.pen {
+  font-family: var(--hand);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--pen-blue);
+}
+.chip.lg {
+  font-size: 15px;
+  padding: 4px 12px;
+}
+/* 記録詳細の結果の行: ステータス・日付・注記 */
+.res {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.res-date {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+}
+/* 統計の主役（成功率） */
+.kpis:has(.kpi.hero) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.kpi.hero {
+  grid-column: 1 / -1;
+}
+.kpi.hero b {
+  font-size: 40px;
+  line-height: 1.1;
+}
+.kpi.hero b .hl {
+  display: inline;
+  padding-inline: 0;
+  font-size: inherit;
+  color: inherit;
+}
+.work-nums {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+/* 押すと沈む・保存直後の蛍光ペン・ステータスのハンコ */
+.btn,
+.fab,
+.fchip,
+.seg label,
+.gtag,
+.ticket {
+  transition: transform 140ms var(--ease-out);
+}
+.btn:active,
+.fab:active,
+.fchip:active,
+.seg label:active,
+.gtag:active {
+  transform: scale(0.97);
+}
+.ticket:active {
+  transform: scale(0.99);
+}
+.hl.draw {
+  background-size: 0% 100%;
+  animation: hl-draw 260ms var(--ease-out) 120ms forwards;
+}
+@keyframes hl-draw {
+  to {
+    background-size: 100% 100%;
+  }
+}
+.chip.stamp {
+  animation: stamp 180ms var(--ease-out);
+}
+@keyframes stamp {
+  from {
+    transform: scale(1.12) rotate(-4deg);
+    opacity: 0.5;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .fab,
+  .fchip,
+  .seg label,
+  .gtag,
+  .ticket {
+    transition: none;
+  }
+  .btn:active,
+  .fab:active,
+  .fchip:active,
+  .seg label:active,
+  .gtag:active,
+  .ticket:active {
+    transform: none;
+  }
+  .hl.draw {
+    animation: none;
+    background-size: 100% 100%;
+  }
+  .chip.stamp {
+    animation: none;
   }
 }

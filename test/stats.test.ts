@@ -257,9 +257,10 @@ describe('GET /stats', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('cache-control')).toBe('private, no-store')
     const html = await res.text()
-    expect(html.match(/class="kpi"/g)).toHaveLength(3)
+    expect(html.match(/class="kpi"/g)).toHaveLength(2)
+    expect(html.match(/class="kpi hero"/g)).toHaveLength(1)
     expect(html).toContain('<b>4</b><span>クリア 3 / 失敗 1 / 断念 1</span>')
-    expect(html).toContain('<b>75%</b><span>作品ベース 75%</span>')
+    expect(html).toContain('<b><span class="hl">75%</span></b><span>作品ベース 75%</span>')
     expect(html).toContain('<b>1</b><span>買った・進行中</span>')
     expect(html).toContain('<a class="fchip on" href="/stats" aria-current="page">断念を除く</a>')
     expect(html).toMatch(barOf('論理', '100% · 1/1'))
@@ -274,7 +275,7 @@ describe('GET /stats', () => {
 
   it('?drop=fail は 60%、chip が「断念を失敗に含める」', async () => {
     const html = await (await get('/stats?drop=fail')).text()
-    expect(html).toContain('<b>60%</b>')
+    expect(html).toContain('<b><span class="hl">60%</span></b>')
     expect(html).toContain(
       '<a class="fchip on" href="/stats?drop=fail" aria-current="page">断念を失敗に含める</a>',
     )
@@ -296,7 +297,7 @@ describe('GET /stats', () => {
   it('bob は bob の数字（alice の記録が混ざらない）', async () => {
     const html = await (await get('/stats', bob.cookie)).text()
     expect(html).toContain('<b>6</b><span>クリア 0 / 失敗 6 / 断念 0</span>')
-    expect(html).toContain('<b>0%</b>')
+    expect(html).toContain('<b><span class="hl">0%</span></b>')
     expect(html).toContain('1 件 · うちプレイ済み 1 件')
     // alice の難易度・ジャンル・形式が混ざらない
     expect(html).toMatch(barOf('★3', '—'))

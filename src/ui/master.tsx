@@ -193,16 +193,7 @@ const WorkNums = ({ counts }: { counts: WorkCounts }) => {
     { label: 'マイリスト', value: countLabel(counts.wish) },
   ].filter((n) => n.value !== null)
   if (!nums.length) return <p class="note">まだ記録はありません</p>
-  return (
-    <div class="nums">
-      {nums.map((n) => (
-        <div class="num">
-          <span>{n.label}</span>
-          <b>{n.value}</b>
-        </div>
-      ))}
-    </div>
-  )
+  return <p class="work-nums">{nums.map((n) => `${n.label} ${n.value}`).join(' · ')}</p>
 }
 
 // editHref / runEditHref はオーナーのときだけ（作品と各回の「編集」）

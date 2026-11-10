@@ -58,8 +58,19 @@ export const Ticket = (props: {
   </a>
 )
 
-export const StatusChip = ({ status }: { status: AttemptStatus }) => (
-  <span class={`chip st-${status}`}>{attemptStatusLabels[status]}</span>
+// size="lg" は記録詳細の結果の行。stamp は作成直後のハンコの演出
+export const StatusChip = ({
+  status,
+  size,
+  stamp,
+}: {
+  status: AttemptStatus
+  size?: 'lg'
+  stamp?: boolean
+}) => (
+  <span class={['chip', size, `st-${status}`, stamp ? 'stamp' : null].filter(Boolean).join(' ')}>
+    {attemptStatusLabels[status]}
+  </span>
 )
 
 // YYYY-MM-DD を「年.月」と「日」に分けて出す
@@ -309,13 +320,13 @@ export const MenuItem = (props: {
 }
 
 export const Kpis = (props: {
-  items: readonly { label: string; value: Child; note?: string }[]
+  items: readonly { label: string; value: Child; note?: string; hero?: boolean }[]
 }) => (
   <div class="kpis">
     {props.items.map((k) => (
-      <div class="kpi">
+      <div class={k.hero ? 'kpi hero' : 'kpi'}>
         <span>{k.label}</span>
-        <b>{k.value}</b>
+        <b>{k.hero ? <span class="hl">{k.value}</span> : k.value}</b>
         {k.note ? <span>{k.note}</span> : null}
       </div>
     ))}
