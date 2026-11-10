@@ -204,6 +204,14 @@ a {
   font-weight: 700;
   line-height: 1.4;
 }
+/* list: cut long titles at 2 lines; detail pages show the full title */
+.ticket .title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 /* status = stamp; distinguished by line style */
 .chip {
   flex-shrink: 0;
@@ -214,6 +222,8 @@ a {
   border: 1.5px solid var(--fg);
   background: transparent;
   color: var(--fg);
+  min-width: 4.5em;
+  text-align: center;
 }
 .st-cleared {
   background: var(--fg);
@@ -428,6 +438,17 @@ nav.bn a.on::before {
 }
 .btns .btn {
   flex: 1 1 140px;
+}
+/* wishlist row: ticket + remove button side by side */
+.wrow > .ticket {
+  flex: 1;
+  min-width: 0;
+}
+.wrow > form {
+  flex-shrink: 0;
+}
+.wrow .btn {
+  white-space: nowrap;
 }
 .seg {
   display: grid;
@@ -1075,7 +1096,7 @@ dialog.sheet::backdrop {
     grid-template-columns: 176px minmax(0, 1fr);
   }
   nav.bn,
-  .fab {
+  a.fab {
     display: none;
   }
   .side {
@@ -1173,9 +1194,11 @@ dialog.sheet::backdrop {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 64px;
     align-content: start;
+    grid-auto-rows: max-content;
   }
   .book.one .pane-l > .top,
   .book.one .pane-l > .kpis,
+  .book.one .pane-l > .chips,
   .book.one .pane-l > .switch,
   .book.one .pane-l > .note {
     grid-column: 1 / -1;
