@@ -135,6 +135,8 @@ export type OwnRepo = {
   }): Promise<string>
   // status IN (cleared, failed) の件数
   playedCount(): Promise<number>
+  // 匿名人数（src/db/counts.ts）から自分を外すか。true で exclude_from_counts = 1
+  setExcludeFromCounts(exclude: boolean): Promise<void>
   // マイリスト。created_at DESC。unplayed は記録が 1 件も無い作品だけ。50 件ずつ
   listWishlist(opts: {
     unplayed: boolean
@@ -363,6 +365,14 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .where(and(eq(attempt.userId, viewerId), inArray(attempt.status, [...playedStatuses])))
       .get()
     return row?.n ?? 0
+  },
+
+  // WHERE は viewerId 固定
+  async setExcludeFromCounts(exclude) {
+    await db
+      .update(user)
+      .set({ excludeFromCounts: exclude ? 1 : 0 })
+      .where(eq(user.id, viewerId))
   },
 
   // 統合済みの作品も JOIN 条件で落とさない（統合で付け替わる前提だが、出しておく）
