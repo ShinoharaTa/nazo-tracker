@@ -1,6 +1,5 @@
 // 本人の統計（/stats）。集計は src/lib/stats.ts。JS は使わず、断念の扱いと年は GET パラメータで切り替える
 
-import type { GenreRow } from '../db/master'
 import { workKinds } from '../db/schema'
 import type { Stats } from '../lib/stats'
 import { Bars, Empty, Kpis, MonthCols, TopBar } from './components'
@@ -13,7 +12,6 @@ export type StatsPageProps = {
   thisYear: number
   minYear: number
   capped: boolean
-  genres: readonly GenreRow[]
   wishlist: { total: number; played: number }
 }
 
@@ -30,7 +28,6 @@ const statsHref = (p: { dropAsFail: boolean; year: number; thisYear: number }) =
 
 export const StatsPage = (p: StatsPageProps) => {
   const { summary } = p.stats
-  const genreLabel = new Map(p.genres.map((g) => [g.id, g.label]))
   // 形式は workKinds の順、未設定は最後
   const kindOrder = (k: (typeof p.stats.byKind)[number]['kind']) =>
     k === null ? workKinds.length : workKinds.indexOf(k)
@@ -78,12 +75,7 @@ export const StatsPage = (p: StatsPageProps) => {
       <div class="sect">
         <h2>ジャンル別の成功率</h2>
         {p.stats.byGenre.length ? (
-          <Bars
-            items={p.stats.byGenre.map((g) => ({
-              ...g,
-              label: genreLabel.get(g.genreId) ?? g.genreId,
-            }))}
-          />
+          <Bars items={p.stats.byGenre} />
         ) : (
           <Empty>まだデータがありません。</Empty>
         )}

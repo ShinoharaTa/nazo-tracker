@@ -288,8 +288,12 @@ ui.get('/stats', async (c) => {
     own.statsRows(),
     own.wishlistSummary(),
   ])
-  const stats = computeStats(rows, genres, { dropAsFail, year })
-  const genreRows = await listGenres(db, { includeIds: stats.byGenre.map((g) => g.genreId) })
+  // ラベルは並び順（同率・同数ならラベル順）にも使うので集計の前に引く。archived のジャンルも出す
+  const genreRows = await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
+  const stats = computeStats(rows, genres, new Map(genreRows.map((g) => [g.id, g.label])), {
+    dropAsFail,
+    year,
+  })
   c.header('Cache-Control', 'private, no-store')
   return c.html(
     <Layout
@@ -304,7 +308,6 @@ ui.get('/stats', async (c) => {
           thisYear={thisYear}
           minYear={STATS_MIN_YEAR}
           capped={capped}
-          genres={genreRows}
           wishlist={wishlist}
         />
       }

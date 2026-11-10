@@ -344,7 +344,7 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 | 挑戦数 | attempt のうち status ∈ {cleared, failed, dropped} |
 | クリア数 / 失敗数 / 断念数 | status 別 |
 | 成功率（挑戦ベース） | cleared / (cleared + failed)。トグル「断念を失敗に含める」 |
-| 成功率（作品ベース） | work ごとの最新 attempt で同上 |
+| 成功率（作品ベース） | work ごとの代表 attempt で同上。代表は結果（cleared / failed / dropped）が付いた attempt のうち attempt_no 最大（同値なら created_at 最大）。最新が買った・進行中ならその前の結果を使い、結果が 1 件も無い work は分母に入れない |
 | 進行中 / 買った（積み謎） | status = in_progress / purchased |
 | 月別・年別件数 | finished_on（NULL なら started_on、さらに NULL なら created_at）の年月 |
 | 形式別・団体別・会場/都道府県別 | work.kind / run.organization_id → work.primary_organization_id / venue.prefecture |

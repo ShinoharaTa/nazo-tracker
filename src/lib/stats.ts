@@ -19,7 +19,7 @@ export type StatsSummary = {
   dropped: number
   // 0〜1。分母が 0 なら null
   rate: number | null
-  // 作品ごとの最新の記録（attempt_no 最大、同値なら created_at 最大）だけで同じ式
+  // 作品ごとの代表（結果が付いた記録のうち attempt_no 最大、同値なら created_at 最大）だけで同じ式
   rateByWork: number | null
   backlog: number
 }
@@ -28,8 +28,8 @@ export type Stats = {
   summary: StatsSummary
   // 難易度 1〜5 の 5 行固定（difficulty NULL は除外）
   byDifficulty: (RateRow & { label: string })[]
-  // total ≥ 1 のみ。成功率 DESC, total DESC
-  byGenre: (RateRow & { genreId: string })[]
+  // total ≥ 1 のみ。成功率 DESC, total DESC, ラベル ASC
+  byGenre: (RateRow & { genreId: string; label: string })[]
   // total ≥ 1 のみ。kind は NULL（形式未設定）を含む
   byKind: (RateRow & { kind: Kind })[]
   // 1〜12 月の参加数（クリア・失敗・断念）
@@ -56,10 +56,12 @@ const rateOf = (rows: readonly OwnAttemptRow[], dropAsFail: boolean): RateRow =>
 
 const ratio = ({ total, cleared }: RateRow): number | null => (total ? cleared / total : null)
 
-// 作品ごとの最新の記録
+// 作品ごとの代表 = 結果（クリア・失敗・断念）が付いた記録のうち attempt_no 最大（同値なら created_at 最大）。
+// 最新が買った・進行中ならその前の結果を使い、結果が 1 件も無い作品は含めない
 const latestPerWork = (rows: readonly OwnAttemptRow[]): OwnAttemptRow[] => {
   const latest = new Map<string, OwnAttemptRow>()
   for (const r of rows) {
+    if (!isAttempted(r.status)) continue
     const cur = latest.get(r.workId)
     if (
       !cur ||
@@ -99,12 +101,14 @@ export const byDifficulty = (
     ),
   }))
 
-// genres に rows に無い記録が混じっていても無視する（上限で切った分など）
+// genres に rows に無い記録が混じっていても無視する（上限で切った分など）。
+// labels は genre.id → 表示名（無い id は id のまま）
 export const byGenre = (
   rows: readonly OwnAttemptRow[],
   genres: readonly { attemptId: string; genreId: string }[],
+  labels: ReadonlyMap<string, string>,
   dropAsFail: boolean,
-): (RateRow & { genreId: string })[] => {
+): (RateRow & { genreId: string; label: string })[] => {
   const byId = new Map(rows.map((r) => [r.id, r]))
   const grouped = new Map<string, OwnAttemptRow[]>()
   for (const g of genres) {
@@ -115,9 +119,18 @@ export const byGenre = (
     grouped.set(g.genreId, list)
   }
   return [...grouped]
-    .map(([genreId, list]) => ({ genreId, ...rateOf(list, dropAsFail) }))
+    .map(([genreId, list]) => ({
+      genreId,
+      label: labels.get(genreId) ?? genreId,
+      ...rateOf(list, dropAsFail),
+    }))
     .filter((g) => g.total >= 1)
-    .sort((a, b) => b.cleared / b.total - a.cleared / a.total || b.total - a.total)
+    .sort(
+      (a, b) =>
+        b.cleared / b.total - a.cleared / a.total ||
+        b.total - a.total ||
+        (a.label < b.label ? -1 : a.label > b.label ? 1 : 0),
+    )
 }
 
 // 並びは最初に現れた順（呼び出し側で並べ替える）
@@ -136,14 +149,14 @@ export const byKind = (
     .filter((k) => k.total >= 1)
 }
 
-// 月は COALESCE(finished_on, started_on, created_at の JST 日付) の年月
+// 月は COALESCE(finished_on, started_on, created_at の JST 日付) の年月。日付が取れない行は数えない
 export const monthly = (rows: readonly OwnAttemptRow[], year: number): number[] => {
   const counts = Array.from({ length: 12 }, () => 0)
   const prefix = `${year}-`
   for (const r of rows) {
     if (!isAttempted(r.status)) continue
     const on = r.finishedOn ?? r.startedOn ?? isoToJstDate(r.createdAt)
-    if (!on.startsWith(prefix)) continue
+    if (!on?.startsWith(prefix)) continue
     const m = Number(on.slice(5, 7))
     if (m >= 1 && m <= 12) counts[m - 1]++
   }
@@ -153,11 +166,12 @@ export const monthly = (rows: readonly OwnAttemptRow[], year: number): number[] 
 export const computeStats = (
   rows: readonly OwnAttemptRow[],
   genres: readonly { attemptId: string; genreId: string }[],
+  genreLabels: ReadonlyMap<string, string>,
   { dropAsFail, year }: StatsOptions,
 ): Stats => ({
   summary: summarize(rows, dropAsFail),
   byDifficulty: byDifficulty(rows, dropAsFail),
-  byGenre: byGenre(rows, genres, dropAsFail),
+  byGenre: byGenre(rows, genres, genreLabels, dropAsFail),
   byKind: byKind(rows, dropAsFail),
   monthly: monthly(rows, year),
 })
