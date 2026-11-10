@@ -1,17 +1,13 @@
 // 作品ごとの匿名人数（docs/design.md §6.5、data-model.md §6「匿名の人数」）。
-// 生の COUNT はこのファイルの外に出さない。返すのは bucket() を通した Bucket だけで、user_id や行は返さない。
+// 返すのは作品ごとの人数（実数）だけで、user_id や行は返さない。
 // exclude_from_counts = 1 のユーザーと退会済み（deleted_at）のユーザーは数えない。
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Db } from './client'
 import { attempt, user, wishlist } from './schema'
 
-// number は 5 以上の実数。1〜4 は 'few'（少数）、0 は 'none'
-export type Bucket = 'none' | 'few' | number
-
-export const bucket = (n: number): Bucket => (n <= 0 ? 'none' : n < 5 ? 'few' : n)
-
-export type WorkCounts = { played: Bucket; wish: Bucket }
+// 人数は 0 以上の整数
+export type WorkCounts = { played: number; wish: number }
 
 // D1 のバインド変数は 1 文 100 個まで。IN (...) はこの件数ずつに分ける（master.ts と同じ）
 const IN_CHUNK = 90
@@ -41,7 +37,7 @@ const wishUsers = (db: Db, workIds: string[]) =>
     .where(and(inArray(wishlist.workId, workIds), counted()))
     .groupBy(wishlist.workId)
 
-// 無い id・数える人がいない作品は { none, none }
+// 無い id・数える人がいない作品は { 0, 0 }
 export const countsFor = async (db: Db, workIds: string[]): Promise<Map<string, WorkCounts>> => {
   const ids = [...new Set(workIds)]
   const played = new Map<string, number>()
@@ -54,7 +50,7 @@ export const countsFor = async (db: Db, workIds: string[]): Promise<Map<string, 
   }
   const out = new Map<string, WorkCounts>()
   for (const id of ids) {
-    out.set(id, { played: bucket(played.get(id) ?? 0), wish: bucket(wish.get(id) ?? 0) })
+    out.set(id, { played: played.get(id) ?? 0, wish: wish.get(id) ?? 0 })
   }
   return out
 }
