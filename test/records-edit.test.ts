@@ -1,10 +1,12 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { createDb } from '../src/db/client'
+import { type AttemptPatch, scopedTo } from '../src/db/scoped'
 import app from '../src/index'
 import { todayJst } from '../src/lib/time'
 import { loginAs, ORIGIN } from './helpers/auth'
 import { insertRun, insertVenue, insertWork } from './helpers/master'
-import { insertAttempt, insertGenre, insertSession } from './helpers/records'
+import { insertAttempt, insertGenre, insertImage, insertSession } from './helpers/records'
 
 const SPOILER = '答えは「あさがお」。'
 
@@ -243,6 +245,92 @@ describe('詳しい編集 /records/:id/edit', () => {
     expect(r).toMatchObject({ status: 'in_progress', memo: 'alice のメモ' })
     expect(await genresOf(id)).toEqual([])
   })
+
+  it('Origin が別オリジンの POST → 403、行は不変', async () => {
+    const id = await insertAttempt(env, {
+      userId: alice.userId,
+      workId: ids.work,
+      status: 'in_progress',
+      memo: '元のメモ',
+    })
+    const res = await app.request(
+      `/records/${id}/edit`,
+      {
+        method: 'POST',
+        headers: {
+          Origin: 'https://evil.example',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: alice.cookie,
+        },
+        body: new URLSearchParams(fullEdit()).toString(),
+      },
+      env,
+    )
+    expect(res.status).toBe(403)
+    expect(await rowOf(id)).toMatchObject({ status: 'in_progress', memo: '元のメモ' })
+    expect(await genresOf(id)).toEqual([])
+  })
+
+  it('今の run_id が作品の回に無くても選択肢に出し、そのまま保存できる', async () => {
+    const id = await insertAttempt(env, {
+      userId: alice.userId,
+      workId: ids.work,
+      status: 'cleared',
+      runId: ids.otherRun,
+    })
+    const html = await (await get(`/records/${id}/edit`)).text()
+    expect(html).toContain(`<option value="${ids.otherRun}" selected="">`)
+    const res = await post(`/records/${id}/edit`, fullEdit({ run_id: ids.otherRun }))
+    expect(res.status).toBe(302)
+    expect((await rowOf(id))?.run_id).toBe(ids.otherRun)
+  })
+})
+
+describe('own().updateAttempt', () => {
+  const db = createDb(env.DB)
+  const patch: AttemptPatch = {
+    status: 'cleared',
+    runId: null,
+    purchasedOn: null,
+    startedOn: null,
+    finishedOn: null,
+    durationSec: null,
+    partySize: null,
+    companions: null,
+    rating: null,
+    difficulty: null,
+    volume: null,
+    memo: '書き換え',
+  }
+
+  it('別経路で削除済みの記録 → false（FK で落ちない）、attempt_genre も作らない', async () => {
+    const id = await insertAttempt(env, {
+      userId: alice.userId,
+      workId: ids.work,
+      status: 'in_progress',
+    })
+    await env.DB.prepare('DELETE FROM attempt WHERE id = ?').bind(id).run()
+    const ok = await scopedTo(db, alice.userId)
+      .own()
+      .updateAttempt(id, patch, ['g_logic', 'g_coop'])
+    expect(ok).toBe(false)
+    expect(await countOf('attempt', id)).toBe(0)
+    expect(await genresOf(id)).toEqual([])
+  })
+
+  it('他人の記録 → false、行も attempt_genre も不変', async () => {
+    const id = await insertAttempt(env, {
+      userId: alice.userId,
+      workId: ids.work,
+      status: 'in_progress',
+      memo: 'alice のメモ',
+    })
+    await insertGenre(env, id, alice.userId, 'g_story')
+    const ok = await scopedTo(db, bob.userId).own().updateAttempt(id, patch, ['g_logic'])
+    expect(ok).toBe(false)
+    expect(await rowOf(id)).toMatchObject({ status: 'in_progress', memo: 'alice のメモ' })
+    expect(await genresOf(id)).toEqual([{ genre_id: 'g_story', user_id: alice.userId }])
+  })
 })
 
 describe('ステータス変更 /records/:id/status', () => {
@@ -322,15 +410,18 @@ describe('ステータス変更 /records/:id/status', () => {
     })
   })
 
-  it('status 無し / 不正な日付 → 400 で詳細を再描画、行は不変', async () => {
+  it('status 無し / 不正な日付 → 400 で詳細を再描画（ネタバレ本文は出さない）、行は不変', async () => {
     const id = await insertAttempt(env, {
       userId: alice.userId,
       workId: ids.work,
       status: 'in_progress',
+      spoilerMemo: SPOILER,
     })
     const res = await setStatus(id, '')
     expect(res.status).toBe(400)
-    expect(await res.text()).toContain('ステータスを選んでください。')
+    const html = await res.text()
+    expect(html).toContain('ステータスを選んでください。')
+    expect(html).not.toContain(SPOILER)
     const res2 = await setStatus(id, 'cleared', '2026-13-01')
     expect(res2.status).toBe(400)
     expect(await res2.text()).toMatch(
@@ -450,6 +541,15 @@ describe('削除 /records/:id/delete', () => {
     expect(await countOf('session', id)).toBe(0)
     expect(await countOf('attempt_genre', id)).toBe(0)
     expect((await get(`/records/${id}`)).status).toBe(404)
+  })
+
+  it('image 行のある記録の削除 → image も 0 行', async () => {
+    const id = await withChildren()
+    await insertImage(env, id, alice.userId)
+    const res = await post(`/records/${id}/delete`, [['confirm', 'yes']])
+    expect(res.status).toBe(302)
+    expect(await countOf('image', id)).toBe(0)
+    expect(await countOf('attempt', id)).toBe(0)
   })
 
   it('confirm 無し → 400、行は残る', async () => {

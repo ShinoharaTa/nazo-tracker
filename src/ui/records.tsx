@@ -362,6 +362,7 @@ export const StatusForm = ({
     <FormErrors errors={errors ?? []} />
     <StatusSeg name="status" idPrefix="status" value={statusValueOf(values.status)} />
     <Field label="日付" name="on" type="date" value={values.on} />
+    <p class="note">空にすると今の日付を残します。</p>
     <button type="submit" class="btn">
       変更
     </button>
@@ -643,7 +644,7 @@ export const RecordEditForm = (props: {
           />
         </div>
         {props.genres.length ? (
-          <fieldset class="list" style="border:none;padding:0;margin:0">
+          <fieldset class="list genres">
             <legend class="note">ジャンル</legend>
             {props.genres.map((g) => (
               <Checkbox

@@ -3,7 +3,7 @@
 
 import { type Context, Hono } from 'hono'
 import { currentUser, requireUser } from '../auth/middleware'
-import { getWork, listGenres, listWorks, type WorkDetailData } from '../db/master'
+import { getRunById, getWork, listGenres, listWorks, type WorkDetailData } from '../db/master'
 import { type OwnAttempt, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
 import { type Form, formOf } from '../lib/form'
@@ -262,7 +262,15 @@ const editOptions = async (c: Context<AppEnv>, a: OwnAttempt) => {
     getWork(db, a.workId),
     listGenres(db, { includeIds: a.genreIds }),
   ])
-  return { runs: w && 'found' in w ? w.found.runs : [], genres }
+  const runs = w && 'found' in w ? w.found.runs : []
+  // 今の run_id が作品の回に無くても選択肢に残す（無いと保存のたびに回が外れる）。
+  // a.workId が統合済みの作品だと getWork が redirect を返すので、作品の回の一覧は空になる
+  // （統合では attempt.work_id も run も統合先へ付け替わるので、通常は統合と編集が行き違ったときだけ）
+  if (a.runId && !runs.some((r) => r.id === a.runId)) {
+    const current = await getRunById(db, a.runId)
+    if (current) return { runs: [...runs, current], genres }
+  }
+  return { runs, genres }
 }
 
 const editPage = async (

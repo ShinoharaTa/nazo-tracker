@@ -406,35 +406,24 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
     return rows.length > 0
   },
 
-  // 本人の記録か先に確かめる（attempt_genre の INSERT が他人の attempt に付かないように）
+  // 事前 SELECT はしない（読んでから書くまでに消されると、無い attempt に attempt_genre を INSERT して FK で落ちる）。
+  // UPDATE の行数で本人の記録かを判定し、attempt_genre の DELETE / INSERT は本人の attempt が在るときだけ効かせる。
+  // 1 回の batch = 1 トランザクション
   async updateAttempt(id, patch, genreIds) {
-    const mine = await db
-      .select({ id: attempt.id })
-      .from(attempt)
-      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
-      .get()
-    if (!mine) return false
-    const where = and(eq(attempt.id, id), eq(attempt.userId, viewerId))
-    const clearGenres = db
-      .delete(attemptGenre)
-      .where(and(eq(attemptGenre.attemptId, id), eq(attemptGenre.userId, viewerId)))
+    const mine = sql`EXISTS (SELECT 1 FROM ${attempt} WHERE ${attempt.id} = ${id} AND ${attempt.userId} = ${viewerId})`
     const update = db
       .update(attempt)
       .set({ ...patch, updatedAt: nowIso() })
-      .where(where)
-    const ids = [...new Set(genreIds)]
-    if (ids.length === 0) {
-      await db.batch([update, clearGenres])
-    } else {
-      await db.batch([
-        update,
-        clearGenres,
-        db
-          .insert(attemptGenre)
-          .values(ids.map((genreId) => ({ attemptId: id, genreId, userId: viewerId }))),
-      ])
-    }
-    return true
+      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+      .returning({ id: attempt.id })
+    const clearGenres = db
+      .delete(attemptGenre)
+      .where(and(eq(attemptGenre.attemptId, id), eq(attemptGenre.userId, viewerId), mine))
+    const inserts = [...new Set(genreIds)].map((genreId) =>
+      db.insert(attemptGenre).select(sql`SELECT ${id}, ${genreId}, ${viewerId} WHERE ${mine}`),
+    )
+    const [updated] = await db.batch([update, clearGenres, ...inserts])
+    return updated.length > 0
   },
 
   async updateSpoilerMemo(id, text) {
