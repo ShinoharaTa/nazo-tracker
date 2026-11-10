@@ -8,10 +8,12 @@ import {
   workAliasKinds,
   workKinds,
 } from '../src/db/schema'
+import { sessionOutcomes } from '../src/db/scoped'
 import app from '../src/index'
 import {
   attemptStatusLabels,
   organizationAliasKindLabels,
+  outcomeLabels,
   runChannelLabels,
   shopKindLabels,
   workAliasKindLabels,
@@ -208,6 +210,7 @@ describe('labels', () => {
     ['workAliasKinds', workAliasKindLabels, workAliasKinds],
     ['organizationAliasKinds', organizationAliasKindLabels, organizationAliasKinds],
     ['shopKinds', shopKindLabels, shopKinds],
+    ['sessionOutcomes', outcomeLabels, sessionOutcomes],
   ] as const)('%s の全値にラベルがある', (_, labels, values) => {
     expect(Object.keys(labels).sort()).toEqual([...values].sort())
   })

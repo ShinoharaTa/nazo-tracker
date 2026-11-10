@@ -9,6 +9,7 @@ import type {
   workAliasKinds,
   workKinds,
 } from '../db/schema'
+import type { SessionOutcome } from '../db/scoped'
 
 export type WorkKind = (typeof workKinds)[number]
 export type AttemptStatus = (typeof attemptStatuses)[number]
@@ -32,6 +33,13 @@ export const attemptStatusLabels: Record<AttemptStatus, string> = {
   in_progress: '進行中',
   cleared: 'クリア',
   failed: '失敗',
+  dropped: '断念',
+}
+
+// 進行ログを足すときの結果。値の正本は src/db/scoped.ts の sessionOutcomes
+export const outcomeLabels: Record<SessionOutcome, string> = {
+  keep: '進行中のまま',
+  cleared: 'クリア',
   dropped: '断念',
 }
 

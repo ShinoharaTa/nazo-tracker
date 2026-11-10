@@ -171,7 +171,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 | in_progress | `started_on = started_on ?? on ?? today`、`finished_on = NULL` |
 | cleared / failed / dropped | `finished_on = on ?? finished_on ?? today` |
 
-同じ status に再送しても上の表どおり（日付の更新になる）。詳しい編集（`/records/:id/edit`）は日付 3 つを明示的に受け取り、この表は適用しない（入力値をそのまま保存。空は NULL）。ジャンルは attempt の UPDATE と同じ `db.batch` で attempt_genre を DELETE → INSERT する。
+新しい日付が `started_on` より前なら `started_on` をその日付に下げる（in_progress は `started_on = MIN(COALESCE(started_on, d), d)`（d = `on ?? today`）、cleared / failed / dropped は `started_on = MIN(started_on, finished_on)` で NULL は NULL のまま。進行ログの追加も同じ）。これで `started_on <= finished_on` を常に保つ。同じ status に再送しても上の表どおり（日付の更新になる）。詳しい編集（`/records/:id/edit`）は日付 3 つを明示的に受け取り、この表は適用しない（入力値をそのまま保存。空は NULL）。ジャンルは attempt の UPDATE と同じ `db.batch` で attempt_genre を DELETE → INSERT する。
 
 削除（`POST /records/:id/delete`、確認チェック付き）は `db.batch` で image → session → attempt_genre → attempt の順に消す（全て `user_id = viewer`）。image の R2 オブジェクトの削除は P9。
 
@@ -183,7 +183,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 | in_progress | 最新の session の `played_on` → `started_on` |
 | cleared / failed / dropped | `finished_on` → 最新の session の `played_on` → `started_on` |
 
-記録一覧の並びは `COALESCE(display_on, created_at の日付) DESC, created_at DESC`。
+記録一覧の並びは `COALESCE(display_on, created_at の JST の日付) DESC, created_at DESC`（`date(created_at, '+9 hours')`）。
 
 ### genre / attempt_genre（ジャンル、固定リスト・複数選択）
 - `genre(id, label, sort_order, archived INT)` — 初期値: ひらめき / 論理 / 物量 / ストーリー / 探索 / 大謎一発 / 協力 / 体験・演出（決定）。オーナーが追加・archived。自由タグは v1 では持たない
@@ -220,6 +220,16 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 | created_at | |
 
 公演型は session 0〜1 件。周遊・持ち帰り・Web 謎は複数。attempt.status の更新は手動（セッション追加時に「進行中のまま / クリア / 断念」を選ぶ）。session の公開範囲は親 attempt に従う（`memo` level で日付・メモ、`status` level では日付のみ）。
+
+進行ログの追加（`POST /records/:id/sessions`）で選ぶ結果 `outcome` と attempt への書き込み（session の INSERT と attempt の UPDATE を同じ `db.batch`。どちらも「その attempt が本人のもの」を同じ文の中で確かめる）:
+
+| outcome | ラベル | attempt への書き込み |
+|---|---|---|
+| `keep` | 進行中のまま | `status = purchased` なら `in_progress` に（`finished_on = NULL`）。それ以外は不変。`started_on = MIN(started_on ?? played_on, played_on)`。status が cleared / failed / dropped のままなら `MIN(started_on ?? played_on, played_on, finished_on ?? played_on)`（終了日を超えない） |
+| `cleared` | クリア | `status = cleared`、`finished_on = played_on`、`started_on = MIN(started_on ?? played_on, played_on)` |
+| `dropped` | 断念 | `status = dropped`、`finished_on = played_on`、`started_on = MIN(started_on ?? played_on, played_on)` |
+
+失敗は結果に入れない（ステータス変更で付ける）。`session.venue_id` は P3 では書かない（場所は `location_text`）。進行ログの削除（`POST /records/:id/sessions/:sid/delete`。`<details>` を開いてから押す 2 段、JS なし）では attempt の status / 日付を戻さない。進行ログの編集は P3 に入れない（削除して足す）。記録の詳細では新しい順に 5 件まで出し、残りは畳む。
 
 ### 購入の扱い
 購入専用テーブルは持たない。「買った」は attempt の `status = purchased` で表す（買った場所・価格は持たない）。遊び始めたら同じ行を `in_progress` 以降に進める。

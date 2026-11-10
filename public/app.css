@@ -942,8 +942,9 @@ a.ticket {
 form.search {
   margin-bottom: 0;
 }
-/* 記録の編集のジャンル欄。fieldset の枠と余白を消す */
-fieldset.genres {
+/* 記録の編集のジャンル欄・進行ログの結果欄。fieldset の枠と余白を消す */
+fieldset.genres,
+fieldset.outcome {
   border: none;
   margin: 0;
   padding: 0;

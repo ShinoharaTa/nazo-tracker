@@ -3,7 +3,13 @@
 
 import type { Child } from 'hono/jsx'
 import type { GenreRow, RunRow, WorkDetailData, WorkListItem } from '../db/master'
-import type { OwnAttempt, OwnAttemptRow, OwnSession, OwnWishRow } from '../db/scoped'
+import {
+  type OwnAttempt,
+  type OwnAttemptRow,
+  type OwnSession,
+  type OwnWishRow,
+  sessionOutcomes,
+} from '../db/scoped'
 import type { Form } from '../lib/form'
 import { isoToJstDate } from '../lib/time'
 import {
@@ -22,7 +28,13 @@ import {
   Ticket,
   TopBar,
 } from './components'
-import { type AttemptStatus, attemptStatusLabels, runChannelLabels, workKindLabels } from './labels'
+import {
+  type AttemptStatus,
+  attemptStatusLabels,
+  outcomeLabels,
+  runChannelLabels,
+  workKindLabels,
+} from './labels'
 import { formatPeriod, WorkTicket } from './master'
 
 export type RecordsTab = 'all' | 'pending' | 'wish'
@@ -323,7 +335,16 @@ const runPeriod = (r: { startOn: string | null; endOn: string | null }): string 
   return null
 }
 
-const SessionLog = ({ s, last }: { s: OwnSession; last: boolean }) => (
+// 進行ログの 1 件。削除は <details> を開いてから押す 2 段（JS なし。POST /records/:id/sessions/:sid/delete）
+const SessionLog = ({
+  attemptId,
+  s,
+  last,
+}: {
+  attemptId: string
+  s: OwnSession
+  last: boolean
+}) => (
   <div class="log">
     <div class="rail">
       <div class="dot" />
@@ -341,9 +362,36 @@ const SessionLog = ({ s, last }: { s: OwnSession; last: boolean }) => (
           </span>
         ) : null,
       )}
+      <details>
+        <summary class="note">削除</summary>
+        <form method="post" action={`/records/${attemptId}/sessions/${s.id}/delete`}>
+          <button type="submit" class="btn danger">
+            {s.playedOn.slice(5).replace('-', '/')} のログを削除
+          </button>
+        </form>
+      </details>
     </div>
   </div>
 )
+
+// 進行ログは新しい順に SESSIONS_SHOWN 件まで出し、残りは <details> に畳む（JS なし）
+const SESSIONS_SHOWN = 5
+
+const SessionLogs = ({ a }: { a: OwnAttempt }) => {
+  const logs = a.sessions.map((s, i) => (
+    <SessionLog attemptId={a.id} s={s} last={i === a.sessions.length - 1} />
+  ))
+  if (logs.length <= SESSIONS_SHOWN) return <>{logs}</>
+  return (
+    <>
+      {logs.slice(0, SESSIONS_SHOWN)}
+      <details class="older">
+        <summary class="note">古い進行ログ {logs.length - SESSIONS_SHOWN} 件を表示</summary>
+        {logs.slice(SESSIONS_SHOWN)}
+      </details>
+    </>
+  )
+}
 
 const statusValueOf = (raw: string | undefined): AttemptStatus | undefined =>
   raw !== undefined && Object.hasOwn(attemptStatusLabels, raw) ? (raw as AttemptStatus) : undefined
@@ -489,12 +537,11 @@ export const RecordDetail = ({
       <div class="sect">
         <div class="row">
           <h2>進行ログ</h2>
+          <a class="btn" href={`/records/${a.id}/sessions/new`}>
+            ＋ 進行ログ
+          </a>
         </div>
-        {a.sessions.length ? (
-          a.sessions.map((s, i) => <SessionLog s={s} last={i === a.sessions.length - 1} />)
-        ) : (
-          <Empty>進行ログはまだありません。</Empty>
-        )}
+        {a.sessions.length ? <SessionLogs a={a} /> : <Empty>進行ログはまだありません。</Empty>}
       </div>
       <div class="sect">
         <h2>写真</h2>
@@ -683,6 +730,55 @@ export const SpoilerEditForm = (props: {
     </form>
   </>
 )
+
+// 進行ログの追加（右ページ）。outcome の既定は keep
+export const SessionForm = (props: { a: OwnAttempt; values: Form; errors?: readonly string[] }) => {
+  const { a, values } = props
+  return (
+    <>
+      <TopBar back={`/records/${a.id}`} label="進行ログを追加" />
+      <div class="card">
+        <span class="title" style="font-size:22px">
+          {a.work.title}
+        </span>
+      </div>
+      <form method="post" action={`/records/${a.id}/sessions`} class="sect list">
+        <FormErrors errors={props.errors ?? []} />
+        <Field label="日付" name="played_on" type="date" value={values.played_on} required />
+        <Field
+          label="所要（分）"
+          name="duration_min"
+          type="number"
+          min="1"
+          max="6000"
+          inputmode="numeric"
+          value={values.duration_min}
+        />
+        <Field
+          label="進み具合"
+          name="progress_note"
+          placeholder="例: 第 3 章まで"
+          value={values.progress_note}
+        />
+        <Field label="場所" name="location_text" value={values.location_text} />
+        <Field label="同行者" name="companions" value={values.companions} />
+        <Field label="メモ" name="memo" multiline value={values.memo} />
+        <fieldset class="list outcome">
+          <legend class="note">結果</legend>
+          {sessionOutcomes.map((o) => (
+            <label>
+              <input type="radio" name="outcome" value={o} checked={values.outcome === o} />{' '}
+              {outcomeLabels[o]}
+            </label>
+          ))}
+        </fieldset>
+        <button type="submit" class="btn pri">
+          保存
+        </button>
+      </form>
+    </>
+  )
+}
 
 // 記録の削除の確認（右ページ）。POST は同じ URL に confirm=yes
 export const DeleteRecord = (props: { a: OwnAttempt; errors?: readonly string[] }) => (
