@@ -3,8 +3,9 @@
 
 import type { Child } from 'hono/jsx'
 import type { GenreRow, WorkDetailData, WorkListItem } from '../db/master'
-import type { OwnAttempt, OwnAttemptRow, OwnSession } from '../db/scoped'
+import type { OwnAttempt, OwnAttemptRow, OwnSession, OwnWishRow } from '../db/scoped'
 import type { Form } from '../lib/form'
+import { isoToJstDate } from '../lib/time'
 import {
   Empty,
   Field,
@@ -62,19 +63,96 @@ export const RecordTicket = ({ a, selected }: { a: OwnAttemptRow; selected?: boo
   )
 }
 
+// マイリストの 1 行。記録があれば最新のステータス、無ければ「未プレイ」
+const WishRow = ({ w }: { w: OwnWishRow }) => (
+  <div class="row">
+    <WorkTicket
+      w={{ id: w.workId, title: w.title, kind: w.kind, org: w.org, rep: null }}
+      chip={
+        w.latestStatus ? <StatusChip status={w.latestStatus} /> : <span class="mark">未プレイ</span>
+      }
+      extra={`登録 ${isoToJstDate(w.createdAt)}`}
+    />
+    <form method="post" action="/records/wishlist/delete">
+      <input type="hidden" name="work_id" value={w.workId} />
+      <input type="hidden" name="back" value="wish" />
+      <button type="submit" class="btn ghost">
+        外す
+      </button>
+    </form>
+  </div>
+)
+
+// マイリスト（tab=wish）。unplayed は「未プレイだけ」
+export const WishList = ({
+  items,
+  unplayed,
+  page,
+  hasNext,
+}: {
+  items: OwnWishRow[]
+  unplayed: boolean
+  page: number
+  hasNext: boolean
+}) => (
+  <>
+    <nav class="chips" aria-label="マイリストの絞り込み">
+      {[
+        { on: !unplayed, label: 'すべて', href: '/records?tab=wish' },
+        { on: unplayed, label: '未プレイだけ', href: '/records?tab=wish&unplayed=1' },
+      ].map((f) =>
+        f.on ? (
+          <a class="fchip on" href={f.href} aria-current="page">
+            {f.label}
+          </a>
+        ) : (
+          <a class="fchip" href={f.href}>
+            {f.label}
+          </a>
+        ),
+      )}
+    </nav>
+    <div class="list">
+      {items.length ? (
+        items.map((w) => <WishRow w={w} />)
+      ) : (
+        <Empty>
+          マイリストは空です。
+          <br />
+          作品ページの「マイリストに追加」から登録できます。
+        </Empty>
+      )}
+      <p class="note">
+        マイリストからは自動では外れません。遊び終わったら「外す」で外してください。
+      </p>
+    </div>
+    <Pager
+      base="/records"
+      page={page}
+      hasNext={hasNext}
+      params={{ tab: 'wish', unplayed: unplayed ? '1' : '' }}
+    />
+  </>
+)
+
 export type RecordsListProps = {
   tab: RecordsTab
   items: OwnAttemptRow[]
+  // tab=wish のときの行と「未プレイだけ」
+  wishItems?: OwnWishRow[]
+  unplayed?: boolean
   page: number
   hasNext: boolean
   playedCount: number
   selectedId?: string
 }
 
-// 記録一覧（左ページ）。wish は P3 の PR-4 まで空表示
+// 記録一覧（左ページ）
 export const RecordsList = ({
   tab,
   items,
+  wishItems = [],
+  unplayed = false,
   page,
   hasNext,
   playedCount,
@@ -90,37 +168,30 @@ export const RecordsList = ({
       }
     />
     <Tabs items={recordsTabs} current={tab} label="記録の絞り込み" />
-    <div class="list">
-      {tab === 'wish' ? (
-        <>
-          <Empty>
-            マイリストは空です。
-            <br />
-            作品ページの「マイリストに追加」から登録できます。
-          </Empty>
-          <p class="note">
-            マイリストからは自動では外れません。遊び終わったら ✕ で外してください。
-          </p>
-        </>
-      ) : items.length ? (
-        items.map((a) => <RecordTicket a={a} selected={a.id === selectedId} />)
-      ) : tab === 'pending' ? (
-        <Empty>進行中・積み謎はありません。</Empty>
-      ) : (
-        <Empty>
-          まだ記録はありません。
-          <br />
-          「＋ 記録」から作品を選んで付けられます。
-        </Empty>
-      )}
-    </div>
-    {tab === 'wish' ? null : (
-      <Pager
-        base="/records"
-        page={page}
-        hasNext={hasNext}
-        params={{ tab: tab === 'all' ? '' : tab }}
-      />
+    {tab === 'wish' ? (
+      <WishList items={wishItems} unplayed={unplayed} page={page} hasNext={hasNext} />
+    ) : (
+      <>
+        <div class="list">
+          {items.length ? (
+            items.map((a) => <RecordTicket a={a} selected={a.id === selectedId} />)
+          ) : tab === 'pending' ? (
+            <Empty>進行中・積み謎はありません。</Empty>
+          ) : (
+            <Empty>
+              まだ記録はありません。
+              <br />
+              「＋ 記録」から作品を選んで付けられます。
+            </Empty>
+          )}
+        </div>
+        <Pager
+          base="/records"
+          page={page}
+          hasNext={hasNext}
+          params={{ tab: tab === 'all' ? '' : tab }}
+        />
+      </>
     )}
   </>
 )
