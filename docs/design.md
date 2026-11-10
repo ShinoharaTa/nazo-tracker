@@ -107,7 +107,7 @@ flowchart LR
 | `in_progress` 進行中 | 周遊・持ち帰り・Web 謎を途中まで | 含めない |
 | `cleared` クリア | 成功 | 含める（分子） |
 | `failed` 失敗 | 公演で時間切れ等 | 含める |
-| `dropped` 断念 | 途中でやめた | **既定は含めない**、トグルで「失敗扱い」に切替 |
+| `dropped` 断念 | 途中でやめた | 含めない（成功率は来場型だけ。来場型の断念は旧ステータスとして件数だけ注記、完了型では断念の件数として出す） |
 
 成功率 = cleared / (cleared + failed) を既定。再挑戦は attempt が複数行になるので「挑戦ベース」と
 「作品ベース（結果が付いた最新の attempt のみ）」の 2 表示。本人向け統計の一覧は data-model.md §6。
@@ -335,7 +335,7 @@ flowchart LR
 **データモデル**
 - work と run を分け、escape.id URL は run に付く。団体は alias で改名を吸収。
 - ステータスは purchased / in_progress / cleared / failed / dropped。予約済みは持たない。購入専用テーブルは持たず、買った場所・価格も持たない。
-- 成功率既定 = cleared / (cleared + failed)。dropped は除外（トグルで含められる）。再挑戦は別 attempt 行。
+- 成功率 = cleared / (cleared + failed)、来場型（公演・ルーム）のみ。dropped は除外（トグルは廃止）。それ以外の形式は完了数（cleared の件数）で見る。再挑戦は別 attempt 行。
 - 持ち帰り謎の販路は run(channel=sale) + booth_item、作品ページは `v_work_channels`。
 - ルーム型は work.kind=room + 常設 run（end_on NULL, is_permanent）。一覧は都道府県→店舗→作品。初期データは店舗公式 URL（ユーザー/オーナーが渡す）+ escape.id 掲載分。
 - 記録に難易度・物量（各 1-5）・ジャンル（固定 8 種: ひらめき / 論理 / 物量 / ストーリー / 探索 / 大謎一発 / 協力 / 体験・演出、複数選択）・ネタバレメモ（別列）を持つ。同行者は自由テキスト。

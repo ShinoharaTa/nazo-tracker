@@ -768,7 +768,6 @@ button.gtag.on {
 }
 .bar .fl {
   height: 100%;
-  background: repeating-linear-gradient(-45deg, var(--fg) 0 2px, transparent 2px 4px);
 }
 .bar .v {
   text-align: right;
@@ -795,11 +794,97 @@ button.gtag.on {
   line-height: 1.2;
   color: var(--muted);
 }
-.col i {
-  display: block;
+/* グラフの系列: 色 + 模様（docs/visual-design.md §3.7）。塗る側は --c / --p / --ps を読むだけ */
+.r-ok {
+  --c: var(--mk-green);
+  --p: var(--pat-diag);
+}
+.r-ng {
+  --c: var(--mk-pink);
+  --p: none;
+}
+.k-stroll {
+  --c: var(--mk-orange);
+  --p: var(--pat-diag);
+}
+.k-line {
+  --c: var(--mk-purple);
+  --p: var(--pat-dot);
+  --ps: 4px 4px;
+}
+.k-web {
+  --c: var(--mk-cyan);
+  --p: var(--pat-horiz);
+}
+.k-takeaway {
+  --c: var(--mk-yellow);
+  --p: none;
+}
+.k-other {
+  --c: var(--mk-gray);
+  --p: var(--pat-back);
+}
+.k-none {
+  --c: var(--mk-gray);
+  --p: var(--pat-grid);
+}
+.bar .fl,
+.stk i,
+.key {
+  background-color: var(--c, var(--fg));
+  background-image: var(--p, none);
+  background-size: var(--ps, auto);
+}
+/* 横棒: 成功と失敗を 1 本に並べる。境目にインクの線 */
+.bar .tr {
+  display: flex;
+}
+.r-ok + .r-ng {
+  box-shadow: inset 1px 0 0 var(--fg);
+}
+/* 月別の積み上げ（DOM 順 = 下から上） */
+.stk {
+  display: flex;
+  flex-direction: column-reverse;
   width: 100%;
-  background: var(--fg);
-  border-radius: 1px 1px 0 0;
+  border: 1px solid var(--fg);
+  border-bottom: 0;
+}
+.stk i {
+  display: block;
+  min-height: 3px;
+}
+.stk i + i {
+  border-bottom: 1px solid var(--fg);
+}
+/* 凡例 */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.key {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--fg);
+}
+/* 強制カラーでも模様を残す */
+@media (forced-colors: active) {
+  .bar .fl,
+  .stk i,
+  .key {
+    forced-color-adjust: none;
+  }
 }
 .kpis {
   display: grid;
