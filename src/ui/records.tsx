@@ -34,6 +34,7 @@ import {
   isVisitKind,
   outcomeLabels,
   runChannelLabels,
+  statusesFor,
   statusLabel,
   type WorkKind,
   workKindLabels,
@@ -59,6 +60,22 @@ export const formatDuration = (sec: number | null): string | null => {
 }
 
 const kindText = (kind: OwnAttemptRow['work']['kind']) => (kind ? workKindLabels[kind] : null)
+
+// 作成フォームの「ステータス → 保存する日付」の注記。語は選択肢（statusesFor / statusLabel）から組み立てる
+const dateNote = (kind: WorkKind | null): string => {
+  const visit = isVisitKind(kind)
+  const statuses = statusesFor(kind)
+  const label = (s: AttemptStatus) => statusLabel(s, kind)
+  const ends = statuses.filter((s) => s !== 'purchased' && s !== 'in_progress').map(label)
+  const parts = [
+    statuses.includes('purchased')
+      ? `${label('purchased')} → ${visit ? '参加予定日' : '買った日'}`
+      : null,
+    statuses.includes('in_progress') ? `${label('in_progress')} → 始めた日` : null,
+    ends.length ? `${ends.join('・')} → ${visit ? '参加した日' : '終わった日'}` : null,
+  ].filter(Boolean)
+  return `${parts.join('、')}として保存します。`
+}
 
 // purchased_on の欄のラベル。来場型の purchased（予約済み）は参加予定日
 const purchasedOnLabel = (
@@ -330,11 +347,7 @@ export const NewRecordForm = (props: {
           type="date"
           value={values.on}
         />
-        <p class="note">
-          {isVisitKind(w.kind)
-            ? '予約済み → 参加予定日、クリア・失敗 → 参加した日として保存します。'
-            : '買った → 買った日、進行中 → 始めた日、クリア・失敗・断念 → 終わった日として保存します。'}
-        </p>
+        <p class="note">{dateNote(w.kind)}</p>
         <button type="submit" class="btn pri">
           保存
         </button>

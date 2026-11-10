@@ -61,7 +61,7 @@ describe('来場型の選択肢', () => {
       expect(statusValues(h)).toEqual(['purchased', 'cleared', 'failed'])
       expect(h).toContain('>予約済み</label>')
       expect(h).not.toContain('>買った</label>')
-      expect(h).toContain('予約済み → 参加予定日、クリア・失敗 → 参加した日として保存します。')
+      expect(h).toContain('予約済み → 参加予定日、成功・失敗 → 参加した日として保存します。')
       expect(h).not.toContain('進行中 → 始めた日')
     }
   })
@@ -220,6 +220,9 @@ describe('持ち帰り', () => {
     expect(statusValues(h)).toEqual(['purchased', 'in_progress', 'cleared', 'dropped'])
     expect(h).toContain('>買った</label>')
     expect(h).toContain('>クリア</label>')
+    expect(h).toContain(
+      '買った → 買った日、進行中 → 始めた日、クリア・断念 → 終わった日として保存します。',
+    )
   })
 
   it('failed の作成・ステータス変更・編集 → 400', async () => {
