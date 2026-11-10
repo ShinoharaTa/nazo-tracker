@@ -354,26 +354,24 @@ const sessionPage = async (c: Context<AppEnv>, a: OwnAttempt, values: Form, erro
   />
 )
 
+// 来場型（ルーム・公演）の記録には進行ログが無い（GET も POST も 400）
+const NO_SESSIONS = 'ルーム・公演には進行ログがありません。'
+
 records.get('/:id/sessions/new', async (c) => {
   const a = await own(c).getAttempt(c.req.param('id'))
   if (!a) return notFoundPage(c, '/records')
-  return c.html(
-    await sessionPage(c, a, {
-      ...emptyForm(sessionFields),
-      played_on: todayJst(),
-      outcome: 'keep',
-    }),
-  )
+  const values = { ...emptyForm(sessionFields), played_on: todayJst(), outcome: 'keep' }
+  if (isVisitKind(a.work.kind)) return c.html(await sessionPage(c, a, values, [NO_SESSIONS]), 400)
+  return c.html(await sessionPage(c, a, values))
 })
 
-// 記録の status / 日付は outcome で決める（own().addSession、data-model.md §3 session）。
-// 来場型（ルーム・公演）の記録には進行ログが無い
+// 記録の status / 日付は outcome で決める（own().addSession、data-model.md §3 session）
 records.post('/:id/sessions', async (c) => {
   const a = await own(c).getAttempt(c.req.param('id'))
   if (!a) return notFoundPage(c, '/records')
   const f = formOf(await c.req.parseBody(), sessionFields)
   if (isVisitKind(a.work.kind)) {
-    return c.html(await sessionPage(c, a, f, ['ルーム・公演には進行ログがありません。']), 400)
+    return c.html(await sessionPage(c, a, f, [NO_SESSIONS]), 400)
   }
   const v = parseSession(f)
   if (!v.ok) return c.html(await sessionPage(c, a, f, v.errors), 400)

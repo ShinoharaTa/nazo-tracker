@@ -60,6 +60,8 @@ describe('来場型の選択肢', () => {
       expect(statusValues(h)).toEqual(['purchased', 'cleared', 'failed'])
       expect(h).toContain('>予約済み</label>')
       expect(h).not.toContain('>買った</label>')
+      expect(h).toContain('予約済み → 参加予定日、クリア・失敗 → 参加した日として保存します。')
+      expect(h).not.toContain('進行中 → 始めた日')
     }
   })
 
@@ -133,6 +135,13 @@ describe('来場型の進行ログ', () => {
     expect(h).not.toContain(`/records/${id}/sessions/new`)
   })
 
+  it('GET /records/:id/sessions/new → 400', async () => {
+    const id = await newAttempt(ids.room, 'cleared')
+    const res = await get(`/records/${id}/sessions/new`)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('ルーム・公演には進行ログがありません')
+  })
+
   it('POST /records/:id/sessions → 400、ログは足されない', async () => {
     const id = await newAttempt(ids.hall, 'purchased')
     const res = await post(`/records/${id}/sessions`, { played_on: '2026-11-03', outcome: 'keep' })
@@ -181,6 +190,9 @@ describe('周遊型は今のまま', () => {
     const h = await (await get(`/records/new?work=${ids.stroll}`)).text()
     expect(statusValues(h)).toEqual(['purchased', 'in_progress', 'cleared', 'failed', 'dropped'])
     expect(h).toContain('>買った</label>')
+    expect(h).toContain(
+      '買った → 買った日、進行中 → 始めた日、クリア・失敗・断念 → 終わった日として保存します。',
+    )
     expect(h).not.toContain('>予約済み</label>')
     const res = await post('/records', { work_id: ids.stroll, status: 'in_progress', on: '' })
     expect(res.status).toBe(302)

@@ -331,7 +331,9 @@ export const NewRecordForm = (props: {
           value={values.on}
         />
         <p class="note">
-          買った → 買った日、進行中 → 始めた日、クリア・失敗・断念 → 終わった日として保存します。
+          {isVisitKind(w.kind)
+            ? '予約済み → 参加予定日、クリア・失敗 → 参加した日として保存します。'
+            : '買った → 買った日、進行中 → 始めた日、クリア・失敗・断念 → 終わった日として保存します。'}
         </p>
         <button type="submit" class="btn pri">
           保存
