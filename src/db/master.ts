@@ -140,6 +140,12 @@ const runsByWork = async (db: Db, workIds: string[]): Promise<Map<string, RunRow
   return out
 }
 
+// run 1 件（作品を問わない）。無ければ null
+export const getRunById = async (db: Db, id: string): Promise<RunRow | null> => {
+  const r = await selectRuns(db).where(eq(run.id, id)).get()
+  return r ? toRunRow(r) : null
+}
+
 const workListColumns = {
   id: work.id,
   title: work.title,

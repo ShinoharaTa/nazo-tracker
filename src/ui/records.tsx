@@ -2,16 +2,18 @@
 // ネタバレメモの本文はここでは出さない（SpoilerCard の src から遅延取得。src/ui/spoiler.tsx）。
 
 import type { Child } from 'hono/jsx'
-import type { GenreRow, WorkDetailData, WorkListItem } from '../db/master'
+import type { GenreRow, RunRow, WorkDetailData, WorkListItem } from '../db/master'
 import type { OwnAttempt, OwnAttemptRow, OwnSession, OwnWishRow } from '../db/scoped'
 import type { Form } from '../lib/form'
 import { isoToJstDate } from '../lib/time'
 import {
+  Checkbox,
   Empty,
   Field,
   FormErrors,
   Pager,
   SearchIcon,
+  Select,
   SpoilerCard,
   StatusChip,
   StatusSeg,
@@ -21,7 +23,7 @@ import {
   TopBar,
 } from './components'
 import { type AttemptStatus, attemptStatusLabels, runChannelLabels, workKindLabels } from './labels'
-import { WorkTicket } from './master'
+import { formatPeriod, WorkTicket } from './master'
 
 export type RecordsTab = 'all' | 'pending' | 'wish'
 
@@ -285,6 +287,7 @@ export const NewRecordForm = (props: {
       <form method="post" action="/records" class="sect">
         <FormErrors errors={props.errors ?? []} />
         <input type="hidden" name="work_id" value={w.id} />
+        {props.q ? <input type="hidden" name="q" value={props.q} /> : null}
         <StatusSeg
           name="status"
           idPrefix="new-status"
@@ -342,17 +345,46 @@ const SessionLog = ({ s, last }: { s: OwnSession; last: boolean }) => (
   </div>
 )
 
-// 記録の詳細（右ページ）。genres は記録に付いたジャンル（表示順）
+const statusValueOf = (raw: string | undefined): AttemptStatus | undefined =>
+  raw !== undefined && Object.hasOwn(attemptStatusLabels, raw) ? (raw as AttemptStatus) : undefined
+
+// 詳細ページのステータス変更フォーム。values / errors は 400 の再描画のとき
+export const StatusForm = ({
+  a,
+  values,
+  errors,
+}: {
+  a: OwnAttempt
+  values: Form
+  errors?: readonly string[]
+}) => (
+  <form method="post" action={`/records/${a.id}/status`} class="list">
+    <FormErrors errors={errors ?? []} />
+    <StatusSeg name="status" idPrefix="status" value={statusValueOf(values.status)} />
+    <Field label="日付" name="on" type="date" value={values.on} />
+    <p class="note">空にすると今の日付を残します。</p>
+    <button type="submit" class="btn">
+      変更
+    </button>
+  </form>
+)
+
+// 記録の詳細（右ページ）。genres は記録に付いたジャンル（表示順）。
+// statusValues / statusErrors はステータス変更フォームの値（400 の再描画では送信値）
 export const RecordDetail = ({
   a,
   genres,
   created,
   saved,
+  statusValues,
+  statusErrors,
 }: {
   a: OwnAttempt
   genres: GenreRow[]
   created?: boolean
   saved?: boolean
+  statusValues: Form
+  statusErrors?: readonly string[]
 }) => {
   const meta = [kindText(a.work.kind), a.work.org?.name, a.run?.venue?.prefecture].filter(Boolean)
   const latest = a.sessions[0]
@@ -374,10 +406,21 @@ export const RecordDetail = ({
   ].filter(Boolean)
   return (
     <>
-      <TopBar back="/records" label="記録" />
+      <TopBar
+        back="/records"
+        label="記録"
+        action={
+          <a class="btn ghost" href={`/records/${a.id}/edit`}>
+            編集
+          </a>
+        }
+      />
       {created ? (
         <div class="hint" role="status">
           <span>保存しました。日付・同行者・評価も足せます</span>
+          <a class="btn" href={`/records/${a.id}/edit`}>
+            足す
+          </a>
         </div>
       ) : saved ? (
         <p class="note" role="status">
@@ -419,9 +462,7 @@ export const RecordDetail = ({
       </div>
       <div class="sect">
         <h2>ステータス</h2>
-        <div class="row" style="justify-content:flex-start">
-          <StatusChip status={a.status} />
-        </div>
+        <StatusForm a={a} values={statusValues} errors={statusErrors} />
       </div>
       {kv.length ? (
         <div class="sect">
@@ -476,7 +517,190 @@ export const RecordDetail = ({
           src={`/records/${a.id}/spoiler`}
           count={{ memo: a.spoilerMemo ? 1 : 0, photos: 0 }}
         />
+        <a href={`/records/${a.id}/spoiler/edit`}>ネタバレメモを編集</a>
+      </div>
+      <div class="sect">
+        <a class="btn danger" href={`/records/${a.id}/delete`}>
+          記録を削除
+        </a>
       </div>
     </>
   )
 }
+
+const scoreOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
+
+// 回の選択肢の場所。公演は会場、販売は販売先、配信はオンライン
+const runPlace = (r: RunRow): string => {
+  if (r.channel === 'performance') return r.venue?.name ?? '会場未定'
+  if (r.channel === 'sale') return r.shop?.name ?? ''
+  return 'オンライン'
+}
+
+const numText = (n: number | null) => (n === null ? '' : String(n))
+
+// 編集フォームの初期値（記録の今の値）。ジャンルは a.genreIds
+export const recordEditValues = (a: OwnAttempt): Form => ({
+  status: a.status,
+  run_id: a.runId ?? '',
+  purchased_on: a.purchasedOn ?? '',
+  started_on: a.startedOn ?? '',
+  finished_on: a.finishedOn ?? '',
+  duration_min: a.durationSec === null ? '' : String(Math.round(a.durationSec / 60)),
+  party_size: numText(a.partySize),
+  companions: a.companions ?? '',
+  rating: numText(a.rating),
+  difficulty: numText(a.difficulty),
+  volume: numText(a.volume),
+  memo: a.memo ?? '',
+})
+
+// 詳しい記録の編集（右ページ）。runs はその作品の回（compareRuns 順）、genres は選べるジャンル。
+// ネタバレメモはここに出さない（/records/:id/spoiler/edit）
+export const RecordEditForm = (props: {
+  a: OwnAttempt
+  runs: readonly RunRow[]
+  genres: readonly GenreRow[]
+  values: Form
+  genreValues: readonly string[]
+  errors?: readonly string[]
+}) => {
+  const { a, values } = props
+  return (
+    <>
+      <TopBar back={`/records/${a.id}`} label="記録を編集" />
+      <div class="card">
+        <span class="title" style="font-size:22px">
+          {a.work.title}
+        </span>
+      </div>
+      <form method="post" action={`/records/${a.id}/edit`} class="sect list">
+        <FormErrors errors={props.errors ?? []} />
+        <StatusSeg name="status" idPrefix="edit-status" value={statusValueOf(values.status)} />
+        <Select
+          label="回"
+          name="run_id"
+          blank="指定しない"
+          value={values.run_id}
+          options={props.runs.map((r) => ({
+            value: r.id,
+            label: [runChannelLabels[r.channel], runPlace(r), formatPeriod(r)]
+              .filter(Boolean)
+              .join(' · '),
+          }))}
+        />
+        <div class="grid2">
+          <Field label="買った日" name="purchased_on" type="date" value={values.purchased_on} />
+          <Field label="開始日" name="started_on" type="date" value={values.started_on} />
+          <Field label="終了日" name="finished_on" type="date" value={values.finished_on} />
+        </div>
+        <div class="grid2">
+          <Field
+            label="所要（分）"
+            name="duration_min"
+            type="number"
+            min="1"
+            max="6000"
+            inputmode="numeric"
+            value={values.duration_min}
+          />
+          <Field
+            label="人数"
+            name="party_size"
+            type="number"
+            min="1"
+            max="99"
+            inputmode="numeric"
+            value={values.party_size}
+          />
+        </div>
+        <Field
+          label="同行者"
+          name="companions"
+          placeholder="例: みお、けい"
+          value={values.companions}
+        />
+        <div class="grid2">
+          <Select
+            label="評価"
+            name="rating"
+            blank="未評価"
+            options={scoreOptions}
+            value={values.rating}
+          />
+          <Select
+            label="難易度"
+            name="difficulty"
+            blank="未評価"
+            options={scoreOptions}
+            value={values.difficulty}
+          />
+          <Select
+            label="物量"
+            name="volume"
+            blank="未評価"
+            options={scoreOptions}
+            value={values.volume}
+          />
+        </div>
+        {props.genres.length ? (
+          <fieldset class="list genres">
+            <legend class="note">ジャンル</legend>
+            {props.genres.map((g) => (
+              <Checkbox
+                label={g.label}
+                name="genre"
+                value={g.id}
+                checked={props.genreValues.includes(g.id)}
+              />
+            ))}
+          </fieldset>
+        ) : null}
+        <Field label="メモ" name="memo" multiline value={values.memo} />
+        <button type="submit" class="btn pri">
+          保存
+        </button>
+      </form>
+    </>
+  )
+}
+
+// ネタバレメモの編集（右ページ）。本文を出すので応答には spoilerHeaders を付ける
+export const SpoilerEditForm = (props: {
+  a: OwnAttempt
+  value: string
+  errors?: readonly string[]
+}) => (
+  <>
+    <TopBar back={`/records/${props.a.id}`} label="ネタバレメモを編集" />
+    <form method="post" action={`/records/${props.a.id}/spoiler/edit`} class="spoil">
+      <span class="lock">自分だけに表示されます。フレンドにも見えません。</span>
+      <FormErrors errors={props.errors ?? []} />
+      <Field label="ネタバレメモ" name="spoiler_memo" multiline value={props.value} />
+      <button type="submit" class="btn pri">
+        保存
+      </button>
+    </form>
+  </>
+)
+
+// 記録の削除の確認（右ページ）。POST は同じ URL に confirm=yes
+export const DeleteRecord = (props: { a: OwnAttempt; errors?: readonly string[] }) => (
+  <>
+    <TopBar back={`/records/${props.a.id}`} label="記録を削除" />
+    <div class="card">
+      <span class="title" style="font-size:22px">
+        {props.a.work.title}
+      </span>
+    </div>
+    <form method="post" action={`/records/${props.a.id}/delete`} class="sect list">
+      <FormErrors errors={props.errors ?? []} />
+      <p class="note">消えるもの: 記録、進行ログ {props.a.sessions.length} 件、ジャンル、写真</p>
+      <p class="note">元に戻せません。</p>
+      <Checkbox label="確認しました" name="confirm" value="yes" />
+      <button type="submit" class="btn danger">
+        削除する
+      </button>
+    </form>
+  </>
+)

@@ -163,6 +163,18 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 
 `run_id` は軽い記録では書かない（NULL）。
 
+ステータス変更（`POST /records/:id/status`。`on` 空可。`??` は左が NULL のとき右、today は今日（JST））:
+
+| 新 status | 書く列 |
+|---|---|
+| purchased | `purchased_on = on ?? purchased_on ?? today`、`finished_on = NULL` |
+| in_progress | `started_on = started_on ?? on ?? today`、`finished_on = NULL` |
+| cleared / failed / dropped | `finished_on = on ?? finished_on ?? today` |
+
+同じ status に再送しても上の表どおり（日付の更新になる）。詳しい編集（`/records/:id/edit`）は日付 3 つを明示的に受け取り、この表は適用しない（入力値をそのまま保存。空は NULL）。ジャンルは attempt の UPDATE と同じ `db.batch` で attempt_genre を DELETE → INSERT する。
+
+削除（`POST /records/:id/delete`、確認チェック付き）は `db.batch` で image → session → attempt_genre → attempt の順に消す（全て `user_id = viewer`）。image の R2 オブジェクトの削除は P9。
+
 **表示日（`display_on`、`v_attempt_enriched` の列）**: 一覧の日付スタブ。NULL なら「日付なし」。
 
 | status | display_on |

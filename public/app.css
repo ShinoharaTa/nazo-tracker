@@ -942,6 +942,12 @@ a.ticket {
 form.search {
   margin-bottom: 0;
 }
+/* 記録の編集のジャンル欄。fieldset の枠と余白を消す */
+fieldset.genres {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
 /* StatusSeg: fieldset.seg 内の radio + label。radio は隠し、checked の label を .on と同じ見た目にする */
 fieldset.seg {
   position: relative;

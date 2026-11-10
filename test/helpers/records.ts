@@ -98,3 +98,19 @@ export const insertGenre = (env: Env, attemptId: string, userId: string, genreId
 // createdAt を渡すとその値で入れる（並び・日付表示のテスト用）
 export const insertWish = (env: Env, userId: string, workId: string, createdAt?: string) =>
   insert(env, 'wishlist', { user_id: userId, work_id: workId, created_at: createdAt ?? nextIso() })
+
+// image の最小行（R2 には置かない。r2_key はダミー）
+export const insertImage = async (env: Env, attemptId: string, userId: string): Promise<string> => {
+  const id = ulid()
+  await insert(env, 'image', {
+    id,
+    user_id: userId,
+    attempt_id: attemptId,
+    kind: 'other',
+    r2_key: `test/${id}`,
+    bytes: 1,
+    content_type: 'image/webp',
+    created_at: nextIso(),
+  })
+  return id
+}

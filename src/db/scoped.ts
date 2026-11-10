@@ -4,7 +4,7 @@
 
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
-import { nowIso } from '../lib/time'
+import { nowIso, todayJst } from '../lib/time'
 import type { Db } from './client'
 import { PAGE_SIZE } from './master'
 import {
@@ -14,6 +14,7 @@ import {
   block,
   friendship,
   identity,
+  image,
   organization,
   type runChannels,
   session,
@@ -92,6 +93,22 @@ export type OwnAttempt = OwnAttemptRow & {
 
 export type AttemptListTab = 'all' | 'pending'
 
+// 詳しい編集で書く列（日付は入力値そのまま。空は NULL）
+export type AttemptPatch = {
+  status: AttemptStatus
+  runId: string | null
+  purchasedOn: string | null
+  startedOn: string | null
+  finishedOn: string | null
+  durationSec: number | null
+  partySize: number | null
+  companions: string | null
+  rating: number | null
+  difficulty: number | null
+  volume: number | null
+  memo: string | null
+}
+
 // マイリストの 1 行。latestStatus は本人の最新の記録（attempt_no DESC, created_at DESC）。記録が無ければ null
 export type OwnWishRow = {
   workId: string
@@ -133,6 +150,14 @@ export type OwnRepo = {
     status: AttemptStatus
     on: string | null
   }): Promise<string>
+  // ステータス変更。日付は data-model.md §3 の表どおり。他人の id・無い id は false
+  setStatus(id: string, status: AttemptStatus, on: string | null): Promise<boolean>
+  // 詳しい編集。attempt_genre は genreIds で置き換える。他人の id・無い id は false
+  updateAttempt(id: string, patch: AttemptPatch, genreIds: readonly string[]): Promise<boolean>
+  // null で消す。他人の id・無い id は false
+  updateSpoilerMemo(id: string, text: string | null): Promise<boolean>
+  // image → session → attempt_genre → attempt。他人の id・無い id は false
+  deleteAttempt(id: string): Promise<boolean>
   // status IN (cleared, failed) の件数
   playedCount(): Promise<number>
   // 匿名人数（src/db/counts.ts）から自分を外すか。true で exclude_from_counts = 1
@@ -356,6 +381,75 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       updatedAt: now,
     })
     return id
+  },
+
+  // 日付は COALESCE で「左が NULL なら右」。WHERE は id と user_id の両方
+  async setStatus(id, status, on) {
+    const today = todayJst()
+    const dates =
+      status === 'purchased'
+        ? {
+            purchasedOn: sql`COALESCE(${on}, ${attempt.purchasedOn}, ${today})`,
+            finishedOn: null,
+          }
+        : status === 'in_progress'
+          ? {
+              startedOn: sql`COALESCE(${attempt.startedOn}, ${on}, ${today})`,
+              finishedOn: null,
+            }
+          : { finishedOn: sql`COALESCE(${on}, ${attempt.finishedOn}, ${today})` }
+    const rows = await db
+      .update(attempt)
+      .set({ status, ...dates, updatedAt: nowIso() })
+      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+      .returning({ id: attempt.id })
+    return rows.length > 0
+  },
+
+  // 事前 SELECT はしない（読んでから書くまでに消されると、無い attempt に attempt_genre を INSERT して FK で落ちる）。
+  // UPDATE の行数で本人の記録かを判定し、attempt_genre の DELETE / INSERT は本人の attempt が在るときだけ効かせる。
+  // 1 回の batch = 1 トランザクション
+  async updateAttempt(id, patch, genreIds) {
+    const mine = sql`EXISTS (SELECT 1 FROM ${attempt} WHERE ${attempt.id} = ${id} AND ${attempt.userId} = ${viewerId})`
+    const update = db
+      .update(attempt)
+      .set({ ...patch, updatedAt: nowIso() })
+      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+      .returning({ id: attempt.id })
+    const clearGenres = db
+      .delete(attemptGenre)
+      .where(and(eq(attemptGenre.attemptId, id), eq(attemptGenre.userId, viewerId), mine))
+    const inserts = [...new Set(genreIds)].map((genreId) =>
+      db.insert(attemptGenre).select(sql`SELECT ${id}, ${genreId}, ${viewerId} WHERE ${mine}`),
+    )
+    const [updated] = await db.batch([update, clearGenres, ...inserts])
+    return updated.length > 0
+  },
+
+  async updateSpoilerMemo(id, text) {
+    const rows = await db
+      .update(attempt)
+      .set({ spoilerMemo: text, updatedAt: nowIso() })
+      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+      .returning({ id: attempt.id })
+    return rows.length > 0
+  },
+
+  // FK の cascade に頼らず子から順に消す（1 回の batch = 1 トランザクション）
+  // TODO(P9): image の R2 オブジェクト（r2_key / thumb_r2_key）を消す
+  async deleteAttempt(id) {
+    const [, , , deleted] = await db.batch([
+      db.delete(image).where(and(eq(image.attemptId, id), eq(image.userId, viewerId))),
+      db.delete(session).where(and(eq(session.attemptId, id), eq(session.userId, viewerId))),
+      db
+        .delete(attemptGenre)
+        .where(and(eq(attemptGenre.attemptId, id), eq(attemptGenre.userId, viewerId))),
+      db
+        .delete(attempt)
+        .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+        .returning({ id: attempt.id }),
+    ])
+    return deleted.length > 0
   },
 
   async playedCount() {
