@@ -105,4 +105,6 @@
 
 ### 仮ログイン（開発用）
 - `GET/POST /_dev/login` で `provider = 'dev'` の identity にログインできる。`AUTH_DEV_LOGIN = "1"`、`APP_ORIGIN` のホストが `127.0.0.1` / `localhost`、リクエストの `Host` が `127.0.0.1` / `localhost` の 3 条件が揃ったときだけ有効で、それ以外は 404。本番の wrangler.toml は `AUTH_DEV_LOGIN = "0"`。
+- 許可ホストは `127.0.0.1` / `localhost` に、環境変数 `AUTH_DEV_HOSTS`（カンマ区切り、trim、ホスト名のみで完全一致）を加えたもの。`AUTH_DEV_HOSTS` はプライベート IPv4 リテラル（`10.0.0.0/8`・`172.16.0.0/12`・`192.168.0.0/16`、各オクテット 0–255 の厳密な形式）だけ採用し、公開 IP・ホスト名・不正な形式は無視する。`APP_ORIGIN` のホストとリクエストの `Host`（ポートを除く）の両方が許可ホストに含まれる必要がある。
+- LAN の開発機 IP で開くときは `AUTH_DEV_HOSTS` にその IP を入れ、`APP_ORIGIN` もその IP にする。起動中は同じ LAN の誰でもオーナーで入れる点に注意。
 - 開発は `APP_ORIGIN` と同じ origin（`http://127.0.0.1:8787`）でアクセスする。curl で POST するときは `-H "Origin: http://127.0.0.1:8787"` が必要（CSRF の照合）。

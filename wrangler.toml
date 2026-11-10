@@ -17,6 +17,8 @@ directory = "./public"
 APP_ORIGIN = "https://nazo.shino3.net"
 # "1" のときだけ仮ログイン /_dev/login を有効にする。本番は必ず "0"（APP_ORIGIN が https://nazo.shino3.net なので "1" にしても無効）
 AUTH_DEV_LOGIN = "0"
+# 仮ログインで 127.0.0.1 / localhost に加えて許可するホスト（カンマ区切り）。プライベート IPv4 だけ採用し、それ以外は無視
+AUTH_DEV_HOSTS = ""
 # オーナーにする identity（provider:subject のカンマ区切り、完全一致）。例: "discord:123456789012345678"
 OWNER_IDENTITIES = ""
 # Google の OAuth クライアント ID。空のあいだは Google ログインが「準備中」になる
