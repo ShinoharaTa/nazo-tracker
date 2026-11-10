@@ -11,6 +11,7 @@ import {
   primaryKey,
   real,
   sqliteTable,
+  sqliteView,
   text,
   unique,
   uniqueIndex,
@@ -715,3 +716,47 @@ export const changeLog = sqliteTable(
     check('change_log_actor_check', sql`("actor_user_id" IS NULL) <> ("actor_token_id" IS NULL)`),
   ],
 )
+
+// ---------------------------------------------------------------------------
+// ビュー（migrations/0004_v_attempt_enriched.sql で手書き。.existing() なので drizzle-kit は生成しない）
+// ---------------------------------------------------------------------------
+
+// attempt ⋈ work ⋈ run ⋈ venue ⋈ organization。spoiler_memo は含めない。読むのは src/db/scoped.ts だけ
+// attempt / work / run / organization / venue / session を作り直す migration（drizzle-kit の __new_x）を書くときは、
+// 先に DROP VIEW v_attempt_enriched → 表の作り直し → CREATE VIEW を同じ migration に入れる
+export const vAttemptEnriched = sqliteView('v_attempt_enriched', {
+  id: text('id').notNull(),
+  userId: text('user_id').notNull(),
+  workId: text('work_id').notNull(),
+  runId: text('run_id'),
+  status: text('status', { enum: attemptStatuses }).notNull(),
+  purchasedOn: text('purchased_on'),
+  attemptNo: integer('attempt_no').notNull(),
+  startedOn: text('started_on'),
+  finishedOn: text('finished_on'),
+  durationSec: integer('duration_sec'),
+  partySize: integer('party_size'),
+  companions: text('companions'),
+  rating: integer('rating'),
+  difficulty: integer('difficulty'),
+  volume: integer('volume'),
+  memo: text('memo'),
+  shareOverride: text('share_override', { enum: shareOverrides }),
+  sourceRef: text('source_ref'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  lastPlayedOn: text('last_played_on'),
+  sessionCount: integer('session_count').notNull(),
+  sessionDurationSec: integer('session_duration_sec'),
+  displayOn: text('display_on'),
+  workTitle: text('work_title').notNull(),
+  workKind: text('work_kind', { enum: workKinds }),
+  orgId: text('org_id'),
+  orgName: text('org_name'),
+  runChannel: text('run_channel', { enum: runChannels }),
+  runStartOn: text('run_start_on'),
+  runEndOn: text('run_end_on'),
+  venueId: text('venue_id'),
+  venueName: text('venue_name'),
+  venuePrefecture: text('venue_prefecture'),
+}).existing()

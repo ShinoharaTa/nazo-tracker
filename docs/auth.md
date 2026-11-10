@@ -60,7 +60,9 @@
 ### 実装上の規約
 - 禁止語チェックは `scripts/check-scoped.mjs`（`npm run lint` に含む）。
 - オーナー画面は `/admin/*`（`requireOwner`。owner 以外は 404、未ログインの GET は `302 /login`・POST は 401）。オーナー用 JSON API は `/api/admin/*`（owner 以外は未ログインを含め JSON の 404 `{ "error": "not_found" }`）。
-- 記録系のルートは `/api/me/*`（本人。wishlist もここ）と `/api/friends/:userId/*`（射影）のみ。それ以外の URL でユーザー id を取らない。
+- 記録系のルートは HTML の `/records/*`（本人。`src/routes/records.tsx`、`requireUser`）、JSON を出す段階で足す `/api/me/*`（本人。wishlist もここ）と `/api/friends/:userId/*`（射影）のみ。それ以外の URL でユーザー id を取らない。`/records/:id` 系は他人の id・無い id を 404 にする。
+- 禁止語（`check:scoped`）は記録系テーブル（`attempt` / `attemptGenre` / `session` / `image` / `wishlist` / `marketVisit`）とビュー `vAttemptEnriched`。
+- ネタバレ本文の応答 `spoilerResponse`（`src/ui/spoiler.tsx`）は `OwnAttempt` 型しか受けない。`OwnAttempt` は brand 付きの型（brand の symbol は export しない）で、`own()` からだけ得る。`as OwnAttempt`（`<OwnAttempt>` を含む、`src/db/scoped.ts` 以外）とネタバレ部品（`SpoilerFragment` / `SpoilerPage` / `spoilerHeaders`）の直接 import（`src/ui/spoiler.tsx`・`src/routes/records.tsx`・`src/routes/gallery.tsx` 以外）は `check:scoped` で禁止。応答には `Cache-Control: no-store, private` / `X-Robots-Tag: noindex` / `Vary: X-Requested-With` を付ける。記録の一覧・詳細の初期 HTML にネタバレ本文を含めない（一覧用の `OwnAttemptRow` は `spoiler_memo` を持たない）。
 - 匿名人数は `/api/works` / `/api/works/:id` のマスタ応答に含め、**サーバー側でぼかしてから返す**（生の人数は返さない）。user_id を返す経路は無い。
 - リポジトリ層: `scopedTo(viewerId)` が `own()` と `asFriendOf(targetUserId)` を返す。`asFriendOf` は friendship / block を検証してから、level 別の列セットだけを持つ型（`FriendAttemptStatus | FriendAttemptRating | FriendAttemptMemo`）を返す（v1 で呼ばれるのは Status のみ）。`spoiler_memo` と `spoiler=1` の image を含む型は `own()` にしか存在しない。これ以外に attempt / session / image を読む経路を作らない。
 - 画像の配信 `GET /img/:imageId` も同じ `scopedTo` を通す。R2 の公開 URL・署名 URL は作らない。

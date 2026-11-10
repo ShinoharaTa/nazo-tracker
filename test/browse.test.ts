@@ -142,7 +142,7 @@ describe('GET /works', () => {
 })
 
 describe('GET /works/:id', () => {
-  it('団体・会場・escape.id のリンク、期間、状態、記録ボタン（disabled）', async () => {
+  it('団体・会場・escape.id のリンク、期間、状態、記録ボタン（未ログインは /login）', async () => {
     const res = await get(`/works/${ids.wordeal}`)
     expect(res.status).toBe(200)
     const h = await res.text()
@@ -156,7 +156,7 @@ describe('GET /works/:id', () => {
     expect(h).toContain('¥1,500')
     expect(h).toContain('1〜4 人')
     expect(h).toContain('60 分')
-    expect(h).toMatch(/<button[^>]*disabled[^>]*>記録する<\/button>/)
+    expect(h).toContain('<a class="btn" href="/login">記録する</a>')
     // 左の一覧で該当行が選ばれている
     expect(h).toContain(`<a class="ticket sel" href="/works/${ids.wordeal}">`)
     // 別名・説明が無ければ節を出さない

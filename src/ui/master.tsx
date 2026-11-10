@@ -9,8 +9,10 @@ import type {
   WorkDetailData,
   WorkListItem,
 } from '../db/master'
-import { Empty, Ticket, TopBar } from './components'
+import { Empty, Menu, MenuItem, Ticket, TopBar } from './components'
 import {
+  type AttemptStatus,
+  attemptStatusLabels,
   organizationAliasKindLabels,
   runChannelLabels,
   workAliasKindLabels,
@@ -66,12 +68,20 @@ const Ext = ({ href, children }: { href: string; children?: Child }) =>
     <span>{children}</span>
   )
 
-// 作品一覧の 1 行
-export const WorkTicket = ({ w, selected }: { w: WorkListItem; selected?: boolean }) => {
+// 作品一覧の 1 行。hrefBase の後ろに作品 id を付けてリンクにする（記録の作品選択では /records/new?work=）
+export const WorkTicket = ({
+  w,
+  selected,
+  hrefBase = '/works/',
+}: {
+  w: WorkListItem
+  selected?: boolean
+  hrefBase?: string
+}) => {
   const k = kindLabel(w.kind)
   return (
     <Ticket
-      href={`/works/${w.id}`}
+      href={`${hrefBase}${w.id}`}
       selected={selected}
       stub={
         <span class="nd">
@@ -158,15 +168,22 @@ const KvRow = ({ label, children }: { label: string; children?: Child }) => (
   </>
 )
 
+// 作品ページに出す本人の記録。null は未ログイン
+export type WorkMine = {
+  attempts: { id: string; status: AttemptStatus; displayOn: string | null; attemptNo: number }[]
+} | null
+
 // editHref / runEditHref はオーナーのときだけ（作品と各回の「編集」）
 export const WorkDetail = ({
   w,
   today,
+  mine,
   editHref,
   runEditHref,
 }: {
   w: WorkDetailData
   today: string
+  mine: WorkMine
   editHref?: string
   runEditHref?: (runId: string) => string
 }) => {
@@ -199,15 +216,42 @@ export const WorkDetail = ({
         </div>
       </div>
       <div class="sect">
-        <div class="btns">
-          <button type="button" class="btn" aria-disabled="true" disabled>
-            マイリストに追加
-          </button>
-          <button type="button" class="btn" aria-disabled="true" disabled>
-            記録する
-          </button>
-        </div>
+        {/* 未ログインは /login へ（next は作らない） */}
+        {mine ? (
+          <div class="btns">
+            {/* TODO(P3): マイリスト（PR-4） */}
+            <button type="button" class="btn" aria-disabled="true" disabled>
+              マイリストに追加
+            </button>
+            <a class="btn pri" href={`/records/new?work=${w.id}`}>
+              記録する
+            </a>
+          </div>
+        ) : (
+          <div class="btns">
+            <a class="btn" href="/login">
+              マイリストに追加
+            </a>
+            <a class="btn" href="/login">
+              記録する
+            </a>
+          </div>
+        )}
       </div>
+      {mine?.attempts.length ? (
+        <div class="sect">
+          <h2>あなたの記録</h2>
+          <Menu>
+            {mine.attempts.map((a) => (
+              <MenuItem
+                label={attemptStatusLabels[a.status]}
+                note={`${a.displayOn ?? '日付なし'}${a.attemptNo >= 2 ? ` · ${a.attemptNo}回目` : ''}`}
+                href={`/records/${a.id}`}
+              />
+            ))}
+          </Menu>
+        </div>
+      ) : null}
       {w.description ? (
         <div class="sect">
           <h2>説明</h2>
