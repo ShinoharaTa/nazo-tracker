@@ -207,8 +207,41 @@ const Detail = () => {
   )
 }
 
+// 蛍光マーカー 7 色（docs/visual-design.md §3.1）。黄以外は統計のグラフ系列だけに使う
+const markers = [
+  { name: 'yellow', label: '黄（強調・持ち帰り）' },
+  { name: 'green', label: '緑（成功）' },
+  { name: 'pink', label: 'ピンク（失敗）' },
+  { name: 'cyan', label: '水色（Web）' },
+  { name: 'orange', label: '橙（周遊）' },
+  { name: 'purple', label: '紫（LINE）' },
+  { name: 'gray', label: '灰（その他・形式未設定）' },
+] as const
+
 const Parts = () => (
   <>
+    <div class="sect">
+      <h2>部品: 蛍光マーカー</h2>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        {markers.map((m) => (
+          <div class="row" style="justify-content:flex-start;gap:8px">
+            <i
+              style={`display:inline-block;width:28px;height:16px;border:1px solid var(--fg);background:var(--mk-${m.name})`}
+            />
+            {m.name === 'yellow' ? (
+              <span class="hl">{m.label}</span>
+            ) : m.name === 'green' || m.name === 'pink' ? (
+              <span class={`hl mk-${m.name}`}>{m.label}</span>
+            ) : (
+              // クラスを作っていない色は見本だけ inline で塗る
+              <span class="hl" style={`--hl:var(--mk-${m.name})`}>
+                {m.label}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
     <div class="sect">
       <h2>部品: StatusSeg</h2>
       <StatusSeg name="status-sample" idPrefix="parts-status" />

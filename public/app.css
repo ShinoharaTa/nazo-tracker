@@ -16,6 +16,24 @@
   --danger: var(--pen-red);
   /* ペン: 蛍光ペン（意味は持たせない）・赤ペン（失敗・期限・戻せない操作）・青ペン（文字リンク） */
   --hl: #ffe45c;
+  /* 蛍光マーカーの色。黄以外は統計のグラフ系列とそれを指す KPI だけに使う（docs/visual-design.md §3.3） */
+  --mk-yellow: var(--hl);
+  --mk-pink: #ff9ec4; /* 失敗 */
+  --mk-green: #8fdc7a; /* 成功 */
+  --mk-cyan: #86d0f2; /* Web */
+  --mk-orange: #ffb257; /* 周遊 */
+  --mk-purple: #c3a6f2; /* LINE */
+  --mk-gray: #d3cfc4; /* その他・形式未設定 */
+  /* 模様（インク 60% の細線。色と必ず組にする） */
+  --ink-pat: rgb(28 28 28 / 0.6);
+  --pat-diag: repeating-linear-gradient(45deg, var(--ink-pat) 0 1px, transparent 1px 5px);
+  --pat-back: repeating-linear-gradient(-45deg, var(--ink-pat) 0 1px, transparent 1px 5px);
+  --pat-horiz: repeating-linear-gradient(0deg, var(--ink-pat) 0 1px, transparent 1px 4px);
+  /* --ps: 4px 4px と組 */
+  --pat-dot: radial-gradient(var(--ink-pat) 0.9px, transparent 1.3px);
+  --pat-grid:
+    repeating-linear-gradient(0deg, var(--ink-pat) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, var(--ink-pat) 0 1px, transparent 1px 4px);
   --pen-red: #b4302a;
   --pen-blue: #1f4fa3;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -1275,6 +1293,13 @@ dialog.sheet::backdrop {
 }
 .hl {
   padding-inline: 0.12em;
+}
+/* 黄以外のマーカー。要素側で --hl を上書きする。統計のグラフ系列を指す字だけに使う */
+.hl.mk-green {
+  --hl: var(--mk-green);
+}
+.hl.mk-pink {
+  --hl: var(--mk-pink);
 }
 /* .note（muted）の中の「保存しました」は字を --fg にしてから引く */
 .hl.saved {
