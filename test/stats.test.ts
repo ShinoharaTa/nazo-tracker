@@ -322,6 +322,30 @@ describe('src/lib/stats', () => {
     expect(html).not.toContain('class="legend"')
     expect(html).not.toContain('以前の記録')
   })
+
+  it('done の hero 注記: 失敗があるときだけ「 · 失敗 n」を足す', async () => {
+    const done = async (rows: OwnAttemptRow[]) =>
+      String(
+        await StatsPage({
+          stats: computeStats(rows, [], new Map(), { year: 2026 }),
+          view: 'done',
+          year: 2026,
+          thisYear: 2026,
+          minYear: 2000,
+          capped: false,
+          wishlist: { total: 0, played: 0 },
+        }),
+      )
+    const base = [row({ status: 'cleared', kind: 'web' }), row({ status: 'dropped', kind: 'web' })]
+    expect(await done(base)).toContain('<b><span class="hl">1</span></b><span>断念 1</span>')
+    expect(
+      await done([
+        ...base,
+        row({ status: 'failed', kind: 'web' }),
+        row({ status: 'failed', kind: 'line' }),
+      ]),
+    ).toContain('<b><span class="hl">1</span></b><span>断念 1 · 失敗 2</span>')
+  })
 })
 
 describe('グラフの部品', () => {
@@ -378,6 +402,8 @@ beforeAll(async () => {
   )
   const takeaway = await insertWork(env, { title: '統計の持ち帰り', kind: 'takeaway' })
   const stroll = await insertWork(env, { title: '統計の周遊', kind: 'stroll' })
+  // 形式未設定（kind NULL）
+  const noKind = await insertWork(env, { title: '統計の形式未設定' })
   const on = `${thisYear}-10-01`
   const a1 = await insertAttempt(env, {
     userId: alice.userId,
@@ -434,6 +460,12 @@ beforeAll(async () => {
     status: 'in_progress',
     attemptNo: 2,
     startedOn: on,
+  })
+  await insertAttempt(env, {
+    userId: alice.userId,
+    workId: noKind,
+    status: 'cleared',
+    finishedOn: on,
   })
   await insertWish(env, alice.userId, w[0])
   await insertWish(env, alice.userId, w[5])
@@ -504,7 +536,7 @@ describe('GET /stats', () => {
   it('?view=done: 完了数。形式別の棒と、出た形式だけの凡例', async () => {
     const html = await (await get('/stats?view=done')).text()
     expect(html).toContain(chipOn('/stats?view=done', '持ち帰り・周遊など'))
-    expect(html).toContain('<b><span class="hl">3</span></b><span>断念 0</span>')
+    expect(html).toContain('<b><span class="hl">4</span></b><span>断念 0</span>')
     expect(html).toContain('<b>1</b><span>始めた・続きあり</span>')
     expect(html).toContain('<b>0</b><span>買った・未着手</span>')
     expect(html).toContain(
@@ -514,11 +546,15 @@ describe('GET /stats', () => {
       '<div class="bar"><span>持ち帰り</span><div class="tr"><div class="fl k-takeaway" style="width:100%"></div></div><span class="v">2 件</span></div>',
     )
     expect(html).toContain(
-      '<ul class="legend"><li><i class="key k-stroll"></i>周遊</li><li><i class="key k-takeaway"></i>持ち帰り</li></ul>',
+      '<ul class="legend"><li><i class="key k-stroll"></i>周遊</li><li><i class="key k-takeaway"></i>持ち帰り</li><li><i class="key k-none"></i>形式未設定</li></ul>',
+    )
+    // 形式未設定は最後の行
+    expect(html).toContain(
+      '<div class="bar"><span>形式未設定</span><div class="tr"><div class="fl k-none" style="width:50%"></div></div><span class="v">1 件</span></div>',
     )
     expect(html).not.toContain('k-line')
     expect(html).toContain(`月別の完了数 ${thisYear} 年`)
-    expect(html).toContain('aria-label="10月 周遊 1・持ち帰り 2"><span>3</span>')
+    expect(html).toContain('aria-label="10月 周遊 1・持ち帰り 2・形式未設定 1"><span>4</span>')
     // 来場型の数字・旧ステータスの注記は出さない
     expect(html).not.toContain('mk-green')
     expect(html).not.toContain('以前の記録')

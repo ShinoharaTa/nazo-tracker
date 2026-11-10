@@ -346,7 +346,7 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 
 | 指標 | 定義 |
 |---|---|
-| 挑戦数 | attempt のうち status ∈ {cleared, failed, dropped} |
+| 参加数（来場型） | attempt のうち status ∈ {cleared, failed}（来場型の dropped / in_progress は旧ステータスとして除外） |
 | クリア数 / 失敗数 / 断念数 | status 別 |
 | 成功率（挑戦ベース、来場型のみ） | cleared / (cleared + failed)。dropped を失敗に含めるトグルは廃止（`?drop=fail` は無視） |
 | 成功率（作品ベース、来場型のみ） | work ごとの代表 attempt で同上。代表は cleared / failed の attempt のうち attempt_no 最大（同値なら created_at 最大）。最新が予約済み・旧ステータスならその前の結果を使い、結果が 1 件も無い work は分母に入れない |
@@ -360,7 +360,7 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 | 再挑戦数 | attempt_no ≥ 2 |
 | 難易度別 件数・成功率 | difficulty でグループ、分母は上と同じ |
 | 物量の平均 | AVG(volume)、形式別にも |
-| ジャンル別 件数・成功率 | attempt_genre で展開（複数選択なので合計は挑戦数を超える） |
+| ジャンル別 件数・成功率 | attempt_genre で展開（複数選択なので合計は参加数を超える。来場型のみ） |
 | 評価の分布 | rating 1-5 の件数 |
 
 **得意傾向（本人向け）**
@@ -383,7 +383,7 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 - `v_attempt_enriched`（`migrations/0004_v_attempt_enriched.sql`、P3 で作成）: attempt ⋈ work ⋈ run(LEFT) ⋈ venue(LEFT) ⋈ organization(LEFT、`run.organization_id` → `work.primary_organization_id`)。列は attempt の `spoiler_memo` 以外の全列 + `last_played_on` / `session_count` / `session_duration_sec`（session の MAX / COUNT / SUM）+ `display_on`（§3 attempt）+ `work_title` / `work_kind` / `org_id` / `org_name` / `run_channel` / `run_start_on` / `run_end_on` / `venue_id` / `venue_name` / `venue_prefecture`。**`spoiler_memo` は含めない。** 読むのは `src/db/scoped.ts` だけ（`check:scoped` の禁止語に `vAttemptEnriched`）
 - 集計ビュー（`v_attempt_monthly` / `v_attempt_by_difficulty` / `v_attempt_by_genre`）は作らない。統計は 1 ユーザー分の `v_attempt_enriched` をアプリ側で集計する（`src/lib/stats.ts`、純関数）。読むのは `own().statsRows()`（`created_at DESC` で最大 5000 行。超えたら直近 5000 件で集計し、画面に「直近 5000 件だけを集計しています」と出す）
 
-**P3 で出す指標**（HTML の `/stats`。JSON の `/api/me/stats` は出す段階で足す）: 挑戦数（プレイ = クリア＋失敗、内訳にクリア / 失敗 / 断念）、成功率（挑戦ベース・作品ベース）、積み謎（買った＋進行中）、難易度別の成功率（1〜5 の 5 行）、ジャンル別の成功率（分母 1 以上、成功率 → 件数の降順）、形式別の成功率（`work_kind` NULL は「形式未設定」）、月別の参加数（年ごと 12 か月。基準日は上の「月別・年別件数」、`created_at` は JST の日付にする）、マイリストの件数とうちプレイ済み。「断念を失敗に含める」は GET パラメータ `drop=fail`、年は `year`（2000〜今年、不正値は今年）。
+**P3 で出す指標**（HTML の `/stats`。JSON の `/api/me/stats` は出す段階で足す）: 見方は GET パラメータ `view`（`visit` / `done`。無し・不正値は §6 冒頭の既定）。来場型（visit）: 成功率（挑戦ベース・作品ベース）、参加（成功＋失敗、内訳に成功 / 失敗）、予約済み、難易度別の成功率（1〜5 の 5 行）、ジャンル別の成功率（分母 1 以上、成功率 → 件数の降順）、形式別の成功率（公演・ルームの 2 行）、月別の成功・失敗、旧ステータスの件数の注記。完了型（done）: 完了数（内訳に断念・失敗）、進行中、積み謎（買ったのみ）、形式別の完了数（`work_kind` NULL は「形式未設定」）、月別の完了数（形式ごとの積み上げ）。月別は年ごと 12 か月。基準日は上の「月別・年別件数」、`created_at` は JST の日付にする。両方にマイリストの件数とうちプレイ済み。年は `year`（2000〜今年、不正値は今年）。「断念を失敗に含める」（`drop=fail`）は廃止し、付いていても無視する。
 
 **P7 に送る指標**: 年別件数、団体別・会場/都道府県別、合計プレイ時間、同行者トップ、再挑戦数、物量の平均、評価の分布、得意傾向の表すべて（マイリストの登録からの経過日数を含む）。
 
