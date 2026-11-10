@@ -211,7 +211,7 @@ export const WorkDetail = ({
   w: WorkDetailData
   today: string
   mine: WorkMine
-  counts?: WorkCounts
+  counts: WorkCounts
   editHref?: string
   runEditHref?: (runId: string) => string
 }) => {
@@ -231,7 +231,7 @@ export const WorkDetail = ({
             {w.title}
           </span>
         </div>
-        {counts ? <WorkNums counts={counts} /> : null}
+        <WorkNums counts={counts} />
       </div>
       <div class="sect">
         {/* 未ログインは /login へ（next は作らない） */}

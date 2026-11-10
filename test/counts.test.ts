@@ -5,7 +5,8 @@ import { bucket, countsFor } from '../src/db/counts'
 import app from '../src/index'
 import { ulid } from '../src/lib/id'
 import { countLabel } from '../src/ui/labels'
-import { insertOrg, insertWork } from './helpers/master'
+import { loginAs } from './helpers/auth'
+import { insertOrg, insertVenue, insertWork } from './helpers/master'
 import { insertAttempt, insertWish } from './helpers/records'
 
 const db = createDb(env.DB)
@@ -126,6 +127,11 @@ describe('人数の表示', () => {
       await insertAttempt(env, { userId: await insertUser(), workId: ids.few, status: 'cleared' })
     }
     await insertWish(env, await insertUser(), ids.wishOnly)
+    ids.five = await insertWork(env, { title: '人数表示 ちょうど 5 人' })
+    for (let i = 0; i < 5; i++) {
+      await insertAttempt(env, { userId: await insertUser(), workId: ids.five, status: 'failed' })
+    }
+    ids.venue = await insertVenue(env, { name: '人数表示テスト会場' })
   })
 
   const html = async (path: string) => {
@@ -152,7 +158,6 @@ describe('人数の表示', () => {
   })
 
   it('/orgs/:id の作品一覧（右ページ）にも chip が付く', async () => {
-    // 左ページの作品一覧（defaultWorksList）では数えないので、右ページだけを見る
     const page = (await html(`/orgs/${ids.org}`)).split('class="page pane-r"')[1] ?? ''
     expect(ticketOf(page, ids.few)).toContain('プレイ済み 少数')
     expect(ticketOf(page, ids.none)).not.toContain('class="chip"')
@@ -178,5 +183,38 @@ describe('人数の表示', () => {
     const page = await html(`/works/${ids.wishOnly}`)
     expect(page.match(/class="num"/g)?.length).toBe(1)
     expect(page).toMatch(/<span>マイリスト<\/span><b>少数<\/b>/)
+  })
+
+  it('/works/:id: 5 人ちょうどは実数で「5 人」', async () => {
+    const page = await html(`/works/${ids.five}`)
+    expect(page).toMatch(/<span>プレイ済み<\/span><b>5 人<\/b>/)
+    const list = await html(`/works?q=${encodeURIComponent('ちょうど 5 人')}`)
+    expect(ticketOf(list, ids.five)).toContain('<span class="chip">プレイ済み 5 人</span>')
+  })
+
+  it('詳細ページ左の作品一覧（/works/:id・/orgs/:id・/venues/:id）にも chip が付く', async () => {
+    for (const path of [`/works/${ids.none}`, `/orgs/${ids.org}`, `/venues/${ids.venue}`]) {
+      const left = (await html(path)).split('class="page pane-r"')[0]
+      expect(ticketOf(left, ids.few)).toContain('<span class="chip">プレイ済み 少数</span>')
+      expect(ticketOf(left, ids.none)).not.toContain('class="chip"')
+    }
+  })
+
+  it('/works/:id の人数表示はログインの有無で変わらない', async () => {
+    const { cookie } = await loginAs(env, { subject: 'counts-viewer' })
+    // 人数の部分（.num と「まだ記録はありません」）と一覧の chip
+    const countsPart = (page: string) => [
+      ...(page.match(/<div class="num"><span>[^<]*<\/span><b>[^<]*<\/b><\/div>/g) ?? []),
+      ...(page.match(/<p class="note">まだ記録はありません<\/p>/g) ?? []),
+      ...(page.match(/<span class="chip">プレイ済み [^<]*<\/span>/g) ?? []),
+    ]
+    for (const id of [ids.few, ids.none, ids.wishOnly, ids.five]) {
+      const anon = await html(`/works/${id}`)
+      const res = await app.request(`/works/${id}`, { headers: { Cookie: cookie } }, env)
+      expect(res.status).toBe(200)
+      const authed = await res.text()
+      expect(countsPart(anon).length).toBeGreaterThan(0)
+      expect(countsPart(authed)).toEqual(countsPart(anon))
+    }
   })
 })

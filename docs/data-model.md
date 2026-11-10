@@ -385,7 +385,7 @@ GROUP BY w.work_id;
 - 実装は `src/db/counts.ts` の `countsFor(db, workIds)` だけ（`IN (...)` は 90 件ずつ、1 チャンクで上の 2 文を `db.batch`）。戻り値は作品ごとの `{ played: Bucket; wish: Bucket }` で、無い id は `{ none, none }`。user_id や行は返さない。
 - 表示変換は `bucket(n)`（同じファイル）: 0 → `'none'`、1〜4 → `'few'`、5 以上 → 実数（決定）。**生の COUNT は `countsFor` の外に出さない**（テンプレート・ルート・API に渡すのは `Bucket` だけ。`/api/works` のレスポンスも `Bucket` を変換したもの）。
 - 表示文言は `countLabel(b)`（`src/ui/labels.ts`）: `few` → 「少数」、実数 → 「n 人」、`none` → 出さない。
-  - 作品一覧（`/works`、`/orgs/:id` の作品）: `played` が `none` 以外なら chip「プレイ済み {label}」。マイリスト人数は一覧に出さない。詳細ページの左に出す作品一覧と `/records/new` の検索結果・`/venues/:id` では数えない。
+  - 作品一覧（`/works`、`/orgs/:id` の作品）: `played` が `none` 以外なら chip「プレイ済み {label}」。マイリスト人数は一覧に出さない。詳細ページ（`/works/:id`・`/orgs/:id`・`/venues/:id`）の左に出す作品一覧も同じ。`/records/new` の検索結果では数えない。
   - 作品ページ（`/works/:id`）: `.nums` に「プレイ済み」「マイリスト」。`none` の方は出さず、両方 `none` なら「まだ記録はありません」。
 - オプトアウトは `/settings/counts`（`own().setExcludeFromCounts`、`user.exclude_from_counts`）。その場で人数から外れる。
 - その都度 COUNT。一覧 50 件で 2 クエリ。INDEX(work_id, status, user_id) と wishlist(work_id) で足りる。数十万行を超えたら Cache API で 5 分キャッシュ（カウンタ列は持たない: DISTINCT・オプトアウト・hidden との整合が崩れる）。

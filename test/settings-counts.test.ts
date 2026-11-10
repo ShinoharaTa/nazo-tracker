@@ -89,4 +89,34 @@ describe('/settings/counts', () => {
     expect(await excludeOf(a.userId)).toBe(1)
     expect(await excludeOf(b.userId)).toBe(0)
   })
+
+  it('Origin が無い・違う POST は 403 で、設定は変わらない', async () => {
+    const { cookie, userId } = await loginAs(env, { subject: 'sc-csrf' })
+    const send = (headers: Record<string, string>) =>
+      app.request(
+        '/settings/counts',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Cookie: cookie,
+            ...headers,
+          },
+          body: '',
+        },
+        env,
+      )
+    expect((await send({})).status).toBe(403)
+    expect((await send({ Origin: 'https://evil.example' })).status).toBe(403)
+    expect(await excludeOf(userId)).toBe(0)
+  })
+
+  it('ログイン中の /settings/* は Cache-Control: private, no-store', async () => {
+    const { cookie } = await loginAs(env, { subject: 'sc-cache' })
+    for (const p of ['/settings', '/settings/counts', '/settings/name', '/settings/delete']) {
+      const res = await get(p, cookie)
+      expect(res.status).toBe(200)
+      expect(res.headers.get('cache-control')).toBe('private, no-store')
+    }
+  })
 })

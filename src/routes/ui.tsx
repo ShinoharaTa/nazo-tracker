@@ -30,6 +30,11 @@ const ui = new Hono<AppEnv>({ strict: false })
 
 ui.use('/stats', requireUser)
 ui.use('/settings/*', requireUser)
+// 設定は本人のデータなので共有キャッシュに載せない（既に付いていれば上書きしない）
+ui.use('/settings/*', async (c, next) => {
+  await next()
+  if (!c.res.headers.has('Cache-Control')) c.res.headers.set('Cache-Control', 'private, no-store')
+})
 
 // 作品一覧の形式フィルタ。LINE と Web はモックに合わせて 1 つにまとめる。
 // online は line / web をまとめた UI 上だけの値（workKinds には無い）。listWorks が kind IN ('line', 'web') に変換する
@@ -57,8 +62,8 @@ type WorksListProps = {
   items: WorkListItem[]
   hasNext: boolean
   selectedId?: string
-  // 匿名人数。/works だけで渡す（詳細ページの左の一覧では数えない）
-  counts?: Map<string, WorkCounts>
+  // 匿名人数（プレイ済みの chip）
+  counts: Map<string, WorkCounts>
 }
 
 // 作品一覧（左ページ）
@@ -96,7 +101,7 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
     <div class="list">
       {items.length ? (
         items.map((w) => (
-          <WorkTicket w={w} selected={w.id === selectedId} counts={counts?.get(w.id)} />
+          <WorkTicket w={w} selected={w.id === selectedId} counts={counts.get(w.id)} />
         ))
       ) : q.trim() ? (
         <Empty>「{q}」に一致する作品はありません</Empty>
@@ -121,8 +126,20 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
 // 詳細ページの左に出す一覧（1 頁目・フィルタ無し）
 const defaultWorksList = async (db: Db, selectedId?: string) => {
   const { items, hasNext } = await listWorks(db, { page: 1 })
+  const counts = await countsFor(
+    db,
+    items.map((w) => w.id),
+  )
   return (
-    <WorksList kind="all" q="" page={1} items={items} hasNext={hasNext} selectedId={selectedId} />
+    <WorksList
+      kind="all"
+      q=""
+      page={1}
+      items={items}
+      hasNext={hasNext}
+      selectedId={selectedId}
+      counts={counts}
+    />
   )
 }
 
@@ -186,7 +203,10 @@ ui.get('/works/:id', async (c) => {
   const mine = user
     ? { attempts: await scopedTo(db, user.id).own().attemptsOfWork(r.found.id) }
     : null
-  const counts = (await countsFor(db, [r.found.id])).get(r.found.id)
+  const counts = (await countsFor(db, [r.found.id])).get(r.found.id) ?? {
+    played: 'none',
+    wish: 'none',
+  }
   // ログイン中は本人の記録を含むので共有キャッシュに載せない
   if (user) c.header('Cache-Control', 'private, no-store')
   return c.html(
@@ -297,13 +317,17 @@ ui.get('/stats', (c) =>
 const linkNote = (linked: Set<string>, provider: string) =>
   linked.has(provider) ? '連携済み' : '未連携'
 
-// 設定一覧（左ページ）の中身。linked は連携済みの provider 名
-type SettingsState = { linked: Set<string>; excludeFromCounts: boolean }
+// 設定一覧（左ページ）の中身。linked は連携済みの provider 名。displayName は DB の現在値（表示名フォーム用）
+type SettingsState = { linked: Set<string>; excludeFromCounts: boolean; displayName: string }
 
 const settingsState = async (db: Db, userId: string): Promise<SettingsState> => {
   const own = scopedTo(db, userId).own()
   const [linked, profile] = await Promise.all([own.linkedProviders(), own.profile()])
-  return { linked, excludeFromCounts: profile.excludeFromCounts }
+  return {
+    linked,
+    excludeFromCounts: profile.excludeFromCounts,
+    displayName: profile.displayName,
+  }
 }
 
 // 設定一覧（左ページ）
@@ -440,11 +464,10 @@ const displayNamePage = (
 
 ui.get('/settings/name', async (c) => {
   const user = currentUser(c)
-  const profile = await scopedTo(c.get('db'), user.id).own().profile()
   const state = await settingsState(c.get('db'), user.id)
   return c.html(
     displayNamePage(user, state, {
-      value: profile.displayName,
+      value: state.displayName,
       welcome: c.req.query('welcome') === '1',
     }),
   )
@@ -469,7 +492,7 @@ const CountsForm = ({ excludeFromCounts }: { excludeFromCounts: boolean }) => (
     <TopBar back="/settings" label="作品の人数" />
     <div class="sect" style="margin-top:4px">
       <p class="note">
-        作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出さず、5
+        作品一覧・作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出さず、5
         人未満は「少数」と表示します。それでも人数の増え方から推測される可能性があるため、気になる場合は自分を含めないようにできます。
       </p>
       <form method="post" action="/settings/counts" class="list">
