@@ -14,7 +14,7 @@
   --accent: #1c1c1c;
   --accent-ink: #fffefa;
   --danger: var(--pen-red);
-  /* ペン: 蛍光ペン（意味は持たせない）・赤ペン（失敗・期限・戻せない操作）・青ペン（文字リンク・手書きの注記） */
+  /* ペン: 蛍光ペン（意味は持たせない）・赤ペン（失敗・期限・戻せない操作）・青ペン（文字リンク） */
   --hl: #ffe45c;
   --pen-red: #b4302a;
   --pen-blue: #1f4fa3;
@@ -1290,7 +1290,7 @@ a.meta,
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
-/* 手書きの注記。下線なしでリンクと形を分ける */
+/* 結果の行の短い注記（回数・日目）。リンクと紛れないよう黒のまま */
 .pen {
   font-weight: 500;
   font-size: 15px;

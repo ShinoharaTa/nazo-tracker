@@ -31,11 +31,9 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 トークン（app.css:19-21）:
 ```css
 --sans: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
---hand: "Klee One", "Noto Sans JP", serif;
 --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 ```
 - 重さ: Noto Sans JP は unicode-range で分割配信されるので、使った字の分だけ落ちる。3 ウェイトで十分（300/900 は入れない）。
-- 任意: Klee One を使う文字列はほぼ固定（記録/作品/統計/設定/NAZO LOG/表紙の文言）なので、将来 `&text=` で絞れる。今回はやらない。
 
 ---
 
@@ -58,7 +56,7 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 | `--fs-m` | 15 | 1.7 | 400 / 700 | 本文、.kv、ボタン（700）、.sect h2（700） |
 | `--fs-l` | 17 | 26px（罫線に合わせる、UR2 M4） | 700 | 一覧の作品名 .title（16→17） |
 | `--fs-xl` | 22 | 1.4 | 700 | 詳細の作品名、結果の行の日付（mono 20 は例外的にここに含める） |
-| `--fs-2xl` | 28 | 1.2 | 600（Klee / mono） | ページ見出し .top h1（26→28）、統計の副 KPI |
+| `--fs-2xl` | 28 | 1.2 | 700（Noto）/ 600（mono） | ページ見出し .top h1（26→28）、統計の副 KPI |
 | `--fs-3xl` | 40 | 1.1 | 600（mono） | 統計の成功率だけ |
 
 | ウェイト | 用途 |
@@ -112,9 +110,9 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 |---|---|---|---|
 | **蛍光ペン** `.hl` | 画面の 1 番目の中の 1〜2 語（統計の成功率、記録詳細の日付、作品詳細の会期の終わり、PC の選択中の作品名）／検索で一致した語 `<mark>`／保存直後のメッセージ（§3.5） | 一覧の各行（繰り返すと意味が消える）、ボタン、見出し、muted の字、ステータス印 | **1 画面 2 か所まで**。例外は検索一致（何件出ても 1 回と数える）と保存メッセージ（数秒で役目を終える） |
 | **赤ペン** `--pen-red` | 失敗（.st-failed）、期限（終了まで 14 日以内の会期 `.due`）、ネタバレの見出し（.spoil-title）、削除・退会などの戻せない操作（.btn.danger の文字と破線） | 本文、作品名、リンク、成功率が低いこと（「苦手」を責めない）、入力エラー以外の注記 | 意味で使う（失敗・期限）分はデータ次第で上限なし。ただし **1 行に赤は 1 つまで**。飾りの赤は作らない |
-| **青ペン** `--pen-blue` | 枠の無い文字リンク（作品・団体・会場・外部リンク・「ネタバレメモを編集」「作品を見る ›」）＝**必ず下線つき**／手書きの書き込み `.pen`（Klee One、下線なし。「2 回目」「3 日目 · 第 3 章まで」の短い注記） | 一覧の行全体（.ticket は行ごとリンクだが文字は黒のまま）、枠つきボタン（黒のまま）、塗りのボタン、見出し、長文メモ | リンクは上限なし。`.pen` は 1 画面 3 か所まで（記録詳細と進行ログだけで使う） |
+| **青ペン** `--pen-blue` | 枠の無い文字リンク（作品・団体・会場・外部リンク・「ネタバレメモを編集」「作品を見る ›」）＝**必ず下線つき** | 一覧の行全体（.ticket は行ごとリンクだが文字は黒のまま）、枠つきボタン（黒のまま）、塗りのボタン、見出し、長文メモ | リンクは上限なし。`.pen` は 1 画面 3 か所まで（記録詳細と進行ログだけで使う） |
 
-青ペンのリスク: `.pen`（下線なし青）がリンクと間違えて押される可能性がある。リンクは「青＋下線」、書き込みは「青＋手書き体・下線なし」で形を分けて許容する。押されるようなら `.pen` を --fg の Klee One に戻す（色を引っ込めても規則は崩れない）。
+青ペンは文字リンクだけに使う。短い注記 `.pen` は当初青＋手書き体にしたが、リンクと紛れるので --fg の Noto Sans 500 にした（#79）。
 
 ### 3.4 ステータスの線種との関係（決定: **線種は保ったまま、色は失敗にだけ足す**）
 | ステータス | 今 | 変更後 |
@@ -148,8 +146,8 @@ a:not([class]), a.meta, .kv a, .card a:not(.btn) {
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
-/* 手書きの書き込み */
-.pen { font-family: var(--hand); font-weight: 600; font-size: 15px; color: var(--pen-blue); }
+/* 短い注記 */
+.pen { font-weight: 500; font-size: 15px; color: var(--fg); }
 /* 期限: 赤の波線。色が見えなくても波線で読める */
 .due { color: var(--pen-red); text-decoration: underline wavy var(--pen-red); text-underline-offset: 4px; }
 ```

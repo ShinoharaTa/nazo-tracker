@@ -50,7 +50,7 @@
 | 認証まわり | 「すべての端末からログアウト」 | #30 |
 | 本番デプロイ | D1 作成 → `database_id` 置換、`db:migrate:remote`、secret 3 つ、Google / Discord の OAuth アプリ登録と CLIENT_ID、`OWNER_IDENTITIES`、`AUTH_DEV_LOGIN=0` / `UI_GALLERY=0` 確認、カスタムドメイン nazo.shino3.net + `workers_dev = false` | `docs/ops.md`（ユーザー作業） |
 | 実機確認 | Google 初回ログイン、Discord 初回の同意画面、Discord が PKCE（`code_verifier`）を受理するか | `docs/ops.md` |
-| 任意 | Google Fonts のセルフホスト（Klee One / IBM Plex Mono / Zen Kaku Gothic New） | — |
+| 任意 | Google Fonts のセルフホスト（Noto Sans JP / IBM Plex Mono） | — |
 
 ## 進め方（固定）
 
