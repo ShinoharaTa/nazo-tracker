@@ -1,13 +1,16 @@
 // ネタバレ本文の断片レスポンス。SpoilerCard（components.tsx）の src が指す URL はこれで返す。
 // - X-Requested-With: fetch 付き（public/app.js からの取得）なら断片だけ
 // - 無ければ（JS 無効で href に遷移したとき）Layout で包んだ全体ページ
-// どちらもキャッシュ・インデックスさせない。認可（本人のみ）は呼び出し側のルートで行う。
+// どちらもキャッシュ・インデックスさせない。
+// spoilerResponse は own() でしか得られない OwnAttempt だけを受ける（本人以外の記録を渡せない）。
+// 部品見本（src/routes/gallery.tsx）は OwnAttempt を作れないので SpoilerFragment / SpoilerPage / spoilerHeaders を直接使う。
 
 import type { Context } from 'hono'
+import type { OwnAttempt } from '../db/scoped'
 import { TopBar } from './components'
 import { Layout, type Tab } from './Layout'
 
-export type SpoilerBody = {
+type SpoilerBody = {
   memo: string | null
   photos: readonly { label: string }[]
 }
@@ -36,19 +39,12 @@ export const SpoilerFragment = ({ memo, photos }: SpoilerBody) => {
   )
 }
 
-export const spoilerResponse = (
-  c: Context,
-  body: SpoilerBody,
-  page: { back: string; tab: Tab; title?: string },
-) => {
-  c.header('Cache-Control', 'no-store, private')
-  c.header('X-Robots-Tag', 'noindex')
-  c.header('Vary', 'X-Requested-With')
-  if (c.req.header('X-Requested-With') === 'fetch') {
-    return c.html(<SpoilerFragment {...body} />)
-  }
+type SpoilerPageProps = { back: string; tab: Tab; title?: string }
+
+// JS 無効で src に遷移したときの全体ページ
+export const SpoilerPage = ({ body, page }: { body: SpoilerBody; page: SpoilerPageProps }) => {
   const title = page.title ?? 'ネタバレ'
-  return c.html(
+  return (
     <Layout
       title={title}
       tab={page.tab}
@@ -62,6 +58,23 @@ export const spoilerResponse = (
           </section>
         </>
       }
-    />,
+    />
   )
+}
+
+// ネタバレ本文を含む応答に付けるヘッダ
+export const spoilerHeaders = (c: Context) => {
+  c.header('Cache-Control', 'no-store, private')
+  c.header('X-Robots-Tag', 'noindex')
+  c.header('Vary', 'X-Requested-With')
+}
+
+// 写真（spoiler=1 の image）は P9 まで常に空
+export const spoilerResponse = (c: Context, a: OwnAttempt, page: SpoilerPageProps) => {
+  const body: SpoilerBody = { memo: a.spoilerMemo, photos: [] }
+  spoilerHeaders(c)
+  if (c.req.header('X-Requested-With') === 'fetch') {
+    return c.html(<SpoilerFragment {...body} />)
+  }
+  return c.html(<SpoilerPage body={body} page={page} />)
 }

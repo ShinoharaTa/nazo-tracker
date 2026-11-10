@@ -135,7 +135,7 @@ escape.id は謎解きの「枠（チケット）」を売る場で、作品の�
 | run_id FK NULL | 公演回が分かるとき |
 | status | `purchased`(買った) / `in_progress` / `cleared` / `failed` / `dropped` |
 | purchased_on | 買った日 NULL 可。status=purchased で作り、遊び始めても値は残す |
-| attempt_no | 同一 work の何回目か（再挑戦） |
+| attempt_no | 同一 work の何回目か（再挑戦）。作成時に同じ user・work の `MAX(attempt_no) + 1` を INSERT の副問い合わせで求める |
 | started_on / finished_on | NULL 可。session があれば派生（min/max）で埋める |
 | duration_sec | 公演なら所要、周遊なら合計（session の合計で上書き可） |
 | party_size | |
@@ -151,7 +151,27 @@ escape.id は謎解きの「枠（チケット）」を売る場で、作品の�
 
 INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **INDEX(work_id, status, user_id)**（匿名人数用）.
 
-**軽い記録** = `work_id + status` のみ（日付・同行者 NULL）。**詳しい記録** = 上記 + session + 評価項目 + 画像。
+**軽い記録** = `work_id + status` + 日付 1 つ（同行者・評価は NULL）。**詳しい記録** = 上記 + session + 評価項目 + 画像。
+
+軽い記録（`POST /records`。日付 `on` は 1 欄、既定値は今日（JST）、空なら NULL）で日付を書く列:
+
+| status | 書く列 |
+|---|---|
+| purchased | `purchased_on = on` |
+| in_progress | `started_on = on` |
+| cleared / failed / dropped | `finished_on = on` |
+
+`run_id` は軽い記録では書かない（NULL）。
+
+**表示日（`display_on`、`v_attempt_enriched` の列）**: 一覧の日付スタブ。NULL なら「日付なし」。
+
+| status | display_on |
+|---|---|
+| purchased | `purchased_on` |
+| in_progress | 最新の session の `played_on` → `started_on` |
+| cleared / failed / dropped | `finished_on` → 最新の session の `played_on` → `started_on` |
+
+記録一覧の並びは `COALESCE(display_on, created_at の日付) DESC, created_at DESC`。
 
 ### genre / attempt_genre（ジャンル、固定リスト・複数選択）
 - `genre(id, label, sort_order, archived INT)` — 初期値: ひらめき / 論理 / 物量 / ストーリー / 探索 / 大謎一発 / 協力 / 体験・演出（決定）。オーナーが追加・archived。自由タグは v1 では持たない
@@ -331,10 +351,8 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 分母は常に §6 冒頭の定義（cleared + failed、dropped はトグル）。全て `WHERE user_id = ?`。
 
 ビュー（D1 で定義、クエリ側は必ず `user_id` 条件を付ける）:
-- `v_attempt_enriched`: attempt ⋈ work ⋈ run ⋈ venue ⋈ organization（表示列をまとめる。`spoiler_memo` は含めない）
-- `v_attempt_monthly`: user_id, ym, status, count
-- `v_attempt_by_difficulty`: user_id, difficulty, status, count
-- `v_attempt_by_genre`: user_id, genre_id, status, count
+- `v_attempt_enriched`（`migrations/0004_v_attempt_enriched.sql`、P3 で作成）: attempt ⋈ work ⋈ run(LEFT) ⋈ venue(LEFT) ⋈ organization(LEFT、`run.organization_id` → `work.primary_organization_id`)。列は attempt の `spoiler_memo` 以外の全列 + `last_played_on` / `session_count` / `session_duration_sec`（session の MAX / COUNT / SUM）+ `display_on`（§3 attempt）+ `work_title` / `work_kind` / `org_id` / `org_name` / `run_channel` / `run_start_on` / `run_end_on` / `venue_id` / `venue_name` / `venue_prefecture`。**`spoiler_memo` は含めない。** 読むのは `src/db/scoped.ts` だけ（`check:scoped` の禁止語に `vAttemptEnriched`）
+- 集計ビュー（`v_attempt_monthly` / `v_attempt_by_difficulty` / `v_attempt_by_genre`）は作らない。統計は 1 ユーザー分の `v_attempt_enriched` をアプリ側で集計する（P3 の統計で実装）
 
 ### フレンド向け射影（`/api/friends/:userId/attempts`）
 | level | 返す列 |

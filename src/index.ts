@@ -7,6 +7,7 @@ import apiAdmin from './routes/api-admin'
 import auth from './routes/auth'
 import dev from './routes/dev'
 import gallery from './routes/gallery'
+import records from './routes/records'
 import ui from './routes/ui'
 
 // strict: false で末尾スラッシュ付き（/records/ など）も同じルートとして扱う。サブアプリ側も同じ設定
@@ -33,6 +34,7 @@ app.route('/_dev', dev)
 app.route('/auth', auth)
 app.route('/admin', admin)
 app.route('/api/admin', apiAdmin)
+app.route('/records', records)
 app.route('/', ui)
 
 export default app

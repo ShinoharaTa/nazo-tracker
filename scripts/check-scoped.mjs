@@ -16,6 +16,7 @@ const forbidden = new Set([
   'image',
   'wishlist',
   'marketVisit',
+  'vAttemptEnriched',
 ])
 const allowed = new Set([
   'src/db/scoped.ts',

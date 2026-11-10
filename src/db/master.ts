@@ -8,6 +8,7 @@ import type { Db } from './client'
 import {
   booth,
   boothItem,
+  genre,
   marketEdition,
   organization,
   organizationAlias,
@@ -432,6 +433,23 @@ export const getVenue = async (db: Db, id: string): Promise<Resolved<VenueDetail
     },
   }
 }
+
+export type GenreRow = { id: string; label: string }
+
+// ジャンルの選択肢。archived = 0 と、includeIds（記録に付いている分）は archived でも出す。sort_order 順
+export const listGenres = (
+  db: Db,
+  { includeIds = [] }: { includeIds?: readonly string[] } = {},
+): Promise<GenreRow[]> =>
+  db
+    .select({ id: genre.id, label: genre.label })
+    .from(genre)
+    .where(
+      includeIds.length
+        ? or(eq(genre.archived, 0), inArray(genre.id, [...includeIds]))
+        : eq(genre.archived, 0),
+    )
+    .orderBy(genre.sortOrder, genre.id)
 
 // ---------------------------------------------------------------------------
 // オーナー画面（/admin/*）用の読み取り。統合済みの行も返す

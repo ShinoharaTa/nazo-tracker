@@ -1,4 +1,4 @@
-// 画面のルート。作品・団体・会場はマスタの実データ、記録などの中身はまだ空状態で返す。
+// 画面のルート。作品・団体・会場はマスタの実データ。記録（/records/*）は routes/records.tsx、統計などの中身はまだ空状態で返す。
 
 import { type Context, Hono } from 'hono'
 import { deleteAccount } from '../auth/account'
@@ -20,7 +20,6 @@ import {
   Pager,
   SearchIcon,
   Switch,
-  Tabs,
   TopBar,
 } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
@@ -28,58 +27,8 @@ import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
 
 const ui = new Hono<AppEnv>({ strict: false })
 
-// /records/* は /records 自体も含む
-ui.use('/records/*', requireUser)
 ui.use('/stats', requireUser)
 ui.use('/settings/*', requireUser)
-
-type RecordsTab = 'all' | 'pending' | 'wish'
-
-const recordsTabs: readonly { key: RecordsTab; label: string; href: string }[] = [
-  { key: 'all', label: 'すべて', href: '/records' },
-  { key: 'pending', label: '進行中・積み謎', href: '/records?tab=pending' },
-  { key: 'wish', label: 'マイリスト', href: '/records?tab=wish' },
-]
-
-const toRecordsTab = (v: string | undefined): RecordsTab =>
-  v === 'pending' || v === 'wish' ? v : 'all'
-
-// 記録一覧（左ページ）
-const RecordsList = ({ tab }: { tab: RecordsTab }) => (
-  <>
-    <TopBar
-      title="記録"
-      action={
-        <a class="btn ghost" style="min-height:40px" href="/stats">
-          0 件プレイ ›
-        </a>
-      }
-    />
-    <Tabs items={recordsTabs} current={tab} label="記録の絞り込み" />
-    <div class="list">
-      {tab === 'all' ? (
-        <Empty>
-          まだ記録はありません。
-          <br />
-          「＋ 記録」から作品を選んで付けられます。
-        </Empty>
-      ) : tab === 'pending' ? (
-        <Empty>ここに出る記録はまだありません。</Empty>
-      ) : (
-        <>
-          <Empty>
-            マイリストは空です。
-            <br />
-            作品ページの「マイリストに追加」から登録できます。
-          </Empty>
-          <p class="note">
-            マイリストからは自動では外れません。遊び終わったら ✕ で外してください。
-          </p>
-        </>
-      )}
-    </div>
-  </>
-)
 
 // 作品一覧の形式フィルタ。LINE と Web はモックに合わせて 1 つにまとめる。
 // online は line / web をまとめた UI 上だけの値（workKinds には無い）。listWorks が kind IN ('line', 'web') に変換する
@@ -173,12 +122,12 @@ const defaultWorksList = async (db: Db, selectedId?: string) => {
 }
 
 // 1 始まり。不正値は 1
-const toPage = (v: string | undefined): number => {
+export const toPage = (v: string | undefined): number => {
   if (!v || !/^[1-9]\d{0,8}$/.test(v)) return 1
   return Number(v)
 }
 
-const NotFound = ({ back }: { back: string }) => (
+export const NotFound = ({ back }: { back: string }) => (
   <>
     <TopBar back={back} label="404" />
     <Empty>見つかりませんでした。</Empty>
@@ -186,70 +135,6 @@ const NotFound = ({ back }: { back: string }) => (
 )
 
 ui.get('/', (c) => c.redirect(c.get('user') ? '/records' : '/login', 302))
-
-ui.get('/records', (c) => {
-  const tab = toRecordsTab(c.req.query('tab'))
-  return c.html(<Layout title="記録" tab="records" left={<RecordsList tab={tab} />} fab />)
-})
-
-// 作品選択（仮）。作品マスタを検索して作品ページへつなぐ。記録の保存はまだ無い
-const RECORDS_NEW_LIMIT = 20
-
-ui.get('/records/new', async (c) => {
-  const q = c.req.query('q') ?? ''
-  const items = q.trim()
-    ? (await listWorks(c.get('db'), { q })).items.slice(0, RECORDS_NEW_LIMIT)
-    : []
-  return c.html(
-    <Layout
-      title="記録を追加"
-      tab="records"
-      left={<RecordsList tab="all" />}
-      right={
-        <>
-          <TopBar back="/records" label="記録を追加" />
-          <div class="sect" style="margin-top:4px">
-            <h2>何を記録しますか？</h2>
-            <form class="search" method="get" action="/records/new">
-              <SearchIcon />
-              <input
-                type="search"
-                name="q"
-                value={q}
-                placeholder="作品名・団体で検索"
-                aria-label="作品を検索"
-              />
-            </form>
-            <p class="note">
-              記録の保存は次の段階で入ります。いまは作品ページを開いて確認できます。
-            </p>
-            <div class="list">
-              {!q.trim() ? (
-                <Empty>作品名か団体名で検索してください</Empty>
-              ) : items.length ? (
-                items.map((w) => <WorkTicket w={w} />)
-              ) : (
-                <Empty>「{q}」に一致する作品はありません</Empty>
-              )}
-            </div>
-          </div>
-        </>
-      }
-    />,
-  )
-})
-
-ui.get('/records/:id', (c) =>
-  c.html(
-    <Layout
-      title="見つかりませんでした"
-      tab="records"
-      left={<RecordsList tab="all" />}
-      right={<NotFound back="/records" />}
-    />,
-    404,
-  ),
-)
 
 ui.get('/works', async (c) => {
   const k = c.req.query('kind') ?? 'all'
@@ -285,6 +170,10 @@ ui.get('/works/:id', async (c) => {
   if (!r) return c.html(await masterNotFound(db), 404)
   if ('redirect' in r) return c.redirect(`/works/${encodeURIComponent(r.redirect)}`, 302)
   const owner = isOwner(c)
+  const user = c.get('user')
+  const mine = user
+    ? { attempts: await scopedTo(db, user.id).own().attemptsOfWork(r.found.id) }
+    : null
   return c.html(
     <Layout
       title={r.found.title}
@@ -294,6 +183,7 @@ ui.get('/works/:id', async (c) => {
         <WorkDetail
           w={r.found}
           today={todayJst()}
+          mine={mine}
           editHref={owner ? `/admin/works/${r.found.id}` : undefined}
           runEditHref={owner ? (runId) => `/admin/runs/${runId}` : undefined}
         />

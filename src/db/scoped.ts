@@ -2,9 +2,92 @@
 // own() は本人の行だけ、asFriendOf() は friendship / block を確かめてから射影だけを返す。
 // 記録系テーブルをこのファイル以外から import しないことは scripts/check-scoped.mjs で検査する。
 
-import { and, eq, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { ulid } from '../lib/id'
+import { nowIso } from '../lib/time'
 import type { Db } from './client'
-import { block, friendship, identity, user, type userRoles } from './schema'
+import { PAGE_SIZE } from './master'
+import {
+  attempt,
+  attemptGenre,
+  type attemptStatuses,
+  block,
+  friendship,
+  identity,
+  type runChannels,
+  session,
+  user,
+  type userRoles,
+  vAttemptEnriched,
+  type workKinds,
+} from './schema'
+
+type AttemptStatus = (typeof attemptStatuses)[number]
+
+// OwnAttempt は own() の中でしか作れない（brand の symbol を export しない）。
+// ネタバレ本文を返す spoilerResponse（src/ui/spoiler.tsx）はこの型しか受けない
+declare const ownBrand: unique symbol
+
+// v_attempt_enriched の 1 行（spoiler_memo を持たない）。一覧・統計用
+export type OwnAttemptRow = {
+  id: string
+  workId: string
+  runId: string | null
+  status: AttemptStatus
+  purchasedOn: string | null
+  attemptNo: number
+  startedOn: string | null
+  finishedOn: string | null
+  durationSec: number | null
+  partySize: number | null
+  companions: string | null
+  rating: number | null
+  difficulty: number | null
+  volume: number | null
+  memo: string | null
+  createdAt: string
+  updatedAt: string
+  // 以下ビュー由来。displayOn は一覧の日付スタブ（NULL は「日付なし」）
+  displayOn: string | null
+  lastPlayedOn: string | null
+  sessionCount: number
+  sessionDurationSec: number | null
+  work: {
+    id: string
+    title: string
+    kind: (typeof workKinds)[number] | null
+    org: { id: string; name: string } | null
+  }
+  run: {
+    id: string
+    channel: (typeof runChannels)[number]
+    startOn: string | null
+    endOn: string | null
+    venue: { id: string; name: string; prefecture: string | null } | null
+  } | null
+}
+
+export type OwnSession = {
+  id: string
+  playedOn: string
+  durationSec: number | null
+  progressNote: string | null
+  companions: string | null
+  memo: string | null
+  locationText: string | null
+  createdAt: string
+}
+
+// 記録 1 件の全部（ネタバレメモ・ジャンル・進行ログ込み）。本人だけが得られる
+export type OwnAttempt = OwnAttemptRow & {
+  readonly [ownBrand]: true
+  spoilerMemo: string | null
+  genreIds: string[]
+  // played_on DESC, created_at DESC
+  sessions: OwnSession[]
+}
+
+export type AttemptListTab = 'all' | 'pending'
 
 export type OwnProfile = {
   id: string
@@ -20,6 +103,25 @@ export type OwnRepo = {
   updateDisplayName(name: string): Promise<void>
   // 連携済みの provider 名
   linkedProviders(): Promise<Set<string>>
+  // 記録一覧。COALESCE(display_on, created_at の日付) DESC, created_at DESC。50 件ずつ
+  listAttempts(opts: {
+    tab: AttemptListTab
+    page: number
+  }): Promise<{ items: OwnAttemptRow[]; hasNext: boolean }>
+  // 他人の id・無い id は null
+  getAttempt(id: string): Promise<OwnAttempt | null>
+  // 作品ページの「あなたの記録」。attempt_no DESC
+  attemptsOfWork(
+    workId: string,
+  ): Promise<{ id: string; status: AttemptStatus; attemptNo: number; displayOn: string | null }[]>
+  // 軽い記録。on は status に応じて purchased_on / started_on / finished_on のどれかに入る。新しい id を返す
+  createAttempt(input: {
+    workId: string
+    status: AttemptStatus
+    on: string | null
+  }): Promise<string>
+  // status IN (cleared, failed) の件数
+  playedCount(): Promise<number>
 }
 
 // P1 は箱だけ。P8 で射影を返すメソッドを足す
@@ -33,6 +135,89 @@ export type Scoped = {
   own(): OwnRepo
   asFriendOf(targetUserId: string): Promise<FriendRepo | null>
 }
+
+const v = vAttemptEnriched
+
+// v_attempt_enriched から読む列（user_id / share_override / source_ref は画面に出さないので読まない）
+const enrichedColumns = {
+  id: v.id,
+  workId: v.workId,
+  runId: v.runId,
+  status: v.status,
+  purchasedOn: v.purchasedOn,
+  attemptNo: v.attemptNo,
+  startedOn: v.startedOn,
+  finishedOn: v.finishedOn,
+  durationSec: v.durationSec,
+  partySize: v.partySize,
+  companions: v.companions,
+  rating: v.rating,
+  difficulty: v.difficulty,
+  volume: v.volume,
+  memo: v.memo,
+  createdAt: v.createdAt,
+  updatedAt: v.updatedAt,
+  displayOn: v.displayOn,
+  lastPlayedOn: v.lastPlayedOn,
+  sessionCount: v.sessionCount,
+  sessionDurationSec: v.sessionDurationSec,
+  workTitle: v.workTitle,
+  workKind: v.workKind,
+  orgId: v.orgId,
+  orgName: v.orgName,
+  runChannel: v.runChannel,
+  runStartOn: v.runStartOn,
+  runEndOn: v.runEndOn,
+  venueId: v.venueId,
+  venueName: v.venueName,
+  venuePrefecture: v.venuePrefecture,
+}
+
+// 呼び出し側で必ず user_id = viewerId を WHERE に入れる
+const selectEnriched = (db: Db) => db.select(enrichedColumns).from(v)
+
+type EnrichedSelect = Awaited<ReturnType<typeof selectEnriched>>[number]
+
+const toAttemptRow = (r: EnrichedSelect): OwnAttemptRow => {
+  const {
+    workTitle,
+    workKind,
+    orgId,
+    orgName,
+    runChannel,
+    runStartOn,
+    runEndOn,
+    venueId,
+    venueName,
+    venuePrefecture,
+    ...rest
+  } = r
+  return {
+    ...rest,
+    work: {
+      id: r.workId,
+      title: workTitle,
+      kind: workKind,
+      org: orgId && orgName ? { id: orgId, name: orgName } : null,
+    },
+    run:
+      r.runId && runChannel
+        ? {
+            id: r.runId,
+            channel: runChannel,
+            startOn: runStartOn,
+            endOn: runEndOn,
+            venue:
+              venueId && venueName
+                ? { id: venueId, name: venueName, prefecture: venuePrefecture }
+                : null,
+          }
+        : null,
+  }
+}
+
+const pendingStatuses = ['purchased', 'in_progress'] as const satisfies readonly AttemptStatus[]
+const playedStatuses = ['cleared', 'failed'] as const satisfies readonly AttemptStatus[]
 
 const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
   async profile() {
@@ -63,6 +248,99 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .from(identity)
       .where(eq(identity.userId, viewerId))
     return new Set(rows.map((r) => r.provider))
+  },
+
+  async listAttempts({ tab, page }) {
+    const rows = await selectEnriched(db)
+      .where(
+        and(
+          eq(v.userId, viewerId),
+          tab === 'pending' ? inArray(v.status, [...pendingStatuses]) : undefined,
+        ),
+      )
+      .orderBy(
+        desc(sql`COALESCE(${v.displayOn}, substr(${v.createdAt}, 1, 10))`),
+        desc(v.createdAt),
+        desc(v.id),
+      )
+      .limit(PAGE_SIZE + 1)
+      .offset((page - 1) * PAGE_SIZE)
+    return { items: rows.slice(0, PAGE_SIZE).map(toAttemptRow), hasNext: rows.length > PAGE_SIZE }
+  },
+
+  // spoiler_memo はビューに無いので attempt 表から読む。全て id と user_id の両方で絞る
+  async getAttempt(id) {
+    const [rows, spoilers, genres, sessions] = await db.batch([
+      selectEnriched(db)
+        .where(and(eq(v.id, id), eq(v.userId, viewerId)))
+        .limit(1),
+      db
+        .select({ spoilerMemo: attempt.spoilerMemo })
+        .from(attempt)
+        .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+        .limit(1),
+      db
+        .select({ genreId: attemptGenre.genreId })
+        .from(attemptGenre)
+        .where(and(eq(attemptGenre.attemptId, id), eq(attemptGenre.userId, viewerId))),
+      db
+        .select({
+          id: session.id,
+          playedOn: session.playedOn,
+          durationSec: session.durationSec,
+          progressNote: session.progressNote,
+          companions: session.companions,
+          memo: session.memo,
+          locationText: session.locationText,
+          createdAt: session.createdAt,
+        })
+        .from(session)
+        .where(and(eq(session.attemptId, id), eq(session.userId, viewerId)))
+        .orderBy(desc(session.playedOn), desc(session.createdAt)),
+    ])
+    if (!rows[0] || !spoilers[0]) return null
+    return {
+      ...toAttemptRow(rows[0]),
+      spoilerMemo: spoilers[0].spoilerMemo,
+      genreIds: genres.map((g) => g.genreId),
+      sessions,
+    } as OwnAttempt
+  },
+
+  attemptsOfWork(workId) {
+    return db
+      .select({ id: v.id, status: v.status, attemptNo: v.attemptNo, displayOn: v.displayOn })
+      .from(v)
+      .where(and(eq(v.userId, viewerId), eq(v.workId, workId)))
+      .orderBy(desc(v.attemptNo), desc(v.createdAt))
+  },
+
+  // attempt_no は同じ作品の自分の記録の MAX + 1 を INSERT の中で求める
+  async createAttempt({ workId, status, on }) {
+    const id = ulid()
+    const now = nowIso()
+    await db.insert(attempt).values({
+      id,
+      userId: viewerId,
+      workId,
+      status,
+      purchasedOn: status === 'purchased' ? on : null,
+      startedOn: status === 'in_progress' ? on : null,
+      finishedOn: status === 'purchased' || status === 'in_progress' ? null : on,
+      attemptNo: sql`(SELECT COALESCE(MAX(attempt_no), 0) + 1 FROM attempt WHERE user_id = ${viewerId} AND work_id = ${workId})`,
+      createdAt: now,
+      updatedAt: now,
+    })
+    return id
+  },
+
+  async playedCount() {
+    const row = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(attempt)
+      .where(and(eq(attempt.userId, viewerId), inArray(attempt.status, [...playedStatuses])))
+      .get()
+    return row?.n ?? 0
   },
 })
 

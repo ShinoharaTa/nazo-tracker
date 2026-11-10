@@ -29,6 +29,13 @@
       "when": 1794231103621,
       "tag": "0003_oauth_state_nonce",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794300000000,
+      "tag": "0004_v_attempt_enriched",
+      "breakpoints": true
     }
   ]
 }
