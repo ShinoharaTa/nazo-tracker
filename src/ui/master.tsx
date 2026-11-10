@@ -68,15 +68,20 @@ const Ext = ({ href, children }: { href: string; children?: Child }) =>
     <span>{children}</span>
   )
 
-// 作品一覧の 1 行。hrefBase の後ろに作品 id を付けてリンクにする（記録の作品選択では /records/new?work=）
+// 作品一覧の 1 行。hrefBase の後ろに作品 id を付けてリンクにする（記録の作品選択では /records/new?work=）。
+// chip / extra はマイリスト用（extra を渡すと期間の代わりに出す）
 export const WorkTicket = ({
   w,
   selected,
   hrefBase = '/works/',
+  chip,
+  extra,
 }: {
   w: WorkListItem
   selected?: boolean
   hrefBase?: string
+  chip?: Child
+  extra?: string
 }) => {
   const k = kindLabel(w.kind)
   return (
@@ -92,7 +97,8 @@ export const WorkTicket = ({
       }
       meta={[k, w.org?.name].filter(Boolean).join(' · ')}
       title={w.title}
-      extra={w.rep ? formatPeriod(w.rep) : undefined}
+      chip={chip}
+      extra={extra ?? (w.rep ? formatPeriod(w.rep) : undefined)}
     />
   )
 }
@@ -168,8 +174,9 @@ const KvRow = ({ label, children }: { label: string; children?: Child }) => (
   </>
 )
 
-// 作品ページに出す本人の記録。null は未ログイン
+// 作品ページに出す本人の記録とマイリスト登録の有無。null は未ログイン
 export type WorkMine = {
+  wished: boolean
   attempts: { id: string; status: AttemptStatus; displayOn: string | null; attemptNo: number }[]
 } | null
 
@@ -219,10 +226,18 @@ export const WorkDetail = ({
         {/* 未ログインは /login へ（next は作らない） */}
         {mine ? (
           <div class="btns">
-            {/* TODO(P3): マイリスト（PR-4） */}
-            <button type="button" class="btn" aria-disabled="true" disabled>
-              マイリストに追加
-            </button>
+            {/* form の箱を消し、中の button を .btns の並びに入れる */}
+            <form
+              method="post"
+              action={mine.wished ? '/records/wishlist/delete' : '/records/wishlist'}
+              style="display:contents"
+            >
+              <input type="hidden" name="work_id" value={w.id} />
+              <input type="hidden" name="back" value="work" />
+              <button type="submit" class="btn">
+                {mine.wished ? 'マイリストから外す' : 'マイリストに追加'}
+              </button>
+            </form>
             <a class="btn pri" href={`/records/new?work=${w.id}`}>
               記録する
             </a>

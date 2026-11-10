@@ -36,22 +36,30 @@ const own = (c: Context<AppEnv>) => scopedTo(c.get('db'), currentUser(c).id).own
 const toRecordsTab = (v: string | undefined): RecordsTab =>
   v === 'pending' || v === 'wish' ? v : 'all'
 
-// 左ページの記録一覧
+// 左ページの記録一覧（unplayed は tab=wish のときだけ使う）
 const recordsList = async (
   c: Context<AppEnv>,
-  { tab = 'all', page = 1, selectedId }: { tab?: RecordsTab; page?: number; selectedId?: string },
+  {
+    tab = 'all',
+    page = 1,
+    selectedId,
+    unplayed = false,
+  }: { tab?: RecordsTab; page?: number; selectedId?: string; unplayed?: boolean },
 ) => {
   const repo = own(c)
-  const [list, playedCount] = await Promise.all([
+  const [list, wish, playedCount] = await Promise.all([
     tab === 'wish' ? { items: [], hasNext: false } : repo.listAttempts({ tab, page }),
+    tab === 'wish' ? repo.listWishlist({ unplayed, page }) : { items: [], hasNext: false },
     repo.playedCount(),
   ])
   return (
     <RecordsList
       tab={tab}
       items={list.items}
+      wishItems={wish.items}
+      unplayed={unplayed}
       page={page}
-      hasNext={list.hasNext}
+      hasNext={tab === 'wish' ? wish.hasNext : list.hasNext}
       playedCount={playedCount}
       selectedId={selectedId}
     />
@@ -72,8 +80,9 @@ const notFoundPage = async (c: Context<AppEnv>, back: string) =>
 records.get('/', async (c) => {
   const tab = toRecordsTab(c.req.query('tab'))
   const page = toPage(c.req.query('page'))
+  const unplayed = c.req.query('unplayed') === '1'
   return c.html(
-    <Layout title="記録" tab="records" left={await recordsList(c, { tab, page })} fab />,
+    <Layout title="記録" tab="records" left={await recordsList(c, { tab, page, unplayed })} fab />,
   )
 })
 
@@ -153,6 +162,22 @@ records.post('/', async (c) => {
   const id = await own(c).createAttempt({ workId: r.found.id, ...v.value })
   return c.redirect(`/records/${id}?created=1`, 302)
 })
+
+// マイリストの追加 / 削除。リダイレクト先は back の 2 値から組み立てる（URL を body から受けない）。
+// /:id より先に登録する（/:id/... のルートに wishlist を id として拾わせない）
+const wishRoute = (op: 'addWish' | 'removeWish') => async (c: Context<AppEnv>) => {
+  const f = formOf(await c.req.parseBody(), ['work_id', 'back'])
+  const r = f.work_id ? await getWork(c.get('db'), f.work_id) : null
+  if (!r || 'redirect' in r) return notFoundPage(c, '/records?tab=wish')
+  await own(c)[op](r.found.id)
+  return c.redirect(
+    f.back === 'wish' ? '/records?tab=wish' : `/works/${encodeURIComponent(r.found.id)}`,
+    302,
+  )
+}
+
+records.post('/wishlist', wishRoute('addWish'))
+records.post('/wishlist/delete', wishRoute('removeWish'))
 
 records.get('/:id', async (c) => {
   const id = c.req.param('id')
