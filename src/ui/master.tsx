@@ -2,6 +2,7 @@
 // 外部リンクの href には DB の値を出す。http(s) で始まらない値はリンクにしない（Ext）。
 
 import type { Child } from 'hono/jsx'
+import type { WorkCounts } from '../db/counts'
 import type {
   OrgDetailData,
   RunRow,
@@ -13,6 +14,7 @@ import { Empty, Menu, MenuItem, Ticket, TopBar } from './components'
 import {
   type AttemptStatus,
   attemptStatusLabels,
+  countLabel,
   organizationAliasKindLabels,
   runChannelLabels,
   workAliasKindLabels,
@@ -68,17 +70,21 @@ const Ext = ({ href, children }: { href: string; children?: Child }) =>
     <span>{children}</span>
   )
 
-// 作品一覧の 1 行。hrefBase の後ろに作品 id を付けてリンクにする（記録の作品選択では /records/new?work=）
+// 作品一覧の 1 行。hrefBase の後ろに作品 id を付けてリンクにする（記録の作品選択では /records/new?work=）。
+// counts があればプレイ済み人数の chip を出す（none は出さない。マイリスト人数は一覧には出さない）
 export const WorkTicket = ({
   w,
   selected,
   hrefBase = '/works/',
+  counts,
 }: {
   w: WorkListItem
   selected?: boolean
   hrefBase?: string
+  counts?: WorkCounts
 }) => {
   const k = kindLabel(w.kind)
+  const played = counts ? countLabel(counts.played) : null
   return (
     <Ticket
       href={`${hrefBase}${w.id}`}
@@ -92,6 +98,7 @@ export const WorkTicket = ({
       }
       meta={[k, w.org?.name].filter(Boolean).join(' · ')}
       title={w.title}
+      chip={played ? <span class="chip">プレイ済み {played}</span> : undefined}
       extra={w.rep ? formatPeriod(w.rep) : undefined}
     />
   )
@@ -173,17 +180,38 @@ export type WorkMine = {
   attempts: { id: string; status: AttemptStatus; displayOn: string | null; attemptNo: number }[]
 } | null
 
+// 作品ページの匿名人数。none の .num は出さず、両方 none なら「まだ記録はありません」
+const WorkNums = ({ counts }: { counts: WorkCounts }) => {
+  const nums = [
+    { label: 'プレイ済み', value: countLabel(counts.played) },
+    { label: 'マイリスト', value: countLabel(counts.wish) },
+  ].filter((n) => n.value !== null)
+  if (!nums.length) return <p class="note">まだ記録はありません</p>
+  return (
+    <div class="nums">
+      {nums.map((n) => (
+        <div class="num">
+          <span>{n.label}</span>
+          <b>{n.value}</b>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // editHref / runEditHref はオーナーのときだけ（作品と各回の「編集」）
 export const WorkDetail = ({
   w,
   today,
   mine,
+  counts,
   editHref,
   runEditHref,
 }: {
   w: WorkDetailData
   today: string
   mine: WorkMine
+  counts?: WorkCounts
   editHref?: string
   runEditHref?: (runId: string) => string
 }) => {
@@ -203,17 +231,7 @@ export const WorkDetail = ({
             {w.title}
           </span>
         </div>
-        {/* TODO(P3): countsFor に差し替える */}
-        <div class="nums">
-          <div class="num">
-            <span>プレイ済み</span>
-            <b>—</b>
-          </div>
-          <div class="num">
-            <span>マイリスト</span>
-            <b>—</b>
-          </div>
-        </div>
+        {counts ? <WorkNums counts={counts} /> : null}
       </div>
       <div class="sect">
         {/* 未ログインは /login へ（next は作らない） */}
@@ -319,7 +337,15 @@ const EditLink = ({ href }: { href?: string }) =>
     </a>
   ) : undefined
 
-export const OrgDetail = ({ o, editHref }: { o: OrgDetailData; editHref?: string }) => (
+export const OrgDetail = ({
+  o,
+  counts,
+  editHref,
+}: {
+  o: OrgDetailData
+  counts?: Map<string, WorkCounts>
+  editHref?: string
+}) => (
   <>
     <TopBar back="/works" label="団体" action={EditLink({ href: editHref })} />
     <div class="card">
@@ -364,7 +390,7 @@ export const OrgDetail = ({ o, editHref }: { o: OrgDetailData; editHref?: string
       {o.works.length ? (
         <div class="list">
           {o.works.map((w) => (
-            <WorkTicket w={w} />
+            <WorkTicket w={w} counts={counts?.get(w.id)} />
           ))}
         </div>
       ) : (

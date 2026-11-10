@@ -122,6 +122,8 @@ export type OwnRepo = {
   }): Promise<string>
   // status IN (cleared, failed) の件数
   playedCount(): Promise<number>
+  // 匿名人数（src/db/counts.ts）から自分を外すか。true で exclude_from_counts = 1
+  setExcludeFromCounts(exclude: boolean): Promise<void>
 }
 
 // P1 は箱だけ。P8 で射影を返すメソッドを足す
@@ -341,6 +343,14 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .where(and(eq(attempt.userId, viewerId), inArray(attempt.status, [...playedStatuses])))
       .get()
     return row?.n ?? 0
+  },
+
+  // WHERE は viewerId 固定
+  async setExcludeFromCounts(exclude) {
+    await db
+      .update(user)
+      .set({ excludeFromCounts: exclude ? 1 : 0 })
+      .where(eq(user.id, viewerId))
   },
 })
 
