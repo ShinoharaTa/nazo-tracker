@@ -54,7 +54,7 @@ erDiagram
 | slug | TEXT UNIQUE NULL | escape.id の `<slug>-org` |
 | site_url | TEXT NULL | |
 | escape_id_url | TEXT UNIQUE NULL | `https://escape.id/<slug>-org/` |
-| note | TEXT | |
+| note | TEXT | 非公開 |
 | merged_into_id | TEXT NULL FK | マージ先 |
 | created_at / updated_at | TEXT | |
 

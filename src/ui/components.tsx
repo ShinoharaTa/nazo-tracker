@@ -164,11 +164,16 @@ export const Field = (props: {
   value?: string
   placeholder?: string
   multiline?: boolean
+  required?: boolean
+  min?: string
+  max?: string
+  step?: string
+  inputmode?: 'decimal' | 'email' | 'none' | 'numeric' | 'search' | 'tel' | 'text' | 'url'
 }) =>
   props.multiline ? (
     <label class="field">
       {props.label}
-      <textarea name={props.name} placeholder={props.placeholder}>
+      <textarea name={props.name} placeholder={props.placeholder} required={props.required}>
         {props.value}
       </textarea>
     </label>
@@ -180,9 +185,62 @@ export const Field = (props: {
         name={props.name}
         value={props.value}
         placeholder={props.placeholder}
+        required={props.required}
+        min={props.min}
+        max={props.max}
+        step={props.step}
+        inputmode={props.inputmode}
       />
     </label>
   )
+
+// blank を渡すと先頭に値が空の選択肢（そのラベル）を足す
+export const Select = (props: {
+  label: Child
+  name: string
+  options: readonly { value: string; label: string }[]
+  value?: string | null
+  blank?: string
+  required?: boolean
+}) => (
+  <label class="field">
+    {props.label}
+    <select name={props.name} required={props.required}>
+      {props.blank !== undefined ? (
+        <option value="" selected={!props.value}>
+          {props.blank}
+        </option>
+      ) : null}
+      {props.options.map((o) => (
+        <option value={o.value} selected={o.value === props.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  </label>
+)
+
+export const Checkbox = (props: {
+  label: string
+  name: string
+  checked?: boolean
+  value?: string
+}) => (
+  <label>
+    <input type="checkbox" name={props.name} value={props.value ?? '1'} checked={props.checked} />{' '}
+    {props.label}
+  </label>
+)
+
+// サーバー側の入力検証エラー。無ければ何も出さない
+export const FormErrors = ({ errors }: { errors: readonly string[] }) =>
+  errors.length ? (
+    <ul class="note" role="alert">
+      {errors.map((e) => (
+        <li>{e}</li>
+      ))}
+    </ul>
+  ) : null
 
 export const Switch = (props: {
   label: string

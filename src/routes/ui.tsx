@@ -1,6 +1,6 @@
 // 画面のルート。作品・団体・会場はマスタの実データ、記録などの中身はまだ空状態で返す。
 
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import { deleteAccount } from '../auth/account'
 import { currentUser, requireUser } from '../auth/middleware'
 import { isProviderReady } from '../auth/oauth'
@@ -257,6 +257,8 @@ const masterNotFound = async (db: Db) => (
   />
 )
 
+const isOwner = (c: Context<AppEnv>) => c.get('user')?.role === 'owner'
+
 // 統合済みの行は統合先へ 302（Location は自サイトの相対パスだけ）
 ui.get('/works/:id', async (c) => {
   const db = c.get('db')
@@ -283,7 +285,9 @@ ui.get('/orgs/:id', async (c) => {
       title={r.found.name}
       tab="works"
       left={await defaultWorksList(db)}
-      right={<OrgDetail o={r.found} />}
+      right={
+        <OrgDetail o={r.found} editHref={isOwner(c) ? `/admin/orgs/${r.found.id}` : undefined} />
+      }
     />,
   )
 })
@@ -298,7 +302,13 @@ ui.get('/venues/:id', async (c) => {
       title={r.found.name}
       tab="works"
       left={await defaultWorksList(db)}
-      right={<VenueDetail v={r.found} today={todayJst()} />}
+      right={
+        <VenueDetail
+          v={r.found}
+          today={todayJst()}
+          editHref={isOwner(c) ? `/admin/venues/${r.found.id}` : undefined}
+        />
+      }
     />,
   )
 })
@@ -386,6 +396,7 @@ const SettingsList = ({ user, linked }: { user: SessionUser; linked: Set<string>
       <div class="sect">
         <h2>管理（オーナーのみ）</h2>
         <Menu>
+          <MenuItem label="マスタ管理" href="/admin" />
           <MenuItem label="承認待ちの提案" note="P4 で実装" disabled />
         </Menu>
       </div>

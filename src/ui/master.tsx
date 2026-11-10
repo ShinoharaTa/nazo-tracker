@@ -248,9 +248,17 @@ export const WorkDetail = ({ w, today }: { w: WorkDetailData; today: string }) =
 const aliasPeriod = (since: string | null, until: string | null): string =>
   since || until ? `（${since ?? ''}〜${until ?? ''}）` : ''
 
-export const OrgDetail = ({ o }: { o: OrgDetailData }) => (
+// オーナーのときだけ編集画面へのリンク（右上）
+const EditLink = ({ href }: { href?: string }) =>
+  href ? (
+    <a class="btn ghost" style="min-height:40px" href={href}>
+      編集
+    </a>
+  ) : undefined
+
+export const OrgDetail = ({ o, editHref }: { o: OrgDetailData; editHref?: string }) => (
   <>
-    <TopBar back="/works" label="団体" />
+    <TopBar back="/works" label="団体" action={EditLink({ href: editHref })} />
     <div class="card">
       <span class="title" style="font-size:22px">
         {o.name}
@@ -261,7 +269,6 @@ export const OrgDetail = ({ o }: { o: OrgDetailData }) => (
           {o.escapeIdUrl ? <Ext href={o.escapeIdUrl}>escape.id</Ext> : null}
         </div>
       ) : null}
-      {o.note ? <p style="margin:0;white-space:pre-wrap">{o.note}</p> : null}
     </div>
     {o.aliases.length ? (
       <div class="sect">
@@ -303,9 +310,17 @@ export const OrgDetail = ({ o }: { o: OrgDetailData }) => (
   </>
 )
 
-export const VenueDetail = ({ v, today }: { v: VenueDetailData; today: string }) => (
+export const VenueDetail = ({
+  v,
+  today,
+  editHref,
+}: {
+  v: VenueDetailData
+  today: string
+  editHref?: string
+}) => (
   <>
-    <TopBar back="/works" label="会場" />
+    <TopBar back="/works" label="会場" action={EditLink({ href: editHref })} />
     <div class="card">
       <span class="title" style="font-size:22px">
         {v.name}

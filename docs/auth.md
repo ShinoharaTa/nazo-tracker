@@ -59,6 +59,7 @@
 
 ### 実装上の規約
 - 禁止語チェックは `scripts/check-scoped.mjs`（`npm run lint` に含む）。
+- オーナー画面は `/admin/*`（`requireOwner`。owner 以外は 404、未ログインの GET は `302 /login`・POST は 401）。オーナー用 JSON API は `/api/admin/*`（owner 以外は未ログインを含め JSON の 404 `{ "error": "not_found" }`）。
 - 記録系のルートは `/api/me/*`（本人。wishlist もここ）と `/api/friends/:userId/*`（射影）のみ。それ以外の URL でユーザー id を取らない。
 - 匿名人数は `/api/works` / `/api/works/:id` のマスタ応答に含め、**サーバー側でぼかしてから返す**（生の人数は返さない）。user_id を返す経路は無い。
 - リポジトリ層: `scopedTo(viewerId)` が `own()` と `asFriendOf(targetUserId)` を返す。`asFriendOf` は friendship / block を検証してから、level 別の列セットだけを持つ型（`FriendAttemptStatus | FriendAttemptRating | FriendAttemptMemo`）を返す（v1 で呼ばれるのは Status のみ）。`spoiler_memo` と `spoiler=1` の image を含む型は `own()` にしか存在しない。これ以外に attempt / session / image を読む経路を作らない。
