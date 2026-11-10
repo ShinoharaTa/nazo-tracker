@@ -22,7 +22,6 @@
   --info: #1c1c1c;
   --warn: #1c1c1c;
   --sans: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
-  --hand: "Klee One", "Noto Sans JP", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
 }
@@ -1293,10 +1292,9 @@ a.meta,
 }
 /* 手書きの注記。下線なしでリンクと形を分ける */
 .pen {
-  font-family: var(--hand);
-  font-weight: 600;
+  font-weight: 500;
   font-size: 15px;
-  color: var(--pen-blue);
+  color: var(--fg);
 }
 .chip.lg {
   font-size: 15px;

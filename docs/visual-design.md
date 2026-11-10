@@ -1,5 +1,6 @@
 # 見た目の方針: Noto Sans・視覚的な重心・ペンの差し色
 
+> 更新（2026-11-10）: Klee One は全廃（#75 見出し、#79 `.pen`）。以下で Klee One とある所は Noto Sans JP に読み替える。`.pen` は --fg・500。
 > 状態（2026-11-10）: §1 フォント、§2.2 スケール、§3 ペンの部品、§3.6 の演出（押すと沈む・保存直後の蛍光ペン・作成直後のハンコ）、§4.2 記録詳細の結果の行、§4.5 統計の成功率、§4.4 人数を 1 行に、は実装済み。
 > 未実装: §4.3 会期の `.due`・検索一致の `<mark>`、§4.4 `.mine` / `.period`、§4.5「得意」、ステータス変更後の `?status=1` のハンコ。仮の値（まもなく終了 = 14 日、得意 = 母数 5 件以上）はユーザー了承済み。
 
@@ -15,7 +16,7 @@ ux-review-2.md（以下 UR2）の M1〜M6 / R1〜R14 / O1〜O7 と矛盾しな�
 |---|---|---|---|
 | 本文・ラベル・一覧・ボタン・節見出し（.sect h2） | **Noto Sans JP** | 400 / 500 / 700 | 採用。Zen Kaku Gothic New は**捨てる** |
 | ページ見出し（.top h1）・.brand・.login h1・.cover .big・.sheet h3 | **Noto Sans JP** | 700 | Klee One は明朝のように見えて読みにくいので見出しにも使わない（#75） |
-| 手書きの書き込み（新設 `.pen`、§3 青ペン） | Klee One | 600 | 残す。12 字程度までの短い注記だけ |
+| 短い注記 `.pen`（結果の行の「2 回目 · 3 日目」） | **Noto Sans JP** | 500 | 手書き体はやめた（#79）。青ペンだとリンクと紛れるので色は --fg |
 | 数字（日付 stub・KPI・.num・棒の値・月別・.sub の日付） | **IBM Plex Mono** | 500 / 600 | **残す**。桁揃えのため。数字以外（ラベル・「記録」など）には使わない |
 
 - `.sect h2` は Klee One 16px → **Noto Sans JP 700 / 15px** に変える（細い手書き体が 16px で弱く、節の切れ目が読めない。UR2 §2「文字サイズと階層」）。
@@ -25,7 +26,7 @@ ux-review-2.md（以下 UR2）の M1〜M6 / R1〜R14 / O1〜O7 と矛盾しな�
 
 読み込み（Layout.tsx:16-17 の FONTS を置き換え）:
 ```
-https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Klee+One:wght@600&family=IBM+Plex+Mono:wght@500;600&display=swap
+https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap
 ```
 トークン（app.css:19-21）:
 ```css
