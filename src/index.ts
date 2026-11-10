@@ -3,6 +3,7 @@ import { csrf } from 'hono/csrf'
 import { attachUser } from './auth/middleware'
 import type { AppEnv } from './env'
 import admin from './routes/admin'
+import apiAdmin from './routes/api-admin'
 import auth from './routes/auth'
 import dev from './routes/dev'
 import gallery from './routes/gallery'
@@ -31,6 +32,7 @@ app.route('/_ui', gallery)
 app.route('/_dev', dev)
 app.route('/auth', auth)
 app.route('/admin', admin)
+app.route('/api/admin', apiAdmin)
 app.route('/', ui)
 
 export default app

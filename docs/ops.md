@@ -45,4 +45,13 @@ ssh -L 8787:127.0.0.1:8787 <host>
 
 手元で `http://127.0.0.1:8787` を開く（`APP_ORIGIN` と同じ origin でないと CSRF の照合で POST が 403 になる）。
 
+同じ LAN の別端末から開発機の IP で開くときは、`.dev.vars` を次のようにして `npx wrangler dev --ip <IP> --local` で起動する（`npm run dev` は `--ip 127.0.0.1` 固定で、`-- --ip` を重ねると wrangler がエラーになる）（`<IP>` はプライベート IPv4、例 `10.1.111.70`）:
+
+```sh
+APP_ORIGIN=http://<IP>:8787
+AUTH_DEV_HOSTS=<IP>
+```
+
+`http://<IP>:8787/_dev/login` で仮ログインできる。起動中は同じ LAN の誰でもオーナーで入れるので、確認が終わったら止める。
+
 OAuth を試すときは `.dev.vars` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`（または `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET`）を入れる。リダイレクト URI は手順 4・5 の `http://127.0.0.1:8787/...` を使う。
