@@ -13,10 +13,10 @@ import type {
 import { Empty, Menu, MenuItem, Ticket, TopBar } from './components'
 import {
   type AttemptStatus,
-  attemptStatusLabels,
   countLabel,
   organizationAliasKindLabels,
   runChannelLabels,
+  statusLabel,
   workAliasKindLabels,
   workKindLabels,
 } from './labels'
@@ -265,7 +265,7 @@ export const WorkDetail = ({
           <Menu>
             {mine.attempts.map((a) => (
               <MenuItem
-                label={attemptStatusLabels[a.status]}
+                label={statusLabel(a.status, w.kind)}
                 note={`${a.displayOn ?? '日付なし'}${a.attemptNo >= 2 ? ` · ${a.attemptNo}回目` : ''}`}
                 href={`/records/${a.id}`}
               />

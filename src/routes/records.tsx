@@ -21,6 +21,7 @@ import {
   statusFields,
 } from '../records/validate'
 import { Layout } from '../ui/Layout'
+import { isVisitKind } from '../ui/labels'
 import {
   DeleteRecord,
   NewRecordForm,
@@ -173,7 +174,7 @@ records.post('/', async (c) => {
       400,
     )
   }
-  const v = parseNewRecord(f)
+  const v = parseNewRecord(f, { kind: r.found.kind })
   if (!v.ok) {
     return c.html(await newFormPage(c, r.found, f, { errors: v.errors, q: f.q || undefined }), 400)
   }
@@ -248,7 +249,7 @@ records.post('/:id/status', async (c) => {
   const a = await own(c).getAttempt(c.req.param('id'))
   if (!a) return notFoundPage(c, '/records')
   const f = formOf(await c.req.parseBody(), statusFields)
-  const v = parseStatus(f)
+  const v = parseStatus(f, { kind: a.work.kind, current: a.status })
   if (!v.ok) {
     return c.html(await detailPage(c, a, { statusValues: f, statusErrors: v.errors }), 400)
   }
@@ -328,6 +329,8 @@ records.post('/:id/edit', async (c) => {
   const v = parseEditRecord(f, genre, {
     runIds: opts.runs.map((r) => r.id),
     genreIds: opts.genres.map((g) => g.id),
+    kind: a.work.kind,
+    current: a.status,
   })
   if (!v.ok) {
     return c.html(
@@ -351,9 +354,13 @@ const sessionPage = async (c: Context<AppEnv>, a: OwnAttempt, values: Form, erro
   />
 )
 
+// 来場型（ルーム・公演）の記録には進行ログを足せない（GET は詳細へ戻し、POST は 400）
+const NO_SESSIONS = 'ルーム・公演には進行ログがありません。'
+
 records.get('/:id/sessions/new', async (c) => {
   const a = await own(c).getAttempt(c.req.param('id'))
   if (!a) return notFoundPage(c, '/records')
+  if (isVisitKind(a.work.kind)) return c.redirect(`/records/${a.id}`, 302)
   return c.html(
     await sessionPage(c, a, {
       ...emptyForm(sessionFields),
@@ -368,6 +375,9 @@ records.post('/:id/sessions', async (c) => {
   const a = await own(c).getAttempt(c.req.param('id'))
   if (!a) return notFoundPage(c, '/records')
   const f = formOf(await c.req.parseBody(), sessionFields)
+  if (isVisitKind(a.work.kind)) {
+    return c.html(await sessionPage(c, a, f, [NO_SESSIONS]), 400)
+  }
   const v = parseSession(f)
   if (!v.ok) return c.html(await sessionPage(c, a, f, v.errors), 400)
   if (!(await own(c).addSession(a.id, v.value.session, v.value.outcome))) {

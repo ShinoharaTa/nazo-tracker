@@ -2,7 +2,7 @@
 
 import type { Child } from 'hono/jsx'
 import { attemptStatuses } from '../db/schema'
-import { type AttemptStatus, attemptStatusLabels } from './labels'
+import { type AttemptStatus, statusesFor, statusLabel, type WorkKind } from './labels'
 
 const BackIcon = () => (
   <svg
@@ -58,18 +58,20 @@ export const Ticket = (props: {
   </a>
 )
 
-// size="lg" は記録詳細の結果の行。stamp は作成直後のハンコの演出
+// size="lg" は記録詳細の結果の行。stamp は作成直後のハンコの演出。kind は作品の形式（ラベルが変わる）
 export const StatusChip = ({
   status,
   size,
   stamp,
+  kind,
 }: {
   status: AttemptStatus
   size?: 'lg'
   stamp?: boolean
+  kind?: WorkKind | null
 }) => (
   <span class={['chip', size, `st-${status}`, stamp ? 'stamp' : null].filter(Boolean).join(' ')}>
-    {attemptStatusLabels[status]}
+    {statusLabel(status, kind)}
   </span>
 )
 
@@ -141,29 +143,35 @@ export const Tabs = <K extends string>(props: {
   </nav>
 )
 
-// ステータス 5 択。radio は CSS で隠し、checked の label を塗る
+// ステータスの選択肢（作品の形式 kind で statusesFor が決める。既定は 5 択）。radio は CSS で隠し、checked の label を塗る。
+// current は記録の今の値。形式で選べない値でも選択肢に残す（データを勝手に変えない）
 export const StatusSeg = (props: {
   name: string
   value?: AttemptStatus
   legend?: string
   idPrefix?: string
+  kind?: WorkKind | null
+  current?: AttemptStatus
 }) => {
   const prefix = props.idPrefix ?? props.name
+  const allowed = statusesFor(props.kind)
   return (
     <fieldset class="seg">
       <legend class="vh">{props.legend ?? 'ステータス'}</legend>
-      {attemptStatuses.map((s) => (
-        <>
-          <input
-            type="radio"
-            id={`${prefix}-${s}`}
-            name={props.name}
-            value={s}
-            checked={props.value === s}
-          />
-          <label for={`${prefix}-${s}`}>{attemptStatusLabels[s]}</label>
-        </>
-      ))}
+      {attemptStatuses
+        .filter((s) => allowed.includes(s) || s === props.current)
+        .map((s) => (
+          <>
+            <input
+              type="radio"
+              id={`${prefix}-${s}`}
+              name={props.name}
+              value={s}
+              checked={props.value === s}
+            />
+            <label for={`${prefix}-${s}`}>{statusLabel(s, props.kind)}</label>
+          </>
+        ))}
     </fieldset>
   )
 }

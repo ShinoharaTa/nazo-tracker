@@ -8,23 +8,38 @@ import {
   sessionOutcomes,
 } from '../db/scoped'
 import { date, done, type Form, field, int, oneOf, str } from '../lib/form'
-import type { AttemptStatus } from '../ui/labels'
+import { type AttemptStatus, isVisitKind, statusesFor, type WorkKind } from '../ui/labels'
 
 // q は検索語（400 で再描画したときの戻り先に引き継ぐだけ。保存しない）
 export const newRecordFields = ['work_id', 'status', 'on', 'q'] as const
 
 export type NewRecordInput = { status: AttemptStatus; on: string | null }
 
-// status は必須
-const statusOf = (errors: string[], raw: string): AttemptStatus => {
+// 作品の形式 kind と、記録の今のステータス current（新規は無し）
+export type StatusContext = { kind: WorkKind | null; current?: AttemptStatus }
+
+// status は必須。作品の形式で選べないステータス（statusesFor に無いもの）は、今の値のままでなければ不可
+const statusOf = (
+  errors: string[],
+  raw: string,
+  { kind, current }: StatusContext,
+): AttemptStatus => {
   if (raw === '') errors.push('ステータスを選んでください。')
-  return field(errors, 'ステータス', raw, oneOf(attemptStatuses)) ?? attemptStatuses[0]
+  const status = field(errors, 'ステータス', raw, oneOf(attemptStatuses))
+  if (status && status !== current && !statusesFor(kind).includes(status)) {
+    errors.push(
+      isVisitKind(kind)
+        ? 'ルーム・公演では選べないステータスです。'
+        : '持ち帰りでは選べないステータスです。',
+    )
+  }
+  return status ?? attemptStatuses[0]
 }
 
 // 軽い記録（POST /records）。on は空なら NULL
-export const parseNewRecord = (f: Form) => {
+export const parseNewRecord = (f: Form, ctx: StatusContext) => {
   const errors: string[] = []
-  const status = statusOf(errors, f.status)
+  const status = statusOf(errors, f.status, ctx)
   const on = field(errors, '日付', f.on, date())
   return done<NewRecordInput>(errors, { status, on })
 }
@@ -32,9 +47,9 @@ export const parseNewRecord = (f: Form) => {
 export const statusFields = ['status', 'on'] as const
 
 // ステータス変更（POST /records/:id/status）。日付の書き先は own().setStatus が決める
-export const parseStatus = (f: Form) => {
+export const parseStatus = (f: Form, ctx: StatusContext) => {
   const errors: string[] = []
-  const status = statusOf(errors, f.status)
+  const status = statusOf(errors, f.status, ctx)
   const on = field(errors, '日付', f.on, date())
   return done<NewRecordInput>(errors, { status, on })
 }
@@ -59,10 +74,14 @@ export const editRecordFields = [
 export const parseEditRecord = (
   f: Form,
   genre: readonly string[],
-  { runIds, genreIds }: { runIds: readonly string[]; genreIds: readonly string[] },
+  {
+    runIds,
+    genreIds,
+    ...ctx
+  }: { runIds: readonly string[]; genreIds: readonly string[] } & StatusContext,
 ) => {
   const errors: string[] = []
-  const status = statusOf(errors, f.status)
+  const status = statusOf(errors, f.status, ctx)
   let runId: string | null = null
   if (f.run_id !== '') {
     if (runIds.includes(f.run_id)) runId = f.run_id
