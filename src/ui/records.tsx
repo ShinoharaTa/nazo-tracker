@@ -335,7 +335,7 @@ const runPeriod = (r: { startOn: string | null; endOn: string | null }): string 
   return null
 }
 
-// 進行ログの 1 件。削除は確認なし（POST /records/:id/sessions/:sid/delete）
+// 進行ログの 1 件。削除は <details> を開いてから押す 2 段（JS なし。POST /records/:id/sessions/:sid/delete）
 const SessionLog = ({
   attemptId,
   s,
@@ -362,11 +362,14 @@ const SessionLog = ({
           </span>
         ) : null,
       )}
-      <form method="post" action={`/records/${attemptId}/sessions/${s.id}/delete`}>
-        <button type="submit" class="btn ghost">
-          削除
-        </button>
-      </form>
+      <details>
+        <summary class="note">削除</summary>
+        <form method="post" action={`/records/${attemptId}/sessions/${s.id}/delete`}>
+          <button type="submit" class="btn danger">
+            {s.playedOn.slice(5).replace('-', '/')} のログを削除
+          </button>
+        </form>
+      </details>
     </div>
   </div>
 )
@@ -382,7 +385,7 @@ const SessionLogs = ({ a }: { a: OwnAttempt }) => {
   return (
     <>
       {logs.slice(0, SESSIONS_SHOWN)}
-      <details>
+      <details class="older">
         <summary class="note">古い進行ログ {logs.length - SESSIONS_SHOWN} 件を表示</summary>
         {logs.slice(SESSIONS_SHOWN)}
       </details>

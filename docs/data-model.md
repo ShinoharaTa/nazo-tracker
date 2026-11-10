@@ -171,7 +171,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 | in_progress | `started_on = started_on ?? on ?? today`、`finished_on = NULL` |
 | cleared / failed / dropped | `finished_on = on ?? finished_on ?? today` |
 
-同じ status に再送しても上の表どおり（日付の更新になる）。詳しい編集（`/records/:id/edit`）は日付 3 つを明示的に受け取り、この表は適用しない（入力値をそのまま保存。空は NULL）。ジャンルは attempt の UPDATE と同じ `db.batch` で attempt_genre を DELETE → INSERT する。
+新しい日付が `started_on` より前なら `started_on` をその日付に下げる（in_progress は `started_on = MIN(COALESCE(started_on, d), d)`（d = `on ?? today`）、cleared / failed / dropped は `started_on = MIN(started_on, finished_on)` で NULL は NULL のまま。進行ログの追加も同じ）。これで `started_on <= finished_on` を常に保つ。同じ status に再送しても上の表どおり（日付の更新になる）。詳しい編集（`/records/:id/edit`）は日付 3 つを明示的に受け取り、この表は適用しない（入力値をそのまま保存。空は NULL）。ジャンルは attempt の UPDATE と同じ `db.batch` で attempt_genre を DELETE → INSERT する。
 
 削除（`POST /records/:id/delete`、確認チェック付き）は `db.batch` で image → session → attempt_genre → attempt の順に消す（全て `user_id = viewer`）。image の R2 オブジェクトの削除は P9。
 
@@ -225,11 +225,11 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 
 | outcome | ラベル | attempt への書き込み |
 |---|---|---|
-| `keep` | 進行中のまま | `status = purchased` なら `in_progress` に。それ以外は不変。`started_on = started_on ?? played_on` |
-| `cleared` | クリア | `status = cleared`、`finished_on = played_on`、`started_on = started_on ?? played_on` |
-| `dropped` | 断念 | `status = dropped`、`finished_on = played_on`、`started_on = started_on ?? played_on` |
+| `keep` | 進行中のまま | `status = purchased` なら `in_progress` に（`finished_on = NULL`）。それ以外は不変。`started_on = MIN(started_on ?? played_on, played_on)` |
+| `cleared` | クリア | `status = cleared`、`finished_on = played_on`、`started_on = MIN(started_on ?? played_on, played_on)` |
+| `dropped` | 断念 | `status = dropped`、`finished_on = played_on`、`started_on = MIN(started_on ?? played_on, played_on)` |
 
-失敗は結果に入れない（ステータス変更で付ける）。`session.venue_id` は P3 では書かない（場所は `location_text`）。進行ログの削除（`POST /records/:id/sessions/:sid/delete`、確認なし）では attempt の status / 日付を戻さない。進行ログの編集は P3 に入れない（削除して足す）。記録の詳細では新しい順に 5 件まで出し、残りは畳む。
+失敗は結果に入れない（ステータス変更で付ける）。`session.venue_id` は P3 では書かない（場所は `location_text`）。進行ログの削除（`POST /records/:id/sessions/:sid/delete`。`<details>` を開いてから押す 2 段、JS なし）では attempt の status / 日付を戻さない。進行ログの編集は P3 に入れない（削除して足す）。記録の詳細では新しい順に 5 件まで出し、残りは畳む。
 
 ### 購入の扱い
 購入専用テーブルは持たない。「買った」は attempt の `status = purchased` で表す（買った場所・価格は持たない）。遊び始めたら同じ行を `in_progress` 以降に進める。
