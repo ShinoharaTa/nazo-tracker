@@ -1,6 +1,10 @@
 name = "nazo-tracker"
 main = "src/index.ts"
 compatibility_date = "2026-11-01"
+# *.workers.dev では公開しない。公開先は下の routes のカスタムドメインだけ
+workers_dev = false
+# shino3.net のゾーンが同じ Cloudflare アカウントにある前提。deploy 時に DNS レコードと証明書が自動で作られる
+routes = [{ pattern = "nazo.shino3.net", custom_domain = true }]
 
 [[d1_databases]]
 binding = "DB"
