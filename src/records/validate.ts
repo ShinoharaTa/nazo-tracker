@@ -8,7 +8,7 @@ import {
   sessionOutcomes,
 } from '../db/scoped'
 import { date, done, type Form, field, int, oneOf, str } from '../lib/form'
-import { type AttemptStatus, statusesFor, type WorkKind } from '../ui/labels'
+import { type AttemptStatus, isVisitKind, statusesFor, type WorkKind } from '../ui/labels'
 
 // q は検索語（400 で再描画したときの戻り先に引き継ぐだけ。保存しない）
 export const newRecordFields = ['work_id', 'status', 'on', 'q'] as const
@@ -18,7 +18,7 @@ export type NewRecordInput = { status: AttemptStatus; on: string | null }
 // 作品の形式 kind と、記録の今のステータス current（新規は無し）
 export type StatusContext = { kind: WorkKind | null; current?: AttemptStatus }
 
-// status は必須。来場型の作品では in_progress / dropped を選べない（今の値のままなら通す）
+// status は必須。作品の形式で選べないステータス（statusesFor に無いもの）は、今の値のままでなければ不可
 const statusOf = (
   errors: string[],
   raw: string,
@@ -27,7 +27,11 @@ const statusOf = (
   if (raw === '') errors.push('ステータスを選んでください。')
   const status = field(errors, 'ステータス', raw, oneOf(attemptStatuses))
   if (status && status !== current && !statusesFor(kind).includes(status)) {
-    errors.push('ルーム・公演では選べないステータスです。')
+    errors.push(
+      isVisitKind(kind)
+        ? 'ルーム・公演では選べないステータスです。'
+        : '持ち帰りでは選べないステータスです。',
+    )
   }
   return status ?? attemptStatuses[0]
 }

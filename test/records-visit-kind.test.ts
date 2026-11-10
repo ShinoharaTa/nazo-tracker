@@ -15,6 +15,7 @@ beforeAll(async () => {
   ids.room = await insertWork(env, { title: '来場型のルーム', kind: 'room' })
   ids.hall = await insertWork(env, { title: '来場型の公演', kind: 'hall' })
   ids.stroll = await insertWork(env, { title: '周遊型の謎', kind: 'stroll' })
+  ids.takeaway = await insertWork(env, { title: '持ち帰りの謎', kind: 'takeaway' })
 })
 
 const get = (path: string) => app.request(path, { headers: { Cookie: alice.cookie } }, env)
@@ -72,6 +73,16 @@ describe('来場型の選択肢', () => {
     expect(detail).toContain('>予約済み</label>')
     const edit = await (await get(`/records/${id}/edit`)).text()
     expect(statusValues(edit)).toEqual(['purchased', 'cleared', 'failed'])
+  })
+
+  it('cleared は「成功」（選択肢・チップ・作品詳細のあなたの記録）', async () => {
+    const id = await newAttempt(ids.hall, 'cleared')
+    const h = await (await get(`/records/${id}`)).text()
+    expect(h).toContain('<label for="status-cleared">成功</label>')
+    expect(h).toContain('<span class="chip lg st-cleared">成功</span>')
+    expect(h).not.toContain('>クリア<')
+    const w = await (await get(`/works/${ids.hall}`)).text()
+    expect(w).toContain('<span>成功</span>')
   })
 
   it('チップも「予約済み」', async () => {
@@ -200,6 +211,36 @@ describe('来場型の予約済みの日付', () => {
     const id = await newAttempt(ids.room, 'cleared', { purchasedOn: '2026-10-01' })
     const h = await (await get(`/records/${id}`)).text()
     expect(h).toContain('<dt>買った日</dt><dd>2026-10-01</dd>')
+  })
+})
+
+describe('持ち帰り', () => {
+  it('選択肢は failed を除く 4 つ、ラベルは今のまま', async () => {
+    const h = await (await get(`/records/new?work=${ids.takeaway}`)).text()
+    expect(statusValues(h)).toEqual(['purchased', 'in_progress', 'cleared', 'dropped'])
+    expect(h).toContain('>買った</label>')
+    expect(h).toContain('>クリア</label>')
+  })
+
+  it('failed の作成・ステータス変更・編集 → 400', async () => {
+    const res = await post('/records', { work_id: ids.takeaway, status: 'failed', on: '' })
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('持ち帰りでは選べないステータスです')
+    const id = await newAttempt(ids.takeaway, 'in_progress')
+    const s = await post(`/records/${id}/status`, { status: 'failed', on: '' })
+    expect(s.status).toBe(400)
+    expect(await s.text()).toContain('持ち帰りでは選べないステータスです')
+    const e = await post(`/records/${id}/edit`, { status: 'failed' })
+    expect(e.status).toBe(400)
+    expect((await rowOf(id))?.status).toBe('in_progress')
+  })
+
+  it('既存の failed は選択肢に残り、そのままの保存は通る', async () => {
+    const id = await newAttempt(ids.takeaway, 'failed')
+    const h = await (await get(`/records/${id}`)).text()
+    expect(statusValues(h)).toEqual(['purchased', 'in_progress', 'cleared', 'failed', 'dropped'])
+    expect(h).toMatch(/value="failed" checked=""\/><label for="status-failed">失敗/)
+    expect((await post(`/records/${id}/status`, { status: 'failed', on: '' })).status).toBe(302)
   })
 })
 
