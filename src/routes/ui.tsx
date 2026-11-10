@@ -200,8 +200,11 @@ ui.get('/works/:id', async (c) => {
   if ('redirect' in r) return c.redirect(`/works/${encodeURIComponent(r.redirect)}`, 302)
   const owner = isOwner(c)
   const user = c.get('user')
-  const mine = user
-    ? { attempts: await scopedTo(db, user.id).own().attemptsOfWork(r.found.id) }
+  const repo = user ? scopedTo(db, user.id).own() : null
+  const mine = repo
+    ? await Promise.all([repo.isWished(r.found.id), repo.attemptsOfWork(r.found.id)]).then(
+        ([wished, attempts]) => ({ wished, attempts }),
+      )
     : null
   const counts = (await countsFor(db, [r.found.id])).get(r.found.id) ?? {
     played: 'none',

@@ -14,11 +14,14 @@ import {
   block,
   friendship,
   identity,
+  organization,
   type runChannels,
   session,
   user,
   type userRoles,
   vAttemptEnriched,
+  wishlist,
+  work,
   type workKinds,
 } from './schema'
 
@@ -89,6 +92,16 @@ export type OwnAttempt = OwnAttemptRow & {
 
 export type AttemptListTab = 'all' | 'pending'
 
+// マイリストの 1 行。latestStatus は本人の最新の記録（attempt_no DESC, created_at DESC）。記録が無ければ null
+export type OwnWishRow = {
+  workId: string
+  title: string
+  kind: (typeof workKinds)[number] | null
+  org: { id: string; name: string } | null
+  createdAt: string
+  latestStatus: AttemptStatus | null
+}
+
 export type OwnProfile = {
   id: string
   displayName: string
@@ -124,6 +137,15 @@ export type OwnRepo = {
   playedCount(): Promise<number>
   // 匿名人数（src/db/counts.ts）から自分を外すか。true で exclude_from_counts = 1
   setExcludeFromCounts(exclude: boolean): Promise<void>
+  // マイリスト。created_at DESC。unplayed は記録が 1 件も無い作品だけ。50 件ずつ
+  listWishlist(opts: {
+    unplayed: boolean
+    page: number
+  }): Promise<{ items: OwnWishRow[]; hasNext: boolean }>
+  isWished(workId: string): Promise<boolean>
+  // 登録済みなら何もしない（INSERT OR IGNORE）
+  addWish(workId: string): Promise<void>
+  removeWish(workId: string): Promise<void>
 }
 
 // P1 は箱だけ。P8 で射影を返すメソッドを足す
@@ -351,6 +373,57 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .update(user)
       .set({ excludeFromCounts: exclude ? 1 : 0 })
       .where(eq(user.id, viewerId))
+  },
+
+  // 統合済みの作品も JOIN 条件で落とさない（統合で付け替わる前提だが、出しておく）
+  async listWishlist({ unplayed, page }) {
+    const latestStatus = sql<AttemptStatus | null>`(SELECT ${attempt.status} FROM ${attempt} WHERE ${attempt.userId} = ${viewerId} AND ${attempt.workId} = ${wishlist.workId} ORDER BY ${attempt.attemptNo} DESC, ${attempt.createdAt} DESC LIMIT 1)`
+    const rows = await db
+      .select({
+        workId: wishlist.workId,
+        title: work.title,
+        kind: work.kind,
+        orgId: organization.id,
+        orgName: organization.name,
+        createdAt: wishlist.createdAt,
+        latestStatus,
+      })
+      .from(wishlist)
+      .innerJoin(work, eq(work.id, wishlist.workId))
+      .leftJoin(organization, eq(organization.id, work.primaryOrganizationId))
+      .where(
+        and(eq(wishlist.userId, viewerId), unplayed ? sql`${latestStatus} IS NULL` : undefined),
+      )
+      .orderBy(desc(wishlist.createdAt), desc(wishlist.workId))
+      .limit(PAGE_SIZE + 1)
+      .offset((page - 1) * PAGE_SIZE)
+    return {
+      items: rows.slice(0, PAGE_SIZE).map(({ orgId, orgName, ...r }) => ({
+        ...r,
+        org: orgId && orgName ? { id: orgId, name: orgName } : null,
+      })),
+      hasNext: rows.length > PAGE_SIZE,
+    }
+  },
+
+  async isWished(workId) {
+    const row = await db
+      .select({ workId: wishlist.workId })
+      .from(wishlist)
+      .where(and(eq(wishlist.userId, viewerId), eq(wishlist.workId, workId)))
+      .get()
+    return row !== undefined
+  },
+
+  async addWish(workId) {
+    await db
+      .insert(wishlist)
+      .values({ userId: viewerId, workId, createdAt: nowIso() })
+      .onConflictDoNothing()
+  },
+
+  async removeWish(workId) {
+    await db.delete(wishlist).where(and(eq(wishlist.userId, viewerId), eq(wishlist.workId, workId)))
   },
 })
 
