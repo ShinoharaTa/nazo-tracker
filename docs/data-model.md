@@ -221,6 +221,16 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 
 公演型は session 0〜1 件。周遊・持ち帰り・Web 謎は複数。attempt.status の更新は手動（セッション追加時に「進行中のまま / クリア / 断念」を選ぶ）。session の公開範囲は親 attempt に従う（`memo` level で日付・メモ、`status` level では日付のみ）。
 
+進行ログの追加（`POST /records/:id/sessions`）で選ぶ結果 `outcome` と attempt への書き込み（session の INSERT と attempt の UPDATE を同じ `db.batch`。どちらも「その attempt が本人のもの」を同じ文の中で確かめる）:
+
+| outcome | ラベル | attempt への書き込み |
+|---|---|---|
+| `keep` | 進行中のまま | `status = purchased` なら `in_progress` に。それ以外は不変。`started_on = started_on ?? played_on` |
+| `cleared` | クリア | `status = cleared`、`finished_on = played_on`、`started_on = started_on ?? played_on` |
+| `dropped` | 断念 | `status = dropped`、`finished_on = played_on`、`started_on = started_on ?? played_on` |
+
+失敗は結果に入れない（ステータス変更で付ける）。`session.venue_id` は P3 では書かない（場所は `location_text`）。進行ログの削除（`POST /records/:id/sessions/:sid/delete`、確認なし）では attempt の status / 日付を戻さない。進行ログの編集は P3 に入れない（削除して足す）。記録の詳細では新しい順に 5 件まで出し、残りは畳む。
+
 ### 購入の扱い
 購入専用テーブルは持たない。「買った」は attempt の `status = purchased` で表す（買った場所・価格は持たない）。遊び始めたら同じ行を `in_progress` 以降に進める。
 

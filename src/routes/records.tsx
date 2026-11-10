@@ -6,15 +6,17 @@ import { currentUser, requireUser } from '../auth/middleware'
 import { getRunById, getWork, listGenres, listWorks, type WorkDetailData } from '../db/master'
 import { type OwnAttempt, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
-import { type Form, formOf } from '../lib/form'
+import { emptyForm, type Form, formOf } from '../lib/form'
 import { todayJst } from '../lib/time'
 import {
   editRecordFields,
   newRecordFields,
   parseEditRecord,
   parseNewRecord,
+  parseSession,
   parseSpoiler,
   parseStatus,
+  sessionFields,
   spoilerFields,
   statusFields,
 } from '../records/validate'
@@ -28,6 +30,7 @@ import {
   RecordsList,
   type RecordsTab,
   recordEditValues,
+  SessionForm,
   SpoilerEditForm,
 } from '../ui/records'
 import { spoilerHeaders, spoilerResponse } from '../ui/spoiler'
@@ -336,6 +339,51 @@ records.post('/:id/edit', async (c) => {
     return notFoundPage(c, '/records')
   }
   return c.redirect(`/records/${a.id}?saved=1`, 302)
+})
+
+// 進行ログの追加。attempt の id は URL の :id だけから取る（body から受けない）
+const sessionPage = async (c: Context<AppEnv>, a: OwnAttempt, values: Form, errors?: string[]) => (
+  <Layout
+    title="進行ログを追加"
+    tab="records"
+    left={await recordsList(c, { selectedId: a.id })}
+    right={<SessionForm a={a} values={values} errors={errors} />}
+  />
+)
+
+records.get('/:id/sessions/new', async (c) => {
+  const a = await own(c).getAttempt(c.req.param('id'))
+  if (!a) return notFoundPage(c, '/records')
+  return c.html(
+    await sessionPage(c, a, {
+      ...emptyForm(sessionFields),
+      played_on: todayJst(),
+      outcome: 'keep',
+    }),
+  )
+})
+
+// 記録の status / 日付は outcome で決める（own().addSession、data-model.md §3 session）
+records.post('/:id/sessions', async (c) => {
+  const a = await own(c).getAttempt(c.req.param('id'))
+  if (!a) return notFoundPage(c, '/records')
+  const f = formOf(await c.req.parseBody(), sessionFields)
+  const v = parseSession(f)
+  if (!v.ok) return c.html(await sessionPage(c, a, f, v.errors), 400)
+  if (!(await own(c).addSession(a.id, v.value.session, v.value.outcome))) {
+    return notFoundPage(c, '/records')
+  }
+  return c.redirect(`/records/${a.id}`, 302)
+})
+
+// 進行ログの削除（確認なし）。記録の status / 日付は戻さない
+records.post('/:id/sessions/:sid/delete', async (c) => {
+  const a = await own(c).getAttempt(c.req.param('id'))
+  if (!a) return notFoundPage(c, '/records')
+  if (!(await own(c).deleteSession(a.id, c.req.param('sid')))) {
+    return notFoundPage(c, `/records/${a.id}`)
+  }
+  return c.redirect(`/records/${a.id}`, 302)
 })
 
 // ネタバレ断片。本人以外・無い id は text の 404（断片なので Layout は不要）

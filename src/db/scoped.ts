@@ -82,6 +82,20 @@ export type OwnSession = {
   createdAt: string
 }
 
+// 進行ログの追加で書く列（venue_id は P3 では書かない。場所は location_text のみ）
+export type SessionInput = {
+  playedOn: string
+  durationSec: number | null
+  progressNote: string | null
+  locationText: string | null
+  companions: string | null
+  memo: string | null
+}
+
+// 進行ログを足すときの記録の結果（data-model.md §3 session）。失敗はステータス変更で付ける
+export const sessionOutcomes = ['keep', 'cleared', 'dropped'] as const
+export type SessionOutcome = (typeof sessionOutcomes)[number]
+
 // 記録 1 件の全部（ネタバレメモ・ジャンル・進行ログ込み）。本人だけが得られる
 export type OwnAttempt = OwnAttemptRow & {
   readonly [ownBrand]: true
@@ -158,6 +172,10 @@ export type OwnRepo = {
   updateSpoilerMemo(id: string, text: string | null): Promise<boolean>
   // image → session → attempt_genre → attempt。他人の id・無い id は false
   deleteAttempt(id: string): Promise<boolean>
+  // 進行ログの追加。記録の status / 日付は outcome で決める（data-model.md §3 session）。他人の id・無い id は false
+  addSession(attemptId: string, input: SessionInput, outcome: SessionOutcome): Promise<boolean>
+  // 記録の status / 日付は戻さない。他人の id・無い id・別の記録のログは false
+  deleteSession(attemptId: string, sessionId: string): Promise<boolean>
   // status IN (cleared, failed) の件数
   playedCount(): Promise<number>
   // 匿名人数（src/db/counts.ts）から自分を外すか。true で exclude_from_counts = 1
@@ -450,6 +468,50 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
         .returning({ id: attempt.id }),
     ])
     return deleted.length > 0
+  },
+
+  // updateAttempt と同じく、本人の attempt が在ることを各文の中で確かめる（事前 SELECT に頼らない）。
+  // INSERT → UPDATE の順に 1 回の batch（= 1 トランザクション）。UPDATE の行数で本人の記録かを判定する
+  async addSession(attemptId, input, outcome) {
+    const mine = sql`EXISTS (SELECT 1 FROM ${attempt} WHERE ${attempt.id} = ${attemptId} AND ${attempt.userId} = ${viewerId})`
+    const now = nowIso()
+    // 列の順は schema の session と同じ（id, attempt_id, user_id, played_on, started_at, ended_at, duration_sec,
+    // progress_note, companions, memo, venue_id, location_text, created_at）
+    const insert = db
+      .insert(session)
+      .select(
+        sql`SELECT ${ulid()}, ${attemptId}, ${viewerId}, ${input.playedOn}, NULL, NULL, ${input.durationSec}, ${input.progressNote}, ${input.companions}, ${input.memo}, NULL, ${input.locationText}, ${now} WHERE ${mine}`,
+      )
+    const startedOn = sql`COALESCE(${attempt.startedOn}, ${input.playedOn})`
+    const set =
+      outcome === 'keep'
+        ? {
+            status: sql`CASE WHEN ${attempt.status} = 'purchased' THEN 'in_progress' ELSE ${attempt.status} END`,
+            startedOn,
+          }
+        : { status: outcome, finishedOn: input.playedOn, startedOn }
+    const update = db
+      .update(attempt)
+      .set({ ...set, updatedAt: now })
+      .where(and(eq(attempt.id, attemptId), eq(attempt.userId, viewerId)))
+      .returning({ id: attempt.id })
+    const [, updated] = await db.batch([insert, update])
+    return updated.length > 0
+  },
+
+  async deleteSession(attemptId, sessionId) {
+    const rows = await db
+      .delete(session)
+      .where(
+        and(
+          eq(session.id, sessionId),
+          eq(session.attemptId, attemptId),
+          eq(session.userId, viewerId),
+          sql`EXISTS (SELECT 1 FROM ${attempt} WHERE ${attempt.id} = ${attemptId} AND ${attempt.userId} = ${viewerId})`,
+        ),
+      )
+      .returning({ id: session.id })
+    return rows.length > 0
   },
 
   async playedCount() {

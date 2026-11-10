@@ -1,7 +1,12 @@
 // 記録フォームの入力の検証（部品は src/lib/form.ts）。work_id の存在・未統合はルートで getWork を使って確かめる。
 
 import { attemptStatuses } from '../db/schema'
-import type { AttemptPatch } from '../db/scoped'
+import {
+  type AttemptPatch,
+  type SessionInput,
+  type SessionOutcome,
+  sessionOutcomes,
+} from '../db/scoped'
 import { date, done, type Form, field, int, oneOf, str } from '../lib/form'
 import type { AttemptStatus } from '../ui/labels'
 
@@ -104,4 +109,38 @@ export const parseSpoiler = (f: Form) => {
   const errors: string[] = []
   const memo = field(errors, 'ネタバレメモ', f.spoiler_memo, str(4000, { multiline: true }))
   return done<string | null>(errors, memo)
+}
+
+export const sessionFields = [
+  'played_on',
+  'duration_min',
+  'progress_note',
+  'location_text',
+  'companions',
+  'memo',
+  'outcome',
+] as const
+
+// 進行ログの追加（POST /records/:id/sessions）。played_on と outcome は必須
+export const parseSession = (f: Form) => {
+  const errors: string[] = []
+  const playedOn = field(errors, '日付', f.played_on, date(), true)
+  const durationMin = field(errors, '所要（分）', f.duration_min, int(1, 6000))
+  const progressNote = field(errors, '進み具合', f.progress_note, str(200))
+  const locationText = field(errors, '場所', f.location_text, str(200))
+  const companions = field(errors, '同行者', f.companions, str(200))
+  const memo = field(errors, 'メモ', f.memo, str(4000, { multiline: true }))
+  if (f.outcome === '') errors.push('結果を選んでください。')
+  const outcome = field(errors, '結果', f.outcome, oneOf(sessionOutcomes)) ?? 'keep'
+  return done<{ session: SessionInput; outcome: SessionOutcome }>(errors, {
+    session: {
+      playedOn: playedOn ?? '',
+      durationSec: durationMin === null ? null : durationMin * 60,
+      progressNote,
+      locationText,
+      companions,
+      memo,
+    },
+    outcome,
+  })
 }
