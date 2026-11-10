@@ -62,6 +62,7 @@ export const StatsPage = (p: StatsPageProps) => {
           },
           {
             label: '成功率',
+            hero: true,
             value: pct(summary.rate),
             note: `作品ベース ${pct(summary.rateByWork)}`,
           },

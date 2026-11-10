@@ -224,7 +224,9 @@ describe('GET /records/:id', () => {
 
   it('?saved=1 で「保存しました」', async () => {
     const h = await (await get(`/records/${ids.purchased}?saved=1`)).text()
-    expect(h).toContain('<p class="note" role="status">保存しました</p>')
+    expect(h).toContain(
+      '<p class="note" role="status"><span class="hl draw">保存しました</span></p>',
+    )
   })
 
   it('ログイン中の /records/* は Cache-Control: private, no-store', async () => {

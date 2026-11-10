@@ -14,7 +14,7 @@ const tabs: readonly { key: Tab; label: string; href: string }[] = [
 ]
 
 const FONTS =
-  'https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Klee+One:wght@600&family=IBM+Plex+Mono:wght@500;600&display=swap'
+  'https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Klee+One:wght@600&family=IBM+Plex+Mono:wght@500;600&display=swap'
 
 // <head> と <body> だけを持つ文書。ログイン画面のように外枠を使わないページはこれを直接使う
 export const Document = ({ title, children }: { title: string; children?: Child }) => (

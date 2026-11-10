@@ -438,6 +438,8 @@ export const RecordDetail = ({
   const latest = a.sessions[0]
   const total = a.sessionDurationSec ?? a.durationSec
   const run = a.run
+  // 結果の行に出す日付（一覧の日付と同じ優先順）
+  const resultOn = a.finishedOn ?? a.startedOn ?? a.purchasedOn
   const kv = [
     a.purchasedOn ? <KvRow label="買った日">{a.purchasedOn}</KvRow> : null,
     a.startedOn ? <KvRow label="開始日">{a.startedOn}</KvRow> : null,
@@ -465,14 +467,14 @@ export const RecordDetail = ({
       />
       {created ? (
         <div class="hint" role="status">
-          <span>保存しました。日付・同行者・評価も足せます</span>
+          <span class="hl draw">保存しました。日付・同行者・評価も足せます</span>
           <a class="btn" href={`/records/${a.id}/edit`}>
             足す
           </a>
         </div>
       ) : saved ? (
         <p class="note" role="status">
-          保存しました
+          <span class="hl draw">保存しました</span>
         </p>
       ) : null}
       <div class="card">
@@ -484,12 +486,20 @@ export const RecordDetail = ({
             {a.work.title}
           </span>
         </div>
-        <div class="row" style="justify-content:flex-start">
-          <StatusChip status={a.status} />
-          {a.attemptNo >= 2 ? <span class="note">{a.attemptNo}回目</span> : null}
-          {latest ? (
-            <span class="note">
-              {[latest.progressNote, `${a.sessionCount} 日目`].filter(Boolean).join(' · ')}
+        <div class="res">
+          <span class={`chip lg st-${a.status}${created ? ' stamp' : ''}`}>
+            {attemptStatusLabels[a.status]}
+          </span>
+          {resultOn ? <span class="res-date hl">{resultOn.replaceAll('-', '.')}</span> : null}
+          {a.attemptNo >= 2 || latest ? (
+            <span class="pen">
+              {[
+                a.attemptNo >= 2 ? `${a.attemptNo}回目` : null,
+                latest?.progressNote,
+                latest ? `${a.sessionCount} 日目` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </span>
           ) : null}
         </div>

@@ -309,13 +309,13 @@ export const MenuItem = (props: {
 }
 
 export const Kpis = (props: {
-  items: readonly { label: string; value: Child; note?: string }[]
+  items: readonly { label: string; value: Child; note?: string; hero?: boolean }[]
 }) => (
   <div class="kpis">
     {props.items.map((k) => (
-      <div class="kpi">
+      <div class={k.hero ? 'kpi hero' : 'kpi'}>
         <span>{k.label}</span>
-        <b>{k.value}</b>
+        <b>{k.hero ? <span class="hl">{k.value}</span> : k.value}</b>
         {k.note ? <span>{k.note}</span> : null}
       </div>
     ))}
