@@ -79,7 +79,7 @@ export const RecordTicket = ({ a, selected }: { a: OwnAttemptRow; selected?: boo
 
 // マイリストの 1 行。記録があれば最新のステータス、無ければ「未プレイ」
 const WishRow = ({ w }: { w: OwnWishRow }) => (
-  <div class="row">
+  <div class="row wrow">
     <WorkTicket
       w={{ id: w.workId, title: w.title, kind: w.kind, org: w.org, rep: null }}
       chip={
