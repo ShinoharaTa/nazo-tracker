@@ -192,8 +192,15 @@ ui.get('/records', (c) => {
   return c.html(<Layout title="記録" tab="records" left={<RecordsList tab={tab} />} fab />)
 })
 
-ui.get('/records/new', (c) =>
-  c.html(
+// 作品選択（仮）。作品マスタを検索して作品ページへつなぐ。記録の保存はまだ無い
+const RECORDS_NEW_LIMIT = 20
+
+ui.get('/records/new', async (c) => {
+  const q = c.req.query('q') ?? ''
+  const items = q.trim()
+    ? (await listWorks(c.get('db'), { q })).items.slice(0, RECORDS_NEW_LIMIT)
+    : []
+  return c.html(
     <Layout
       title="記録を追加"
       tab="records"
@@ -203,22 +210,34 @@ ui.get('/records/new', (c) =>
           <TopBar back="/records" label="記録を追加" />
           <div class="sect" style="margin-top:4px">
             <h2>何を記録しますか？</h2>
-            <label class="search">
+            <form class="search" method="get" action="/records/new">
               <SearchIcon />
               <input
                 type="search"
                 name="q"
+                value={q}
                 placeholder="作品名・団体で検索"
                 aria-label="作品を検索"
               />
-            </label>
-            <Empty>作品マスタは P2 で入ります</Empty>
+            </form>
+            <p class="note">
+              記録の保存は次の段階で入ります。いまは作品ページを開いて確認できます。
+            </p>
+            <div class="list">
+              {!q.trim() ? (
+                <Empty>作品名か団体名で検索してください</Empty>
+              ) : items.length ? (
+                items.map((w) => <WorkTicket w={w} />)
+              ) : (
+                <Empty>「{q}」に一致する作品はありません</Empty>
+              )}
+            </div>
           </div>
         </>
       }
     />,
-  ),
-)
+  )
+})
 
 ui.get('/records/:id', (c) =>
   c.html(
