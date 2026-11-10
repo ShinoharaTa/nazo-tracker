@@ -147,7 +147,7 @@ export type OwnRepo = {
   updateDisplayName(name: string): Promise<void>
   // 連携済みの provider 名
   linkedProviders(): Promise<Set<string>>
-  // 記録一覧。COALESCE(display_on, created_at の日付) DESC, created_at DESC。50 件ずつ
+  // 記録一覧。COALESCE(display_on, created_at の JST の日付) DESC, created_at DESC。50 件ずつ
   listAttempts(opts: {
     tab: AttemptListTab
     page: number
@@ -337,7 +337,7 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
         ),
       )
       .orderBy(
-        desc(sql`COALESCE(${v.displayOn}, substr(${v.createdAt}, 1, 10))`),
+        desc(sql`COALESCE(${v.displayOn}, date(${v.createdAt}, '+9 hours'))`),
         desc(v.createdAt),
         desc(v.id),
       )
@@ -500,13 +500,14 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       )
     // played_on が開始日より前なら開始日を下げる（started_on <= finished_on を保つ）
     const startedOn = sql`MIN(COALESCE(${attempt.startedOn}, ${input.playedOn}), ${input.playedOn})`
-    // keep で買った → 進行中に変わるときは setStatus と同じく finished_on を消す
+    // keep で買った → 進行中に変わるときは setStatus と同じく finished_on を消す。
+    // keep で status が終了系のまま（finished_on を書き換えない）なら、開始日は finished_on も超えない
     const set =
       outcome === 'keep'
         ? {
             status: sql`CASE WHEN ${attempt.status} = 'purchased' THEN 'in_progress' ELSE ${attempt.status} END`,
             finishedOn: sql`CASE WHEN ${attempt.status} = 'purchased' THEN NULL ELSE ${attempt.finishedOn} END`,
-            startedOn,
+            startedOn: sql`CASE WHEN ${attempt.status} IN ('cleared', 'failed', 'dropped') THEN MIN(COALESCE(${attempt.startedOn}, ${input.playedOn}), ${input.playedOn}, COALESCE(${attempt.finishedOn}, ${input.playedOn})) ELSE ${startedOn} END`,
           }
         : { status: outcome, finishedOn: input.playedOn, startedOn }
     const update = db

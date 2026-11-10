@@ -331,3 +331,29 @@ describe('GET /works/:id', () => {
     expect(h).not.toContain('<h2>あなたの記録</h2>')
   })
 })
+
+describe('一覧の並び（display_on が無い記録は created_at の JST の日付）', () => {
+  it('UTC では前日・JST では同じ日の記録は、同じ日の中で created_at の新しい順', async () => {
+    const dave = await loginAs(env, { subject: 'records-view-dave' })
+    const dated = await insertAttempt(env, {
+      userId: dave.userId,
+      workId: ids.work,
+      status: 'cleared',
+      finishedOn: '2026-03-02',
+    })
+    const undated = await insertAttempt(env, {
+      userId: dave.userId,
+      workId: ids.work2,
+      status: 'purchased',
+    })
+    // JST 2026-03-02 01:00（UTC では 03-01）。dated より新しい
+    await env.DB.prepare('UPDATE attempt SET created_at = ? WHERE id = ?')
+      .bind('2026-03-01T16:00:00.000Z', undated)
+      .run()
+    await env.DB.prepare('UPDATE attempt SET created_at = ? WHERE id = ?')
+      .bind('2026-03-01T10:00:00.000Z', dated)
+      .run()
+    const { items } = await scopedTo(db, dave.userId).own().listAttempts({ tab: 'all', page: 1 })
+    expect(items.map((a) => a.id)).toEqual([undated, dated])
+  })
+})

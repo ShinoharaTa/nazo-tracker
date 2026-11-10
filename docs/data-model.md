@@ -183,7 +183,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 | in_progress | 最新の session の `played_on` → `started_on` |
 | cleared / failed / dropped | `finished_on` → 最新の session の `played_on` → `started_on` |
 
-記録一覧の並びは `COALESCE(display_on, created_at の日付) DESC, created_at DESC`。
+記録一覧の並びは `COALESCE(display_on, created_at の JST の日付) DESC, created_at DESC`（`date(created_at, '+9 hours')`）。
 
 ### genre / attempt_genre（ジャンル、固定リスト・複数選択）
 - `genre(id, label, sort_order, archived INT)` — 初期値: ひらめき / 論理 / 物量 / ストーリー / 探索 / 大謎一発 / 協力 / 体験・演出（決定）。オーナーが追加・archived。自由タグは v1 では持たない
@@ -225,7 +225,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 
 | outcome | ラベル | attempt への書き込み |
 |---|---|---|
-| `keep` | 進行中のまま | `status = purchased` なら `in_progress` に（`finished_on = NULL`）。それ以外は不変。`started_on = MIN(started_on ?? played_on, played_on)` |
+| `keep` | 進行中のまま | `status = purchased` なら `in_progress` に（`finished_on = NULL`）。それ以外は不変。`started_on = MIN(started_on ?? played_on, played_on)`。status が cleared / failed / dropped のままなら `MIN(started_on ?? played_on, played_on, finished_on ?? played_on)`（終了日を超えない） |
 | `cleared` | クリア | `status = cleared`、`finished_on = played_on`、`started_on = MIN(started_on ?? played_on, played_on)` |
 | `dropped` | 断念 | `status = dropped`、`finished_on = played_on`、`started_on = MIN(started_on ?? played_on, played_on)` |
 
