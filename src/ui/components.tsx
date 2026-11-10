@@ -58,8 +58,19 @@ export const Ticket = (props: {
   </a>
 )
 
-export const StatusChip = ({ status }: { status: AttemptStatus }) => (
-  <span class={`chip st-${status}`}>{attemptStatusLabels[status]}</span>
+// size="lg" は記録詳細の結果の行。stamp は作成直後のハンコの演出
+export const StatusChip = ({
+  status,
+  size,
+  stamp,
+}: {
+  status: AttemptStatus
+  size?: 'lg'
+  stamp?: boolean
+}) => (
+  <span class={['chip', size, `st-${status}`, stamp ? 'stamp' : null].filter(Boolean).join(' ')}>
+    {attemptStatusLabels[status]}
+  </span>
 )
 
 // YYYY-MM-DD を「年.月」と「日」に分けて出す

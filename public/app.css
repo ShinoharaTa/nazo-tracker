@@ -775,6 +775,7 @@ button.gtag.on {
   height: 100%;
   font-family: var(--mono);
   font-size: 12px;
+  line-height: 1.2;
   color: var(--muted);
 }
 .col i {
@@ -785,7 +786,7 @@ button.gtag.on {
 }
 .kpis {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
@@ -1195,7 +1196,7 @@ dialog.sheet::backdrop {
   }
   .ticket.sel {
     border-color: var(--fg);
-    box-shadow: 2px 2px 0 var(--surface2);
+    box-shadow: 3px 3px 0 var(--fg);
   }
   .ticket:hover:not(.sel) {
     border-color: var(--muted);
@@ -1265,8 +1266,7 @@ dialog.sheet::backdrop {
 
 /* ===== ペンと重心 ===== */
 /* 蛍光ペン: 字の下に引く。意味は持たせず、muted の字には引かない（AA を切る） */
-.hl,
-.ticket.sel .title {
+.hl {
   background: linear-gradient(transparent 58%, var(--hl) 58%, var(--hl) 94%, transparent 94%)
     no-repeat;
   background-size: 100% 100%;
@@ -1275,6 +1275,10 @@ dialog.sheet::backdrop {
 }
 .hl {
   padding-inline: 0.12em;
+}
+/* .note（muted）の中の「保存しました」は字を --fg にしてから引く */
+.hl.saved {
+  color: var(--fg);
 }
 /* 青ペン: 枠の無い文字リンクは青＋下線（メニューの a は除く） */
 a:not([class]):not(nav a, .menu > a),
@@ -1310,9 +1314,11 @@ a.meta,
   font-weight: 600;
 }
 /* 統計の主役（成功率） */
+.kpis:has(.kpi.hero) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .kpi.hero {
   grid-column: 1 / -1;
-  order: -1;
 }
 .kpi.hero b {
   font-size: 40px;
@@ -1320,6 +1326,7 @@ a.meta,
 }
 .kpi.hero b .hl {
   display: inline;
+  padding-inline: 0;
   font-size: inherit;
   color: inherit;
 }

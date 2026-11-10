@@ -438,8 +438,6 @@ export const RecordDetail = ({
   const latest = a.sessions[0]
   const total = a.sessionDurationSec ?? a.durationSec
   const run = a.run
-  // 結果の行に出す日付（一覧の日付と同じ優先順）
-  const resultOn = a.finishedOn ?? a.startedOn ?? a.purchasedOn
   const kv = [
     a.purchasedOn ? <KvRow label="買った日">{a.purchasedOn}</KvRow> : null,
     a.startedOn ? <KvRow label="開始日">{a.startedOn}</KvRow> : null,
@@ -474,7 +472,7 @@ export const RecordDetail = ({
         </div>
       ) : saved ? (
         <p class="note" role="status">
-          <span class="hl draw">保存しました</span>
+          <span class="hl draw saved">保存しました</span>
         </p>
       ) : null}
       <div class="card">
@@ -487,10 +485,8 @@ export const RecordDetail = ({
           </span>
         </div>
         <div class="res">
-          <span class={`chip lg st-${a.status}${created ? ' stamp' : ''}`}>
-            {attemptStatusLabels[a.status]}
-          </span>
-          {resultOn ? <span class="res-date hl">{resultOn.replaceAll('-', '.')}</span> : null}
+          <StatusChip status={a.status} size="lg" stamp={!!created} />
+          {a.displayOn ? <span class="res-date hl">{a.displayOn.replaceAll('-', '.')}</span> : null}
           {a.attemptNo >= 2 || latest ? (
             <span class="pen">
               {[
