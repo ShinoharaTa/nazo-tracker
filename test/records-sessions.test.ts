@@ -157,15 +157,33 @@ describe('進行ログの追加 /records/:id/sessions', () => {
     expect(await rowOf(id)).toMatchObject({ status: 'in_progress', finished_on: null })
   })
 
-  it('cleared に keep → status 不変', async () => {
+  it('cleared（開始日 NULL）に終了日より後の日付で keep → status 不変、開始日は終了日を超えない', async () => {
     const id = await insertAttempt(env, {
       userId: alice.userId,
       workId: ids.work,
       status: 'cleared',
       finishedOn: '2026-10-20',
     })
-    await addLog(id, { outcome: 'keep' })
-    expect(await rowOf(id)).toMatchObject({ status: 'cleared', finished_on: '2026-10-20' })
+    await addLog(id, { outcome: 'keep', played_on: '2026-11-03' })
+    expect(await rowOf(id)).toMatchObject({
+      status: 'cleared',
+      started_on: '2026-10-20',
+      finished_on: '2026-10-20',
+    })
+  })
+
+  it('cleared（開始日あり）に keep → 開始日は早い方のまま', async () => {
+    const id = await insertAttempt(env, {
+      userId: alice.userId,
+      workId: ids.work,
+      status: 'cleared',
+      startedOn: '2026-10-01',
+      finishedOn: '2026-10-20',
+    })
+    await addLog(id, { outcome: 'keep', played_on: '2026-11-03' })
+    expect(await rowOf(id)).toMatchObject({ started_on: '2026-10-01', finished_on: '2026-10-20' })
+    await addLog(id, { outcome: 'keep', played_on: '2026-09-15' })
+    expect(await rowOf(id)).toMatchObject({ started_on: '2026-09-15', finished_on: '2026-10-20' })
   })
 
   it('purchased に dropped → dropped、finished_on と started_on = played_on', async () => {
@@ -303,6 +321,65 @@ describe('日付の逆転防止（started_on <= finished_on）', () => {
     await setStatus(id, 'in_progress', '2026-11-02')
     expect((await rowOf(id))?.started_on).toBe('2026-11-02')
   })
+})
+
+describe('全経路で started_on <= finished_on', () => {
+  const setStatus = (id: string, status: string, on: string) =>
+    post(`/records/${id}/status`, [
+      ['status', status],
+      ['on', on],
+    ])
+  // [種類, 値, 日付]。status はステータス変更、それ以外は進行ログの結果
+  const steps: [kind: 'status' | 'log', value: string, on: string][] = [
+    ['log', 'keep', '2026-11-20'],
+    ['log', 'keep', '2026-11-03'],
+    ['log', 'cleared', '2026-11-01'],
+    ['log', 'keep', '2026-11-10'],
+    ['status', 'dropped', '2026-10-30'],
+    ['log', 'keep', '2026-11-12'],
+    ['status', 'in_progress', '2026-10-25'],
+    ['log', 'dropped', '2026-10-20'],
+    ['status', 'failed', ''],
+    ['log', 'keep', '2026-12-01'],
+    ['status', 'cleared', '2026-10-10'],
+    ['log', 'keep', '2026-10-05'],
+    ['status', 'purchased', '2026-11-20'],
+    ['log', 'keep', '2026-11-21'],
+    ['log', 'cleared', '2026-11-02'],
+    ['status', 'in_progress', ''],
+    ['log', 'dropped', '2026-12-05'],
+  ]
+
+  it.each(['purchased', 'in_progress', 'cleared', 'failed', 'dropped'])(
+    '作成（%s, 2026-11-05）→ ステータス変更・進行ログを重ねても逆転しない',
+    async (status) => {
+      const created = await post('/records', [
+        ['work_id', ids.work],
+        ['status', status],
+        ['on', '2026-11-05'],
+      ])
+      expect(created.status).toBe(302)
+      const id = (created.headers.get('Location') ?? '').split('?')[0].split('/').pop() ?? ''
+      const check = async (label: string) => {
+        const r = await rowOf(id)
+        if (r?.started_on && r.finished_on) {
+          expect(
+            r.started_on <= r.finished_on,
+            `${label}: ${r.started_on} > ${r.finished_on}`,
+          ).toBe(true)
+        }
+      }
+      await check('作成')
+      for (const [kind, value, on] of steps) {
+        const res =
+          kind === 'status'
+            ? await setStatus(id, value, on)
+            : await addLog(id, { outcome: value, played_on: on })
+        expect(res.status).toBe(302)
+        await check(`${kind} ${value} ${on}`)
+      }
+    },
+  )
 })
 
 describe('own().addSession', () => {
