@@ -189,6 +189,14 @@ export type OwnRepo = {
   // 登録済みなら何もしない（INSERT OR IGNORE）
   addWish(workId: string): Promise<void>
   removeWish(workId: string): Promise<void>
+  // マイリストの件数と、うちプレイ済み（cleared / failed の記録がある）作品の数
+  wishlistSummary(): Promise<{ total: number; played: number }>
+  // 統計（src/lib/stats.ts）の入力。created_at DESC で最大 STATS_LIMIT 件。超えたら capped
+  statsRows(): Promise<{
+    rows: OwnAttemptRow[]
+    genres: { attemptId: string; genreId: string }[]
+    capped: boolean
+  }>
 }
 
 // P1 は箱だけ。P8 で射影を返すメソッドを足す
@@ -285,6 +293,9 @@ const toAttemptRow = (r: EnrichedSelect): OwnAttemptRow => {
 
 const pendingStatuses = ['purchased', 'in_progress'] as const satisfies readonly AttemptStatus[]
 const playedStatuses = ['cleared', 'failed'] as const satisfies readonly AttemptStatus[]
+
+// 統計で読む記録の上限（docs/data-model.md §6）
+export const STATS_LIMIT = 5000
 
 const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
   async profile() {
@@ -580,6 +591,39 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
 
   async removeWish(workId) {
     await db.delete(wishlist).where(and(eq(wishlist.userId, viewerId), eq(wishlist.workId, workId)))
+  },
+
+  // 単一表の select では drizzle が列を表名なしで出し、副問い合わせの中で attempt.work_id に化けるので、
+  // 副問い合わせ側は別名 pa、外側は wishlist.work_id と書く
+  async wishlistSummary() {
+    const row = await db
+      .select({
+        total: sql<number>`count(*)`,
+        played: sql<number>`coalesce(sum(EXISTS (SELECT 1 FROM ${attempt} pa WHERE pa.user_id = ${viewerId} AND pa.work_id = ${wishlist}.work_id AND pa.status IN ('cleared', 'failed'))), 0)`,
+      })
+      .from(wishlist)
+      .where(eq(wishlist.userId, viewerId))
+      .get()
+    return { total: row?.total ?? 0, played: row?.played ?? 0 }
+  },
+
+  // 1 件多く読んで上限を超えたかを判定する。attempt_genre は記録で絞らず全件（集計側で rows に無いものを捨てる）
+  async statsRows() {
+    const [rows, genres] = await db.batch([
+      selectEnriched(db)
+        .where(eq(v.userId, viewerId))
+        .orderBy(desc(v.createdAt), desc(v.id))
+        .limit(STATS_LIMIT + 1),
+      db
+        .select({ attemptId: attemptGenre.attemptId, genreId: attemptGenre.genreId })
+        .from(attemptGenre)
+        .where(eq(attemptGenre.userId, viewerId)),
+    ])
+    return {
+      rows: rows.slice(0, STATS_LIMIT).map(toAttemptRow),
+      genres,
+      capped: rows.length > STATS_LIMIT,
+    }
   },
 })
 
