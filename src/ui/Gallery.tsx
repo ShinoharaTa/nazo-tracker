@@ -228,9 +228,16 @@ const Parts = () => (
             <i
               style={`display:inline-block;width:28px;height:16px;border:1px solid var(--fg);background:var(--mk-${m.name})`}
             />
-            <span class="hl" style={`--hl:var(--mk-${m.name})`}>
-              {m.label}
-            </span>
+            {m.name === 'yellow' ? (
+              <span class="hl">{m.label}</span>
+            ) : m.name === 'green' || m.name === 'pink' ? (
+              <span class={`hl mk-${m.name}`}>{m.label}</span>
+            ) : (
+              // クラスを作っていない色は見本だけ inline で塗る
+              <span class="hl" style={`--hl:var(--mk-${m.name})`}>
+                {m.label}
+              </span>
+            )}
           </div>
         ))}
       </div>
