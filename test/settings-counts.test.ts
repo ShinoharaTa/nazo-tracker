@@ -54,7 +54,8 @@ describe('/settings/counts', () => {
     expect(res.status).toBe(200)
     const html = await res.text()
     expect(html).toMatch(/<input type="checkbox" role="switch" class="sw" name="include" checked/)
-    expect(html).toContain('5 人未満は「少数」と表示します。')
+    expect(html).toContain('誰が記録したかを出しません。')
+    expect(html).not.toContain('少数')
     expect(await menuNote(cookie)).toBe('含める')
   })
 
@@ -64,14 +65,14 @@ describe('/settings/counts', () => {
     await insertAttempt(env, { userId, workId: w, status: 'cleared' })
     await insertWish(env, userId, w)
     const db = createDb(env.DB)
-    expect((await countsFor(db, [w])).get(w)).toEqual({ played: 'few', wish: 'few' })
+    expect((await countsFor(db, [w])).get(w)).toEqual({ played: 1, wish: 1 })
 
     const off = await post({}, cookie)
     expect(off.status).toBe(302)
     expect(off.headers.get('location')).toBe('/settings')
     expect(await excludeOf(userId)).toBe(1)
     expect(await menuNote(cookie)).toBe('含めない')
-    expect((await countsFor(db, [w])).get(w)).toEqual({ played: 'none', wish: 'none' })
+    expect((await countsFor(db, [w])).get(w)).toEqual({ played: 0, wish: 0 })
     const page = await (await get('/settings/counts', cookie)).text()
     expect(page).not.toMatch(/name="include" checked/)
 
@@ -79,7 +80,7 @@ describe('/settings/counts', () => {
     expect(on.status).toBe(302)
     expect(await excludeOf(userId)).toBe(0)
     expect(await menuNote(cookie)).toBe('含める')
-    expect((await countsFor(db, [w])).get(w)).toEqual({ played: 'few', wish: 'few' })
+    expect((await countsFor(db, [w])).get(w)).toEqual({ played: 1, wish: 1 })
   })
 
   it('他人の設定は変わらない', async () => {

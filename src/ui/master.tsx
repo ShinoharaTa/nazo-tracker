@@ -186,7 +186,7 @@ export type WorkMine = {
   attempts: { id: string; status: AttemptStatus; displayOn: string | null; attemptNo: number }[]
 } | null
 
-// 作品ページの匿名人数。none の .num は出さず、両方 none なら「まだ記録はありません」
+// 作品ページの匿名人数。0 の .num は出さず、両方 0 なら「まだ記録はありません」
 const WorkNums = ({ counts }: { counts: WorkCounts }) => {
   const nums = [
     { label: 'プレイ済み', value: countLabel(counts.played) },

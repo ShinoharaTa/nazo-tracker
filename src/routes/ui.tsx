@@ -110,7 +110,7 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
       params={{ kind: kind === 'all' ? '' : kind, q }}
     />
     <p class="note" style="margin-top:14px">
-      人数は 5 人未満のとき「少数」と表示します。誰が記録したかは表示しません。
+      誰が記録したかは表示しません。
     </p>
   </>
 )
@@ -199,8 +199,8 @@ ui.get('/works/:id', async (c) => {
       )
     : null
   const counts = (await countsFor(db, [r.found.id])).get(r.found.id) ?? {
-    played: 'none',
-    wish: 'none',
+    played: 0,
+    wish: 0,
   }
   // ログイン中は本人の記録を含むので共有キャッシュに載せない
   if (user) c.header('Cache-Control', 'private, no-store')
@@ -493,8 +493,7 @@ const CountsForm = ({ excludeFromCounts }: { excludeFromCounts: boolean }) => (
     <TopBar back="/settings" label="作品の人数" />
     <div class="sect" style="margin-top:4px">
       <p class="note">
-        作品一覧・作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出さず、5
-        人未満は「少数」と表示します。それでも人数の増え方から推測される可能性があるため、気になる場合は自分を含めないようにできます。
+        作品一覧・作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出しません。それでも人数の増え方から推測される可能性があるため、気になる場合は自分を含めないようにできます。
       </p>
       <form method="post" action="/settings/counts" class="list">
         <Switch label="作品の人数に自分を含める" name="include" checked={!excludeFromCounts} />
