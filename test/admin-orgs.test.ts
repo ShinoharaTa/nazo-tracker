@@ -381,16 +381,6 @@ describe('管理一覧', () => {
     expect(p2).not.toContain('次の 50 件')
   })
 
-  it('GET /admin/works/:id は P2-4 まで 404（Layout 付き）', async () => {
-    const id = await insertWork(env, { title: '編集はまだ', kind: 'room' })
-    const res = await get(`/admin/works/${id}`, owner.cookie)
-    expect(res.status).toBe(404)
-    const html = await res.text()
-    expect(html).toContain('<!DOCTYPE html>')
-    expect(html).toContain('見つかりませんでした')
-    expect(html).toContain('href="/admin/works"')
-  })
-
   it('統合済みも出し、note に統合先。q は別名でも当たる', async () => {
     const into = await insertOrg(env, { name: 'イチラン統合先' })
     await insertOrg(env, { name: 'イチラン統合元', mergedIntoId: into })

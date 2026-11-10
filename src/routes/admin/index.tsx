@@ -1,16 +1,18 @@
 // オーナー画面 /admin/*。全ページ requireOwner（未ログイン GET は 302 /login、POST は 401、member は 404）。
-// メニューと管理一覧はここ、作成・編集は orgs / venues / shops。JS は使わず HTML form の POST だけ。
+// メニューと管理一覧はここ、作成・編集は works / runs / orgs / venues / shops。JS は使わず HTML form の POST だけ。
 
 import { Hono } from 'hono'
 import { requireOwner } from '../../auth/middleware'
 import { listAdminOrgs, listAdminShops, listAdminVenues, listAdminWorks } from '../../db/master'
 import type { AppEnv } from '../../env'
-import { AdminList, type AdminListRow, AdminNotFound, AdminPage } from '../../ui/admin'
+import { AdminList, type AdminListRow, AdminPage } from '../../ui/admin'
 import { Menu, MenuItem, TopBar } from '../../ui/components'
 import { shopKindLabels, workKindLabels } from '../../ui/labels'
 import orgs from './orgs'
+import runs from './runs'
 import shops from './shops'
 import venues from './venues'
+import works from './works'
 
 const admin = new Hono<AppEnv>({ strict: false })
 
@@ -34,7 +36,7 @@ admin.get('/', (c) =>
         <h2>作品</h2>
         <Menu>
           <MenuItem label="作品の一覧" href="/admin/works" />
-          <MenuItem label="作品を追加" note="P2 の続きで実装" disabled />
+          <MenuItem label="作品を追加" href="/admin/works/new" />
         </Menu>
       </div>
       <div class="sect">
@@ -89,7 +91,17 @@ admin.get('/works', async (c) => {
       [w.kind ? workKindLabels[w.kind] : null, w.orgName].filter(Boolean).join(' · ') || null,
     ),
   }))
-  return c.html(listPage({ label: '作品', base: '/admin/works', q, page, hasNext, rows }))
+  return c.html(
+    listPage({
+      label: '作品',
+      base: '/admin/works',
+      newHref: '/admin/works/new',
+      q,
+      page,
+      hasNext,
+      rows,
+    }),
+  )
 })
 
 admin.get('/orgs', async (c) => {
@@ -158,16 +170,8 @@ admin.get('/shops', async (c) => {
   )
 })
 
-// 作品の編集は P2-4 で差し替える。それまでは Layout 付きの 404
-admin.get('/works/:id', (c) =>
-  c.html(
-    <AdminPage title="見つかりませんでした">
-      <AdminNotFound back="/admin/works" />
-    </AdminPage>,
-    404,
-  ),
-)
-
+admin.route('/', works)
+admin.route('/', runs)
 admin.route('/', orgs)
 admin.route('/', venues)
 admin.route('/', shops)

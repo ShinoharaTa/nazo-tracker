@@ -104,11 +104,12 @@ const RunPlace = ({ r }: { r: RunRow }) => {
   return <span>オンライン</span>
 }
 
-// 回 1 件。primaryOrg は作品の団体（名義・団体リンクを出すか決めるのに使う）
+// 回 1 件。primaryOrg は作品の団体（名義・団体リンクを出すか決めるのに使う）。editHref はオーナーのときだけ
 export const RunCard = (props: {
   r: RunRow
   today: string
   primaryOrg: { id: string; name: string } | null
+  editHref?: string
 }) => {
   const { r, primaryOrg } = props
   const orgName = r.org?.name ?? primaryOrg?.name
@@ -123,6 +124,11 @@ export const RunCard = (props: {
       <div class="row" style="justify-content:flex-start">
         <span>{runChannelLabels[r.channel]} · </span>
         <span class="badge">{runStatus(r, props.today)}</span>
+        {props.editHref ? (
+          <a href={props.editHref} style="margin-left:auto">
+            編集
+          </a>
+        ) : null}
       </div>
       <div>
         <RunPlace r={r} />
@@ -152,12 +158,23 @@ const KvRow = ({ label, children }: { label: string; children?: Child }) => (
   </>
 )
 
-export const WorkDetail = ({ w, today }: { w: WorkDetailData; today: string }) => {
+// editHref / runEditHref はオーナーのときだけ（作品と各回の「編集」）
+export const WorkDetail = ({
+  w,
+  today,
+  editHref,
+  runEditHref,
+}: {
+  w: WorkDetailData
+  today: string
+  editHref?: string
+  runEditHref?: (runId: string) => string
+}) => {
   const k = kindLabel(w.kind)
   const players = formatPlayers(w.playerMin, w.playerMax)
   return (
     <>
-      <TopBar back="/works" label="作品" />
+      <TopBar back="/works" label="作品" action={EditLink({ href: editHref })} />
       <div class="card">
         <div style="display:flex;flex-direction:column;gap:6px">
           <span class="meta">
@@ -224,7 +241,9 @@ export const WorkDetail = ({ w, today }: { w: WorkDetailData; today: string }) =
       <div class="sect">
         <h2>公演・配信・販売</h2>
         {w.runs.length ? (
-          w.runs.map((r) => <RunCard r={r} today={today} primaryOrg={w.org} />)
+          w.runs.map((r) => (
+            <RunCard r={r} today={today} primaryOrg={w.org} editHref={runEditHref?.(r.id)} />
+          ))
         ) : (
           <Empty>回の情報はまだありません</Empty>
         )}
