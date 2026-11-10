@@ -5,7 +5,7 @@ import { type SessionInput, scopedTo } from '../src/db/scoped'
 import app from '../src/index'
 import { todayJst } from '../src/lib/time'
 import { loginAs, ORIGIN } from './helpers/auth'
-import { insertWork } from './helpers/master'
+import { insertVenue, insertWork } from './helpers/master'
 import { insertAttempt, insertSession } from './helpers/records'
 
 let alice = { cookie: '', userId: '' }
@@ -146,6 +146,17 @@ describe('進行ログの追加 /records/:id/sessions', () => {
     })
   })
 
+  it('purchased（finished_on あり）に keep → in_progress、finished_on は NULL', async () => {
+    const id = await insertAttempt(env, {
+      userId: alice.userId,
+      workId: ids.work,
+      status: 'purchased',
+      finishedOn: '2026-10-20',
+    })
+    await addLog(id, { outcome: 'keep' })
+    expect(await rowOf(id)).toMatchObject({ status: 'in_progress', finished_on: null })
+  })
+
   it('cleared に keep → status 不変', async () => {
     const id = await insertAttempt(env, {
       userId: alice.userId,
@@ -184,6 +195,50 @@ describe('進行ログの追加 /records/:id/sessions', () => {
     expect((await rowOf(id))?.status).toBe('in_progress')
   })
 
+  it('body の attempt_id / venue_id は無視する（他人の記録に書かない・venue_id は NULL）', async () => {
+    const mine = await newAttempt('in_progress')
+    const bobs = await insertAttempt(env, {
+      userId: bob.userId,
+      workId: ids.work,
+      status: 'in_progress',
+    })
+    const venue = await insertVenue(env, { name: '混ぜた会場' })
+    const res = await addLog(mine, { attempt_id: bobs, venue_id: venue, user_id: bob.userId })
+    expect(res.status).toBe(302)
+    const rows = await sessionsOf(mine)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ user_id: alice.userId, venue_id: null })
+    expect(await sessionsOf(bobs)).toHaveLength(0)
+  })
+
+  it('progress_note・memo の <script> はエスケープして出す', async () => {
+    const id = await newAttempt('in_progress')
+    await addLog(id, { progress_note: '<script>alert(1)</script>', memo: '<script>x</script>' })
+    const html = await (await get(`/records/${id}`)).text()
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).not.toContain('<script>x</script>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;')
+  })
+
+  it('Origin 無しの POST → 403、行は増えない', async () => {
+    const id = await newAttempt('in_progress')
+    const res = await app.request(
+      `/records/${id}/sessions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: alice.cookie,
+        },
+        body: new URLSearchParams({ played_on: '2026-11-03', outcome: 'keep' }).toString(),
+      },
+      env,
+    )
+    expect(res.status).toBe(403)
+    expect(await sessionsOf(id)).toHaveLength(0)
+  })
+
   it('bob が alice の記録に GET / POST → 404、行は増えない', async () => {
     const id = await newAttempt('purchased')
     expect((await get(`/records/${id}/sessions/new`, bob.cookie)).status).toBe(404)
@@ -194,6 +249,59 @@ describe('進行ログの追加 /records/:id/sessions', () => {
 
   it('無い id → 404', async () => {
     expect((await addLog('nope')).status).toBe(404)
+  })
+})
+
+describe('日付の逆転防止（started_on <= finished_on）', () => {
+  it('started 11-05 の進行中に played_on 11-01 で cleared → started / finished とも 11-01、/edit で保存できる', async () => {
+    const id = await newAttempt('in_progress', { startedOn: '2026-11-05' })
+    await addLog(id, { outcome: 'cleared', played_on: '2026-11-01' })
+    expect(await rowOf(id)).toMatchObject({
+      status: 'cleared',
+      started_on: '2026-11-01',
+      finished_on: '2026-11-01',
+    })
+    expect((await get(`/records/${id}/edit`)).status).toBe(200)
+    const res = await post(`/records/${id}/edit`, [
+      ['status', 'cleared'],
+      ['started_on', '2026-11-01'],
+      ['finished_on', '2026-11-01'],
+      ['memo', '保存できる'],
+    ])
+    expect(res.status).toBe(302)
+    expect((await rowOf(id))?.started_on).toBe('2026-11-01')
+  })
+
+  it('keep で played_on が開始日より前 → 開始日を下げる', async () => {
+    const id = await newAttempt('in_progress', { startedOn: '2026-11-05' })
+    await addLog(id, { outcome: 'keep', played_on: '2026-11-02' })
+    expect((await rowOf(id))?.started_on).toBe('2026-11-02')
+  })
+
+  const setStatus = (id: string, status: string, on: string) =>
+    post(`/records/${id}/status`, [
+      ['status', status],
+      ['on', on],
+    ])
+
+  it('ステータス変更で cleared（on が開始日より前）→ 開始日を下げる', async () => {
+    const id = await newAttempt('in_progress', { startedOn: '2026-11-05' })
+    expect((await setStatus(id, 'cleared', '2026-11-01')).status).toBe(302)
+    expect(await rowOf(id)).toMatchObject({ started_on: '2026-11-01', finished_on: '2026-11-01' })
+  })
+
+  it('ステータス変更で cleared（開始日 NULL）→ 開始日は NULL のまま', async () => {
+    const id = await newAttempt('purchased')
+    await setStatus(id, 'cleared', '2026-11-01')
+    expect(await rowOf(id)).toMatchObject({ started_on: null, finished_on: '2026-11-01' })
+  })
+
+  it('ステータス変更で in_progress（on が開始日より前 / 後）→ 早い方', async () => {
+    const id = await newAttempt('in_progress', { startedOn: '2026-11-05' })
+    await setStatus(id, 'in_progress', '2026-11-08')
+    expect((await rowOf(id))?.started_on).toBe('2026-11-05')
+    await setStatus(id, 'in_progress', '2026-11-02')
+    expect((await rowOf(id))?.started_on).toBe('2026-11-02')
   })
 })
 
@@ -252,7 +360,7 @@ describe('進行ログの表示', () => {
     expect(html).toContain(`href="/records/${id}/sessions/new"`)
     expect(html.match(/class="log"/g)).toHaveLength(2)
     expect(html.indexOf('第2章まで</b>')).toBeLessThan(html.indexOf('第1章まで</b>'))
-    expect(html).not.toContain('<details>')
+    expect(html).not.toContain('<details class="older">')
   })
 
   it('6 件以上は新しい 5 件を出し、残りを <details> に畳む', async () => {
@@ -266,7 +374,7 @@ describe('進行ログの表示', () => {
       })
     }
     const html = await (await get(`/records/${id}`)).text()
-    const [open, folded] = html.split('<details>')
+    const [open, folded] = html.split('<details class="older">')
     expect(open.match(/class="log"/g)).toHaveLength(5)
     expect(open).toContain('ログ3</b>')
     expect(open).not.toContain('ログ2</b>')
@@ -292,6 +400,8 @@ describe('進行ログの削除 /records/:id/sessions/:sid/delete', () => {
     })
     const html = await (await get(`/records/${id}`)).text()
     expect(html).toContain(`action="/records/${id}/sessions/${sid}/delete"`)
+    expect(html).toContain('<summary class="note">削除</summary>')
+    expect(html).toContain('10/11 のログを削除')
     const res = await post(`/records/${id}/sessions/${sid}/delete`, [])
     expect(res.status).toBe(302)
     expect(res.headers.get('Location')).toBe(`/records/${id}`)
@@ -301,6 +411,26 @@ describe('進行ログの削除 /records/:id/sessions/:sid/delete', () => {
       started_on: '2026-10-01',
       finished_on: '2026-10-11',
     })
+  })
+
+  it('Origin 無しの POST → 403、行は残る', async () => {
+    const id = await newAttempt('in_progress')
+    const sid = await insertSession(env, {
+      attemptId: id,
+      userId: alice.userId,
+      playedOn: '2026-10-11',
+    })
+    const res = await app.request(
+      `/records/${id}/sessions/${sid}/delete`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: alice.cookie },
+        body: '',
+      },
+      env,
+    )
+    expect(res.status).toBe(403)
+    expect(await sessionsOf(id)).toHaveLength(1)
   })
 
   it('bob → 404、行は残る', async () => {

@@ -401,7 +401,9 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
     return id
   },
 
-  // 日付は COALESCE で「左が NULL なら右」。WHERE は id と user_id の両方
+  // 日付は COALESCE で「左が NULL なら右」。WHERE は id と user_id の両方。
+  // 新しい日付が開始日より前なら開始日を下げる（started_on <= finished_on を保つ。SQLite の MIN は NULL を返すので
+  // 終了系で started_on が NULL のときは NULL のまま）
   async setStatus(id, status, on) {
     const today = todayJst()
     const dates =
@@ -412,10 +414,13 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
           }
         : status === 'in_progress'
           ? {
-              startedOn: sql`COALESCE(${attempt.startedOn}, ${on}, ${today})`,
+              startedOn: sql`MIN(COALESCE(${attempt.startedOn}, ${on}, ${today}), COALESCE(${on}, ${today}))`,
               finishedOn: null,
             }
-          : { finishedOn: sql`COALESCE(${on}, ${attempt.finishedOn}, ${today})` }
+          : (() => {
+              const finishedOn = sql`COALESCE(${on}, ${attempt.finishedOn}, ${today})`
+              return { finishedOn, startedOn: sql`MIN(${attempt.startedOn}, ${finishedOn})` }
+            })()
     const rows = await db
       .update(attempt)
       .set({ status, ...dates, updatedAt: nowIso() })
@@ -482,11 +487,14 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .select(
         sql`SELECT ${ulid()}, ${attemptId}, ${viewerId}, ${input.playedOn}, NULL, NULL, ${input.durationSec}, ${input.progressNote}, ${input.companions}, ${input.memo}, NULL, ${input.locationText}, ${now} WHERE ${mine}`,
       )
-    const startedOn = sql`COALESCE(${attempt.startedOn}, ${input.playedOn})`
+    // played_on が開始日より前なら開始日を下げる（started_on <= finished_on を保つ）
+    const startedOn = sql`MIN(COALESCE(${attempt.startedOn}, ${input.playedOn}), ${input.playedOn})`
+    // keep で買った → 進行中に変わるときは setStatus と同じく finished_on を消す
     const set =
       outcome === 'keep'
         ? {
             status: sql`CASE WHEN ${attempt.status} = 'purchased' THEN 'in_progress' ELSE ${attempt.status} END`,
+            finishedOn: sql`CASE WHEN ${attempt.status} = 'purchased' THEN NULL ELSE ${attempt.finishedOn} END`,
             startedOn,
           }
         : { status: outcome, finishedOn: input.playedOn, startedOn }
