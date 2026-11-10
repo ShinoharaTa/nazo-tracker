@@ -5,6 +5,7 @@ import type { Child } from 'hono/jsx'
 import type { GenreRow, WorkDetailData, WorkListItem } from '../db/master'
 import type { OwnAttempt, OwnAttemptRow, OwnSession, OwnWishRow } from '../db/scoped'
 import type { Form } from '../lib/form'
+import { isoToJstDate } from '../lib/time'
 import {
   Empty,
   Field,
@@ -70,7 +71,7 @@ const WishRow = ({ w }: { w: OwnWishRow }) => (
       chip={
         w.latestStatus ? <StatusChip status={w.latestStatus} /> : <span class="mark">未プレイ</span>
       }
-      extra={`登録 ${w.createdAt.slice(0, 10)}`}
+      extra={`登録 ${isoToJstDate(w.createdAt)}`}
     />
     <form method="post" action="/records/wishlist/delete">
       <input type="hidden" name="work_id" value={w.workId} />
@@ -121,7 +122,9 @@ export const WishList = ({
           作品ページの「マイリストに追加」から登録できます。
         </Empty>
       )}
-      <p class="note">マイリストからは自動では外れません。遊び終わったら ✕ で外してください。</p>
+      <p class="note">
+        マイリストからは自動では外れません。遊び終わったら「外す」で外してください。
+      </p>
     </div>
     <Pager
       base="/records"

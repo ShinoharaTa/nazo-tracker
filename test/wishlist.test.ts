@@ -178,3 +178,65 @@ describe('GET /records?tab=wish', () => {
     expect(e).toContain('マイリストは空です。')
   })
 })
+
+describe('GET /records?tab=wish（印・並び・日付）', () => {
+  let dave = { cookie: '', userId: '' }
+  const w: Record<string, string> = {}
+
+  beforeAll(async () => {
+    dave = await loginAs(env, { subject: 'wishlist-dave' })
+    w.retry = await insertWork(env, { title: '二回目の謎' })
+    w.bought = await insertWork(env, { title: '買っただけの謎' })
+    w.dropped = await insertWork(env, { title: '断念した謎' })
+    w.none = await insertWork(env, { title: '記録なしの謎' })
+    await insertAttempt(env, {
+      userId: dave.userId,
+      workId: w.retry,
+      status: 'cleared',
+      attemptNo: 1,
+      finishedOn: '2026-09-01',
+    })
+    await insertAttempt(env, {
+      userId: dave.userId,
+      workId: w.retry,
+      status: 'in_progress',
+      attemptNo: 2,
+    })
+    await insertAttempt(env, { userId: dave.userId, workId: w.bought, status: 'purchased' })
+    await insertAttempt(env, { userId: dave.userId, workId: w.dropped, status: 'dropped' })
+    // created_at を挿入順と逆に入れる。none は UTC では 10-31、JST では 11-01
+    await insertWish(env, dave.userId, w.retry, '2026-10-01T00:00:00.000Z')
+    await insertWish(env, dave.userId, w.none, '2026-10-31T15:30:00.000Z')
+    await insertWish(env, dave.userId, w.bought, '2026-10-10T00:00:00.000Z')
+    await insertWish(env, dave.userId, w.dropped, '2026-10-20T00:00:00.000Z')
+  })
+
+  it('並びは created_at DESC（挿入順ではない）', async () => {
+    const h = await (await get('/records?tab=wish', dave.cookie)).text()
+    expect(wishWorkIds(h)).toEqual([w.none, w.dropped, w.bought, w.retry])
+  })
+
+  it('印は最新の記録（attempt_no DESC）のステータス', async () => {
+    const h = await (await get('/records?tab=wish', dave.cookie)).text()
+    expect(h.match(/class="chip st-in_progress"/g)).toHaveLength(1)
+    expect(h).not.toContain('class="chip st-cleared"')
+    expect(h.match(/class="chip st-purchased"/g)).toHaveLength(1)
+    expect(h.match(/class="chip st-dropped"/g)).toHaveLength(1)
+  })
+
+  it('unplayed=1 は記録が 1 件も無い作品だけ（買った・断念だけの作品も除く）', async () => {
+    const h = await (await get('/records?tab=wish&unplayed=1', dave.cookie)).text()
+    expect(wishWorkIds(h)).toEqual([w.none])
+  })
+
+  it('登録日は JST の日付で出す', async () => {
+    const h = await (await get('/records?tab=wish', dave.cookie)).text()
+    expect(h).toContain('登録 2026-11-01')
+    expect(h).not.toContain('登録 2026-10-31')
+  })
+
+  it('Cache-Control は private', async () => {
+    const res = await get('/records?tab=wish&unplayed=1', dave.cookie)
+    expect(res.headers.get('Cache-Control')).toContain('private')
+  })
+})

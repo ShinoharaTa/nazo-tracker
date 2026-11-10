@@ -95,5 +95,6 @@ export const insertSession = async (
 export const insertGenre = (env: Env, attemptId: string, userId: string, genreId: string) =>
   insert(env, 'attempt_genre', { attempt_id: attemptId, genre_id: genreId, user_id: userId })
 
-export const insertWish = (env: Env, userId: string, workId: string) =>
-  insert(env, 'wishlist', { user_id: userId, work_id: workId, created_at: nextIso() })
+// createdAt を渡すとその値で入れる（並び・日付表示のテスト用）
+export const insertWish = (env: Env, userId: string, workId: string, createdAt?: string) =>
+  insert(env, 'wishlist', { user_id: userId, work_id: workId, created_at: createdAt ?? nextIso() })

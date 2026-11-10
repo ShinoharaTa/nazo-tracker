@@ -226,11 +226,9 @@ export const WorkDetail = ({
         {/* 未ログインは /login へ（next は作らない） */}
         {mine ? (
           <div class="btns">
-            {/* form の箱を消し、中の button を .btns の並びに入れる */}
             <form
               method="post"
               action={mine.wished ? '/records/wishlist/delete' : '/records/wishlist'}
-              style="display:contents"
             >
               <input type="hidden" name="work_id" value={w.id} />
               <input type="hidden" name="back" value="work" />
