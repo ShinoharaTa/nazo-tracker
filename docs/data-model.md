@@ -104,9 +104,9 @@ erDiagram
 | ticket_url, price_yen | |
 | escape_type_raw | escape.id `type` の生値（参考のみ。kind 判定には使わない） |
 | note | |
+| created_at / updated_at | |
 
 **持ち帰り謎の販路**: 1 作品に販売サイト・イベントが複数ある前提。販売サイトごとに `run(channel='sale', shop_id)` を 1 行、マーケット出店は `booth_item(work_id)` で紐付ける。作品ページでは `v_work_channels`（work ⋈ run(sale) ⋈ shop ∪ work ⋈ booth_item ⋈ booth ⋈ market_edition）で「どこで売っている/売っていたか」を時系列に一覧する。これはマスタ側の情報で、個人の購入記録とは結び付けない。
-| created_at / updated_at | |
 
 CHECK: `channel='sale' → shop_id NOT NULL`、`channel = 'performance' OR venue_id IS NULL`、`channel = 'sale' OR shop_id IS NULL`（venue_id は performance のみ、shop_id は sale のみ）。
 
@@ -223,7 +223,21 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 
 ## 5. 名寄せ
 
-正規化 `norm()`: NFKC → 小文字 → 全角/半角記号・空白・「」『』【】を除去 → 末尾の `(再演|再々演|20\d\d|第\d+弾)` 相当を除去して `title_norm`。年号を含む別名は alias に残す（検索で当たるように）。
+正規化 `norm()`（`src/lib/norm.ts`）:
+
+```
+norm(s):
+  t = s.normalize('NFKC').toLowerCase()
+  u = t.replace(/【[^】]*】/gu, '')                // 【…】は中身ごと除去（【追加公演】など）
+        .replace(/[\s\p{P}\p{S}]/gu, '')       // 空白・句読点・記号。「」『』・〜 は \p{P} に入る（括弧文字だけ消える）
+  if (u === '') u = t.replace(/\s/gu, '')          // 記号だけの名前は記号を残す
+  v = u.replace(/(再演|再々演|20\d\d|第\d+弾)+$/u, '')
+  return v === '' ? u : v                          // 「2026」だけの題名を空にしない
+```
+
+- `name_norm` / `title_norm` は INSERT / UPDATE 時にサーバーが必ず計算する（フォームに項目を出さない）。
+- 検索では `norm()` の結果を `LIKE ? ESCAPE '\'` に渡し、`\` `%` `_` をエスケープする（記号だけの名前はフォールバックで記号が残るため、`norm()` の結果に頼らない）。D1 の LIKE パターン上限（50 バイト）に合わせ、本体は UTF-8 で 48 バイト以内に切り詰める（文字の途中では切らない）。
+- 年号を含む別名は alias に残す（検索で当たるように）。
 
 候補スコア:
 1. `escape_id_url` 完全一致 → 1.0（同一 run）

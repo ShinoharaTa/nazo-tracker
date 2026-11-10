@@ -6,3 +6,7 @@ export const addDays = (iso: string, n: number): string =>
   new Date(Date.parse(iso) + n * 86_400_000).toISOString()
 
 export const isPast = (iso: string): boolean => Date.parse(iso) <= Date.now()
+
+// 今日の日付（JST）を YYYY-MM-DD で。run の start_on / end_on と文字列比較する
+export const todayJst = (): string =>
+  new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10)

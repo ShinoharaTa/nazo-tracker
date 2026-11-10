@@ -329,6 +329,37 @@ export const SpoilerCard = (props: { src: string; count?: { memo: number; photos
 
 export const Empty = ({ children }: { children?: Child }) => <div class="empty">{children}</div>
 
+// 一覧の前後ページ（50 件ずつ）。params は引き継ぐクエリ（空文字は落とす）
+export const Pager = (props: {
+  base: string
+  page: number
+  hasNext: boolean
+  params?: Record<string, string>
+}) => {
+  if (props.page <= 1 && !props.hasNext) return null
+  const href = (page: number) => {
+    const q = new URLSearchParams()
+    for (const [k, v] of Object.entries(props.params ?? {})) if (v) q.set(k, v)
+    if (page > 1) q.set('page', String(page))
+    const s = q.toString()
+    return s ? `${props.base}?${s}` : props.base
+  }
+  return (
+    <nav class="btns" aria-label="ページ" style="margin-top:14px">
+      {props.page > 1 ? (
+        <a class="btn ghost" href={href(props.page - 1)}>
+          ‹ 前の 50 件
+        </a>
+      ) : null}
+      {props.hasNext ? (
+        <a class="btn ghost" href={href(props.page + 1)}>
+          次の 50 件 ›
+        </a>
+      ) : null}
+    </nav>
+  )
+}
+
 // public/app.js が [data-open="id"] で開き、[data-close] で閉じる
 export const Sheet = (props: { id: string; title: string; children?: Child }) => (
   <dialog class="sheet" id={props.id} aria-labelledby={`${props.id}-title`}>
