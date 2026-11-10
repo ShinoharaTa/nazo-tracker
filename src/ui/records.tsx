@@ -575,13 +575,16 @@ export const RecordDetail = ({
           </div>
         </div>
       ) : null}
-      {isVisitKind(a.work.kind) ? null : (
+      {/* 来場型は「＋ 進行ログ」を出さない。既存のログ（形式を後から変えた記録）があれば一覧と削除だけ出す */}
+      {isVisitKind(a.work.kind) && !a.sessions.length ? null : (
         <div class="sect">
           <div class="row">
             <h2>進行ログ</h2>
-            <a class="btn" href={`/records/${a.id}/sessions/new`}>
-              ＋ 進行ログ
-            </a>
+            {isVisitKind(a.work.kind) ? null : (
+              <a class="btn" href={`/records/${a.id}/sessions/new`}>
+                ＋ 進行ログ
+              </a>
+            )}
           </div>
           {a.sessions.length ? <SessionLogs a={a} /> : <Empty>進行ログはまだありません。</Empty>}
         </div>

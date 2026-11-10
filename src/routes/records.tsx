@@ -354,15 +354,20 @@ const sessionPage = async (c: Context<AppEnv>, a: OwnAttempt, values: Form, erro
   />
 )
 
-// 来場型（ルーム・公演）の記録には進行ログが無い（GET も POST も 400）
+// 来場型（ルーム・公演）の記録には進行ログを足せない（GET は詳細へ戻し、POST は 400）
 const NO_SESSIONS = 'ルーム・公演には進行ログがありません。'
 
 records.get('/:id/sessions/new', async (c) => {
   const a = await own(c).getAttempt(c.req.param('id'))
   if (!a) return notFoundPage(c, '/records')
-  const values = { ...emptyForm(sessionFields), played_on: todayJst(), outcome: 'keep' }
-  if (isVisitKind(a.work.kind)) return c.html(await sessionPage(c, a, values, [NO_SESSIONS]), 400)
-  return c.html(await sessionPage(c, a, values))
+  if (isVisitKind(a.work.kind)) return c.redirect(`/records/${a.id}`, 302)
+  return c.html(
+    await sessionPage(c, a, {
+      ...emptyForm(sessionFields),
+      played_on: todayJst(),
+      outcome: 'keep',
+    }),
+  )
 })
 
 // 記録の status / 日付は outcome で決める（own().addSession、data-model.md §3 session）

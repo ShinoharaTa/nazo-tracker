@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import app from '../src/index'
 import { loginAs, ORIGIN } from './helpers/auth'
 import { insertWork } from './helpers/master'
-import { insertAttempt } from './helpers/records'
+import { insertAttempt, insertSession } from './helpers/records'
 
 // 来場型（ルーム・公演）の作品はステータスが 予約済み / クリア / 失敗 だけ（issue #76）
 
@@ -135,11 +135,29 @@ describe('来場型の進行ログ', () => {
     expect(h).not.toContain(`/records/${id}/sessions/new`)
   })
 
-  it('GET /records/:id/sessions/new → 400', async () => {
+  it('既存の進行ログがあれば節と一覧・削除は出し、「＋ 進行ログ」だけ出さない', async () => {
+    const id = await newAttempt(ids.room, 'in_progress')
+    const sid = await insertSession(env, {
+      attemptId: id,
+      userId: alice.userId,
+      playedOn: '2026-10-05',
+      progressNote: '形式変更前のログ',
+    })
+    const h = await (await get(`/records/${id}`)).text()
+    expect(h).toContain('<h2>進行ログ</h2>')
+    expect(h).toContain('形式変更前のログ')
+    expect(h).toContain(`action="/records/${id}/sessions/${sid}/delete"`)
+    expect(h).not.toContain(`/records/${id}/sessions/new`)
+    const del = await post(`/records/${id}/sessions/${sid}/delete`, {})
+    expect(del.status).toBe(302)
+    expect(await sessionCount(id)).toBe(0)
+  })
+
+  it('GET /records/:id/sessions/new → 詳細へ 302', async () => {
     const id = await newAttempt(ids.room, 'cleared')
     const res = await get(`/records/${id}/sessions/new`)
-    expect(res.status).toBe(400)
-    expect(await res.text()).toContain('ルーム・公演には進行ログがありません')
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toBe(`/records/${id}`)
   })
 
   it('POST /records/:id/sessions → 400、ログは足されない', async () => {
