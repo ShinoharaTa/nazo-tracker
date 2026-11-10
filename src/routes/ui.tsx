@@ -7,6 +7,7 @@ import { isProviderReady } from '../auth/oauth'
 import { findOAuthProvider } from '../auth/providers/types'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
 import type { Db } from '../db/client'
+import { countsFor, type WorkCounts } from '../db/counts'
 import { getOrg, getVenue, getWork, listWorks, type WorkListItem } from '../db/master'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
@@ -29,6 +30,11 @@ const ui = new Hono<AppEnv>({ strict: false })
 
 ui.use('/stats', requireUser)
 ui.use('/settings/*', requireUser)
+// 設定は本人のデータなので共有キャッシュに載せない（既に付いていれば上書きしない）
+ui.use('/settings/*', async (c, next) => {
+  await next()
+  if (!c.res.headers.has('Cache-Control')) c.res.headers.set('Cache-Control', 'private, no-store')
+})
 
 // 作品一覧の形式フィルタ。LINE と Web はモックに合わせて 1 つにまとめる。
 // online は line / web をまとめた UI 上だけの値（workKinds には無い）。listWorks が kind IN ('line', 'web') に変換する
@@ -56,10 +62,12 @@ type WorksListProps = {
   items: WorkListItem[]
   hasNext: boolean
   selectedId?: string
+  // 匿名人数（プレイ済みの chip）
+  counts: Map<string, WorkCounts>
 }
 
 // 作品一覧（左ページ）
-const WorksList = ({ kind, q, page, items, hasNext, selectedId }: WorksListProps) => (
+const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksListProps) => (
   <>
     <TopBar title="作品" />
     <form class="search" method="get" action="/works">
@@ -92,7 +100,9 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId }: WorksListProps
     ) : null}
     <div class="list">
       {items.length ? (
-        items.map((w) => <WorkTicket w={w} selected={w.id === selectedId} />)
+        items.map((w) => (
+          <WorkTicket w={w} selected={w.id === selectedId} counts={counts.get(w.id)} />
+        ))
       ) : q.trim() ? (
         <Empty>「{q}」に一致する作品はありません</Empty>
       ) : kind !== 'all' ? (
@@ -116,8 +126,20 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId }: WorksListProps
 // 詳細ページの左に出す一覧（1 頁目・フィルタ無し）
 const defaultWorksList = async (db: Db, selectedId?: string) => {
   const { items, hasNext } = await listWorks(db, { page: 1 })
+  const counts = await countsFor(
+    db,
+    items.map((w) => w.id),
+  )
   return (
-    <WorksList kind="all" q="" page={1} items={items} hasNext={hasNext} selectedId={selectedId} />
+    <WorksList
+      kind="all"
+      q=""
+      page={1}
+      items={items}
+      hasNext={hasNext}
+      selectedId={selectedId}
+      counts={counts}
+    />
   )
 }
 
@@ -141,12 +163,19 @@ ui.get('/works', async (c) => {
   const kind = kindFilters.some((f) => f.key === k) ? k : 'all'
   const q = c.req.query('q') ?? ''
   const page = toPage(c.req.query('page'))
-  const { items, hasNext } = await listWorks(c.get('db'), { q, kind, page })
+  const db = c.get('db')
+  const { items, hasNext } = await listWorks(db, { q, kind, page })
+  const counts = await countsFor(
+    db,
+    items.map((w) => w.id),
+  )
   return c.html(
     <Layout
       title="作品"
       tab="works"
-      left={<WorksList kind={kind} q={q} page={page} items={items} hasNext={hasNext} />}
+      left={
+        <WorksList kind={kind} q={q} page={page} items={items} hasNext={hasNext} counts={counts} />
+      }
     />,
   )
 })
@@ -171,9 +200,16 @@ ui.get('/works/:id', async (c) => {
   if ('redirect' in r) return c.redirect(`/works/${encodeURIComponent(r.redirect)}`, 302)
   const owner = isOwner(c)
   const user = c.get('user')
-  const mine = user
-    ? { attempts: await scopedTo(db, user.id).own().attemptsOfWork(r.found.id) }
+  const repo = user ? scopedTo(db, user.id).own() : null
+  const mine = repo
+    ? await Promise.all([repo.isWished(r.found.id), repo.attemptsOfWork(r.found.id)]).then(
+        ([wished, attempts]) => ({ wished, attempts }),
+      )
     : null
+  const counts = (await countsFor(db, [r.found.id])).get(r.found.id) ?? {
+    played: 'none',
+    wish: 'none',
+  }
   // ログイン中は本人の記録を含むので共有キャッシュに載せない
   if (user) c.header('Cache-Control', 'private, no-store')
   return c.html(
@@ -186,6 +222,7 @@ ui.get('/works/:id', async (c) => {
           w={r.found}
           today={todayJst()}
           mine={mine}
+          counts={counts}
           editHref={owner ? `/admin/works/${r.found.id}` : undefined}
           runEditHref={owner ? (runId) => `/admin/runs/${runId}` : undefined}
         />
@@ -205,7 +242,16 @@ ui.get('/orgs/:id', async (c) => {
       tab="works"
       left={await defaultWorksList(db)}
       right={
-        <OrgDetail o={r.found} editHref={isOwner(c) ? `/admin/orgs/${r.found.id}` : undefined} />
+        <OrgDetail
+          o={r.found}
+          counts={
+            await countsFor(
+              db,
+              r.found.works.map((w) => w.id),
+            )
+          }
+          editHref={isOwner(c) ? `/admin/orgs/${r.found.id}` : undefined}
+        />
       }
     />,
   )
@@ -274,8 +320,27 @@ ui.get('/stats', (c) =>
 const linkNote = (linked: Set<string>, provider: string) =>
   linked.has(provider) ? '連携済み' : '未連携'
 
-// 設定一覧（左ページ）。linked は連携済みの provider 名
-const SettingsList = ({ user, linked }: { user: SessionUser; linked: Set<string> }) => (
+// 設定一覧（左ページ）の中身。linked は連携済みの provider 名。displayName は DB の現在値（表示名フォーム用）
+type SettingsState = { linked: Set<string>; excludeFromCounts: boolean; displayName: string }
+
+const settingsState = async (db: Db, userId: string): Promise<SettingsState> => {
+  const own = scopedTo(db, userId).own()
+  const [linked, profile] = await Promise.all([own.linkedProviders(), own.profile()])
+  return {
+    linked,
+    excludeFromCounts: profile.excludeFromCounts,
+    displayName: profile.displayName,
+  }
+}
+
+// 設定一覧（左ページ）
+const SettingsList = ({
+  user,
+  state: { linked, excludeFromCounts },
+}: {
+  user: SessionUser
+  state: SettingsState
+}) => (
   <>
     <TopBar title="設定" />
     <div class="sect" style="margin-top:4px">
@@ -307,7 +372,11 @@ const SettingsList = ({ user, linked }: { user: SessionUser; linked: Set<string>
     <div class="sect">
       <h2>データ</h2>
       <Menu>
-        <MenuItem label="作品の人数に自分を含める" note="P3 で実装" disabled />
+        <MenuItem
+          label="作品の人数に自分を含める"
+          note={excludeFromCounts ? '含めない' : '含める'}
+          href="/settings/counts"
+        />
         <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
       </Menu>
     </div>
@@ -331,9 +400,9 @@ const SettingsList = ({ user, linked }: { user: SessionUser; linked: Set<string>
 
 ui.get('/settings', async (c) => {
   const user = currentUser(c)
-  const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
+  const state = await settingsState(c.get('db'), user.id)
   return c.html(
-    <Layout title="設定" tab="settings" left={<SettingsList user={user} linked={linked} />} />,
+    <Layout title="設定" tab="settings" left={<SettingsList user={user} state={state} />} />,
   )
 })
 
@@ -385,24 +454,23 @@ const DisplayNameForm = (props: { value: string; welcome?: boolean; error?: stri
 
 const displayNamePage = (
   user: SessionUser,
-  linked: Set<string>,
+  state: SettingsState,
   form: Parameters<typeof DisplayNameForm>[0],
 ) => (
   <Layout
     title="表示名を変える"
     tab="settings"
-    left={<SettingsList user={user} linked={linked} />}
+    left={<SettingsList user={user} state={state} />}
     right={<DisplayNameForm {...form} />}
   />
 )
 
 ui.get('/settings/name', async (c) => {
   const user = currentUser(c)
-  const profile = await scopedTo(c.get('db'), user.id).own().profile()
-  const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
+  const state = await settingsState(c.get('db'), user.id)
   return c.html(
-    displayNamePage(user, linked, {
-      value: profile.displayName,
+    displayNamePage(user, state, {
+      value: state.displayName,
       welcome: c.req.query('welcome') === '1',
     }),
   )
@@ -414,10 +482,52 @@ ui.post('/settings/name', async (c) => {
   const raw = typeof body.displayName === 'string' ? body.displayName : ''
   const { name, error } = parseDisplayName(raw)
   if (error) {
-    const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
-    return c.html(displayNamePage(user, linked, { value: name, error }), 400)
+    const state = await settingsState(c.get('db'), user.id)
+    return c.html(displayNamePage(user, state, { value: name, error }), 400)
   }
   await scopedTo(c.get('db'), user.id).own().updateDisplayName(name)
+  return c.redirect('/settings', 302)
+})
+
+// 匿名人数のオプトアウト（右ページ）。説明は Layout の Cover「データの扱い」と同じ趣旨
+const CountsForm = ({ excludeFromCounts }: { excludeFromCounts: boolean }) => (
+  <>
+    <TopBar back="/settings" label="作品の人数" />
+    <div class="sect" style="margin-top:4px">
+      <p class="note">
+        作品一覧・作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出さず、5
+        人未満は「少数」と表示します。それでも人数の増え方から推測される可能性があるため、気になる場合は自分を含めないようにできます。
+      </p>
+      <form method="post" action="/settings/counts" class="list">
+        <Switch label="作品の人数に自分を含める" name="include" checked={!excludeFromCounts} />
+        <button type="submit" class="btn pri">
+          保存
+        </button>
+      </form>
+    </div>
+  </>
+)
+
+ui.get('/settings/counts', async (c) => {
+  const user = currentUser(c)
+  const state = await settingsState(c.get('db'), user.id)
+  return c.html(
+    <Layout
+      title="作品の人数"
+      tab="settings"
+      left={<SettingsList user={user} state={state} />}
+      right={<CountsForm excludeFromCounts={state.excludeFromCounts} />}
+    />,
+  )
+})
+
+// checkbox は on のときだけ include=on が届く。無ければ含めない
+ui.post('/settings/counts', async (c) => {
+  const user = currentUser(c)
+  const body = await c.req.parseBody()
+  await scopedTo(c.get('db'), user.id)
+    .own()
+    .setExcludeFromCounts(body.include !== 'on')
   return c.redirect('/settings', 302)
 })
 
@@ -460,32 +570,29 @@ const DeleteAccount = ({ user, error }: { user: SessionUser; error?: string }) =
   </>
 )
 
-const deletePage = (user: SessionUser, linked: Set<string>, error?: string) => (
+const deletePage = (user: SessionUser, state: SettingsState, error?: string) => (
   <Layout
     title="退会"
     tab="settings"
-    left={<SettingsList user={user} linked={linked} />}
+    left={<SettingsList user={user} state={state} />}
     right={<DeleteAccount user={user} error={error} />}
   />
 )
 
 ui.get('/settings/delete', async (c) => {
   const user = currentUser(c)
-  return c.html(deletePage(user, await scopedTo(c.get('db'), user.id).own().linkedProviders()))
+  return c.html(deletePage(user, await settingsState(c.get('db'), user.id)))
 })
 
 ui.post('/settings/delete', async (c) => {
   const user = currentUser(c)
   if (user.role === 'owner') {
-    return c.html(
-      deletePage(user, await scopedTo(c.get('db'), user.id).own().linkedProviders()),
-      400,
-    )
+    return c.html(deletePage(user, await settingsState(c.get('db'), user.id)), 400)
   }
   const body = await c.req.parseBody()
   if (body.confirm !== 'yes') {
-    const linked = await scopedTo(c.get('db'), user.id).own().linkedProviders()
-    return c.html(deletePage(user, linked, '確認のチェックを入れてください。'), 400)
+    const state = await settingsState(c.get('db'), user.id)
+    return c.html(deletePage(user, state, '確認のチェックを入れてください。'), 400)
   }
   await deleteAccount(c.get('db'), user.id)
   clearSessionCookie(c)

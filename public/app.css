@@ -921,6 +921,10 @@ a.ticket {
 .menu > form {
   display: contents;
 }
+/* 作品ページのマイリストボタン。form の箱を消し、中の button を .btns の並びに入れる */
+.btns > form {
+  display: contents;
+}
 .menu [aria-disabled="true"],
 .btn[aria-disabled="true"] {
   color: var(--muted);

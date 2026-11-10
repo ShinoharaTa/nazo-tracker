@@ -1,5 +1,6 @@
 // 列挙値の表示ラベル。値の正本は src/db/schema.ts。
 
+import type { Bucket } from '../db/counts'
 import type {
   attemptStatuses,
   organizationAliasKinds,
@@ -71,3 +72,7 @@ const matchReasonLabels: Record<string, string> = {
 
 export const matchReasonLabel = (reason: string): string =>
   Object.hasOwn(matchReasonLabels, reason) ? matchReasonLabels[reason] : reason
+
+// 匿名人数（src/db/counts.ts の Bucket）の表示。none は出さない（null）
+export const countLabel = (b: Bucket): string | null =>
+  b === 'none' ? null : b === 'few' ? '少数' : `${b} 人`
