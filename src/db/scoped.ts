@@ -4,7 +4,7 @@
 
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
-import { nowIso } from '../lib/time'
+import { nowIso, todayJst } from '../lib/time'
 import type { Db } from './client'
 import { PAGE_SIZE } from './master'
 import {
@@ -14,6 +14,7 @@ import {
   block,
   friendship,
   identity,
+  image,
   type runChannels,
   session,
   user,
@@ -89,6 +90,22 @@ export type OwnAttempt = OwnAttemptRow & {
 
 export type AttemptListTab = 'all' | 'pending'
 
+// 詳しい編集で書く列（日付は入力値そのまま。空は NULL）
+export type AttemptPatch = {
+  status: AttemptStatus
+  runId: string | null
+  purchasedOn: string | null
+  startedOn: string | null
+  finishedOn: string | null
+  durationSec: number | null
+  partySize: number | null
+  companions: string | null
+  rating: number | null
+  difficulty: number | null
+  volume: number | null
+  memo: string | null
+}
+
 export type OwnProfile = {
   id: string
   displayName: string
@@ -120,6 +137,14 @@ export type OwnRepo = {
     status: AttemptStatus
     on: string | null
   }): Promise<string>
+  // ステータス変更。日付は data-model.md §3 の表どおり。他人の id・無い id は false
+  setStatus(id: string, status: AttemptStatus, on: string | null): Promise<boolean>
+  // 詳しい編集。attempt_genre は genreIds で置き換える。他人の id・無い id は false
+  updateAttempt(id: string, patch: AttemptPatch, genreIds: readonly string[]): Promise<boolean>
+  // null で消す。他人の id・無い id は false
+  updateSpoilerMemo(id: string, text: string | null): Promise<boolean>
+  // image → session → attempt_genre → attempt。他人の id・無い id は false
+  deleteAttempt(id: string): Promise<boolean>
   // status IN (cleared, failed) の件数
   playedCount(): Promise<number>
 }
@@ -332,6 +357,86 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       updatedAt: now,
     })
     return id
+  },
+
+  // 日付は COALESCE で「左が NULL なら右」。WHERE は id と user_id の両方
+  async setStatus(id, status, on) {
+    const today = todayJst()
+    const dates =
+      status === 'purchased'
+        ? {
+            purchasedOn: sql`COALESCE(${on}, ${attempt.purchasedOn}, ${today})`,
+            finishedOn: null,
+          }
+        : status === 'in_progress'
+          ? {
+              startedOn: sql`COALESCE(${attempt.startedOn}, ${on}, ${today})`,
+              finishedOn: null,
+            }
+          : { finishedOn: sql`COALESCE(${on}, ${attempt.finishedOn}, ${today})` }
+    const rows = await db
+      .update(attempt)
+      .set({ status, ...dates, updatedAt: nowIso() })
+      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+      .returning({ id: attempt.id })
+    return rows.length > 0
+  },
+
+  // 本人の記録か先に確かめる（attempt_genre の INSERT が他人の attempt に付かないように）
+  async updateAttempt(id, patch, genreIds) {
+    const mine = await db
+      .select({ id: attempt.id })
+      .from(attempt)
+      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+      .get()
+    if (!mine) return false
+    const where = and(eq(attempt.id, id), eq(attempt.userId, viewerId))
+    const clearGenres = db
+      .delete(attemptGenre)
+      .where(and(eq(attemptGenre.attemptId, id), eq(attemptGenre.userId, viewerId)))
+    const update = db
+      .update(attempt)
+      .set({ ...patch, updatedAt: nowIso() })
+      .where(where)
+    const ids = [...new Set(genreIds)]
+    if (ids.length === 0) {
+      await db.batch([update, clearGenres])
+    } else {
+      await db.batch([
+        update,
+        clearGenres,
+        db
+          .insert(attemptGenre)
+          .values(ids.map((genreId) => ({ attemptId: id, genreId, userId: viewerId }))),
+      ])
+    }
+    return true
+  },
+
+  async updateSpoilerMemo(id, text) {
+    const rows = await db
+      .update(attempt)
+      .set({ spoilerMemo: text, updatedAt: nowIso() })
+      .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+      .returning({ id: attempt.id })
+    return rows.length > 0
+  },
+
+  // FK の cascade に頼らず子から順に消す（1 回の batch = 1 トランザクション）
+  // TODO(P9): image の R2 オブジェクト（r2_key / thumb_r2_key）を消す
+  async deleteAttempt(id) {
+    const [, , , deleted] = await db.batch([
+      db.delete(image).where(and(eq(image.attemptId, id), eq(image.userId, viewerId))),
+      db.delete(session).where(and(eq(session.attemptId, id), eq(session.userId, viewerId))),
+      db
+        .delete(attemptGenre)
+        .where(and(eq(attemptGenre.attemptId, id), eq(attemptGenre.userId, viewerId))),
+      db
+        .delete(attempt)
+        .where(and(eq(attempt.id, id), eq(attempt.userId, viewerId)))
+        .returning({ id: attempt.id }),
+    ])
+    return deleted.length > 0
   },
 
   async playedCount() {

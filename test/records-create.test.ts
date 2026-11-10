@@ -193,6 +193,18 @@ describe('GET /records/new', () => {
     expect(h).toContain(`<a class="back" href="/records/new?q=${q}"`)
     const plain = await (await get(`/records/new?work=${ids.work}`)).text()
     expect(plain).toContain('<a class="back" href="/records/new"')
+    expect(plain).not.toContain('name="q"')
+  })
+
+  it('フォームは hidden の q を送り、400 の再描画でも戻り先に q を残す', async () => {
+    const q = '記録 作成'
+    const h = await (await get(`/records/new?q=${encodeURIComponent(q)}&work=${ids.work}`)).text()
+    expect(h).toContain(`<input type="hidden" name="q" value="${q}"/>`)
+    const res = await post({ work_id: ids.work, q })
+    expect(res.status).toBe(400)
+    const r = await res.text()
+    expect(r).toContain(`<a class="back" href="/records/new?q=${encodeURIComponent(q)}"`)
+    expect(r).toContain(`<input type="hidden" name="q" value="${q}"/>`)
   })
 
   it('0 件は一致なしの文言', async () => {
