@@ -12,13 +12,51 @@ const nextIso = () => {
   return new Date(clock).toISOString()
 }
 
-const insert = async (env: Env, table: string, row: Record<string, unknown>) => {
+const insertStmt = (env: Env, table: string, row: Record<string, unknown>) => {
   const cols = Object.keys(row)
-  await env.DB.prepare(
+  return env.DB.prepare(
     `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-  )
-    .bind(...cols.map((c) => row[c] ?? null))
-    .run()
+  ).bind(...cols.map((c) => row[c] ?? null))
+}
+
+const insert = async (env: Env, table: string, row: Record<string, unknown>) => {
+  await insertStmt(env, table, row).run()
+}
+
+// 作品と、その作品の run（channel のみ）を 1 件ずつ、まとめて 1 回の batch で入れる。大量の行が要るテスト用
+export const insertWorksWithRunBatch = async (
+  env: Env,
+  works: { title: string; kind?: string; orgId?: string }[],
+  channel: string,
+): Promise<string[]> => {
+  const ids: string[] = []
+  const stmts: D1PreparedStatement[] = []
+  for (const w of works) {
+    const id = ulid()
+    const now = nextIso()
+    ids.push(id)
+    stmts.push(
+      insertStmt(env, 'work', {
+        id,
+        title: w.title,
+        title_norm: norm(w.title),
+        kind: w.kind,
+        primary_organization_id: w.orgId,
+        created_at: now,
+        updated_at: now,
+      }),
+      insertStmt(env, 'run', {
+        id: ulid(),
+        work_id: id,
+        channel,
+        is_permanent: 0,
+        created_at: now,
+        updated_at: now,
+      }),
+    )
+  }
+  await env.DB.batch(stmts)
+  return ids
 }
 
 export const insertOrg = async (

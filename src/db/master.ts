@@ -314,7 +314,6 @@ export type OrgDetailData = {
   name: string
   siteUrl: string | null
   escapeIdUrl: string | null
-  note: string | null
   aliases: {
     name: string
     kind: (typeof organizationAliasKinds)[number]
@@ -334,7 +333,6 @@ export const getOrg = async (db: Db, id: string): Promise<Resolved<OrgDetailData
           name: organization.name,
           siteUrl: organization.siteUrl,
           escapeIdUrl: organization.escapeIdUrl,
-          note: organization.note,
           mergedIntoId: organization.mergedIntoId,
         })
         .from(organization)

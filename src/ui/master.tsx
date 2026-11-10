@@ -288,7 +288,6 @@ export const OrgDetail = ({ o, editHref }: { o: OrgDetailData; editHref?: string
           {o.escapeIdUrl ? <Ext href={o.escapeIdUrl}>escape.id</Ext> : null}
         </div>
       ) : null}
-      {o.note ? <p style="margin:0;white-space:pre-wrap">{o.note}</p> : null}
     </div>
     {o.aliases.length ? (
       <div class="sect">

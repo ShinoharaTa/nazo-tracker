@@ -11,6 +11,8 @@ export type Bindings = {
   SESSION_SECRET: string
   // "1" のときだけ仮ログイン /_dev/login を有効にする（APP_ORIGIN と Host がローカルであることも必要）
   AUTH_DEV_LOGIN?: string
+  // 仮ログインで 127.0.0.1 / localhost に加えて許可するホスト。カンマ区切り、プライベート IPv4 だけ採用
+  AUTH_DEV_HOSTS?: string
   // オーナーにする identity。provider:subject のカンマ区切り
   OWNER_IDENTITIES?: string
   // Google の OAuth クライアント ID。空なら Google ログインは「準備中」

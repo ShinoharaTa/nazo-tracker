@@ -10,3 +10,4 @@
 `.dev.vars.example` を `.dev.vars` にコピーして `npm run dev` すると、`/_ui` で部品見本が見られる。
 
 デプロイ手順とローカル開発の詳細: [docs/ops.md](docs/ops.md)
+残作業の一覧: [docs/status.md](docs/status.md)

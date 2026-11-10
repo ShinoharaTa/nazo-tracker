@@ -54,7 +54,7 @@ erDiagram
 | slug | TEXT UNIQUE NULL | escape.id の `<slug>-org` |
 | site_url | TEXT NULL | |
 | escape_id_url | TEXT UNIQUE NULL | `https://escape.id/<slug>-org/` |
-| note | TEXT | |
+| note | TEXT | 非公開 |
 | merged_into_id | TEXT NULL FK | マージ先 |
 | created_at / updated_at | TEXT | |
 
@@ -104,9 +104,9 @@ erDiagram
 | ticket_url, price_yen | |
 | escape_type_raw | escape.id `type` の生値（参考のみ。kind 判定には使わない） |
 | note | |
+| created_at / updated_at | |
 
 **持ち帰り謎の販路**: 1 作品に販売サイト・イベントが複数ある前提。販売サイトごとに `run(channel='sale', shop_id)` を 1 行、マーケット出店は `booth_item(work_id)` で紐付ける。作品ページでは `v_work_channels`（work ⋈ run(sale) ⋈ shop ∪ work ⋈ booth_item ⋈ booth ⋈ market_edition）で「どこで売っている/売っていたか」を時系列に一覧する。これはマスタ側の情報で、個人の購入記録とは結び付けない。
-| created_at / updated_at | |
 
 CHECK: `channel='sale' → shop_id NOT NULL`、`channel = 'performance' OR venue_id IS NULL`、`channel = 'sale' OR shop_id IS NULL`（venue_id は performance のみ、shop_id は sale のみ）。
 
@@ -253,7 +253,7 @@ norm(s):
 - 1 は `url` を正規化（host 小文字、query / hash 除去、末尾 `/` 付与。http(s) 以外は 400）して `run.escape_id_url` と完全一致。返す候補に `runId` を付ける。userinfo（`user:pass@`）付きの URL は一致なし。
 - 2 の団体は `norm(org)` を `organization.name_norm` / `organization_alias.name_norm` に完全一致で引き、統合済みは統合先へ解決する。団体の作品 = `primary_organization_id` がその団体か、その団体名義の run を持つ作品（団体ページと同じ）。
 - 2・3 の題名一致は `work.title_norm` と `work_alias.title_norm` の両方を見る（別名で当たれば `via: 'alias'`）。
-- 4 の候補集合は未統合の `work(id, title_norm)` と `work_alias(work_id, title_norm)` を **全件（各上限 5000 行、`id DESC`）** 読んで JS で Dice を測る。上限に達したら `console.warn` を出す（入力値は出さない）。5000 件を超えるようになったら、tn の各 trigram で LIKE を掛けて事前に絞り込む方式に切り替える。tn が 3 文字未満なら 4 は走査しない（完全一致は 2・3 で拾う）。
+- 4 の候補集合は未統合の `work(id, title_norm)` と `work_alias(work_id, title_norm)` を **全件（各上限 5000 行、`id DESC`）** 読んで JS で Dice を測る。上限に達したら `console.warn` を出す（入力値は出さない）。5000 件を超えるようになったら、tn の各 trigram で LIKE を掛けて事前に絞り込む方式に切り替える。作品・団体とも、tn / `norm(org)` が 3 文字未満なら similar の全件走査はしない（完全一致は別経路で拾う）。
 - similar のスコアは `min(Dice, 0.84)`。段階 `escape_id_url`（1.0）> `same_org_title`（0.95）> `title`（0.85）> `similar`（≤ 0.84）が常に保たれ、同じ作品が複数の段階に当たったら上の段階の `reason` が残る。
 - 団体候補: `norm(org)` の完全一致 → 1.0（`reason: 'name'`）、未統合の団体名・別名との Dice ≥ 0.8 → `min(Dice, 0.84)`（`reason: 'similar'`）。
 - 統合済みの作品・団体は候補に出さない。同じ id は最大スコアだけ残し、降順で各 10 件。

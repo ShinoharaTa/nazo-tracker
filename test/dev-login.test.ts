@@ -58,6 +58,71 @@ describe('仮ログイン /_dev/login', () => {
     expect(res.status).toBe(302)
   })
 
+  describe('AUTH_DEV_HOSTS', () => {
+    const LAN = 'http://10.1.111.70:8787'
+    const lan = { ...on, APP_ORIGIN: LAN, AUTH_DEV_HOSTS: ' 10.1.111.70 , ' }
+
+    it('wrangler.toml の既定値は空', () => {
+      expect(env.AUTH_DEV_HOSTS).toBe('')
+    })
+
+    it('許可した IP で APP_ORIGIN も同じ IP なら有効（ポート付き Host も通る）', async () => {
+      const res = await app.request('/_dev/login', { headers: { Host: '10.1.111.70:8787' } }, lan)
+      expect(res.status).toBe(200)
+      const posted = await post('lanuser', lan, { Origin: LAN, Host: '10.1.111.70:8787' })
+      expect(posted.status).toBe(302)
+    })
+
+    it('Host が許可外なら 404', async () => {
+      const res = await app.request('/_dev/login', { headers: { Host: '10.1.111.71:8787' } }, lan)
+      expect(res.status).toBe(404)
+    })
+
+    it('APP_ORIGIN が許可外なら 404', async () => {
+      const e = { ...lan, APP_ORIGIN: 'http://10.1.111.71:8787' }
+      const res = await app.request('/_dev/login', { headers: { Host: '10.1.111.70:8787' } }, e)
+      expect(res.status).toBe(404)
+    })
+
+    it('公開 IP は AUTH_DEV_HOSTS に入れても無視して 404', async () => {
+      const e = { ...on, APP_ORIGIN: 'http://8.8.8.8:8787', AUTH_DEV_HOSTS: '8.8.8.8' }
+      const res = await app.request('/_dev/login', { headers: { Host: '8.8.8.8:8787' } }, e)
+      expect(res.status).toBe(404)
+    })
+
+    it.each(['172.15.0.1', '172.32.0.1', '192.169.0.1', 'nazo.shino3.net'])(
+      'プライベート IPv4 以外 %s は無視して 404',
+      async (h) => {
+        const e = { ...on, APP_ORIGIN: `http://${h}:8787`, AUTH_DEV_HOSTS: h }
+        const res = await app.request('/_dev/login', { headers: { Host: `${h}:8787` } }, e)
+        expect(res.status).toBe(404)
+      },
+    )
+
+    it.each(['10.1.111.700', '10.1.111', '10.1.111.70.1', '10.1.111.70:8787', '010.1.111.70'])(
+      '不正な形式 %s は無視する',
+      async (h) => {
+        const e = { ...on, APP_ORIGIN: LAN, AUTH_DEV_HOSTS: h }
+        const res = await app.request('/_dev/login', { headers: { Host: '10.1.111.70:8787' } }, e)
+        expect(res.status).toBe(404)
+      },
+    )
+
+    it('172.16.0.0/12・192.168.0.0/16 も採用する', async () => {
+      for (const h of ['172.16.0.1', '172.31.255.255', '192.168.0.10']) {
+        const e = { ...on, APP_ORIGIN: `http://${h}:8787`, AUTH_DEV_HOSTS: `8.8.8.8,${h}` }
+        const res = await app.request('/_dev/login', { headers: { Host: `${h}:8787` } }, e)
+        expect(res.status).toBe(200)
+      }
+    })
+
+    it('AUTH_DEV_HOSTS があっても 127.0.0.1 は引き続き通る', async () => {
+      const e = { ...on, AUTH_DEV_HOSTS: '10.1.111.70' }
+      const res = await app.request('/_dev/login', { headers: { Host: '127.0.0.1:8787' } }, e)
+      expect(res.status).toBe(200)
+    })
+  })
+
   it.each(['', ' ', 'a b', 'あ', 'x'.repeat(33), 'a/b'])('subject %j は 400', async (s) => {
     expect((await post(s)).status).toBe(400)
   })
