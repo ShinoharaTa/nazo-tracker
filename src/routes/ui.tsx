@@ -11,7 +11,7 @@ import { countsFor, type WorkCounts } from '../db/counts'
 import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
-import { computeStats } from '../lib/stats'
+import { computeStats, defaultView } from '../lib/stats'
 import { todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
@@ -283,7 +283,6 @@ ui.get('/stats', async (c) => {
   const own = scopedTo(db, currentUser(c).id).own()
   const thisYear = Number(todayJst().slice(0, 4))
   const year = toStatsYear(c.req.query('year'), thisYear)
-  const dropAsFail = c.req.query('drop') === 'fail'
   const [{ rows, genres, capped }, wishlist] = await Promise.all([
     own.statsRows(),
     own.wishlistSummary(),
@@ -291,9 +290,11 @@ ui.get('/stats', async (c) => {
   // ラベルは並び順（同率・同数ならラベル順）にも使うので集計の前に引く。archived のジャンルも出す
   const genreRows = await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
   const stats = computeStats(rows, genres, new Map(genreRows.map((g) => [g.id, g.label])), {
-    dropAsFail,
     year,
   })
+  // view が visit / done 以外（無し・不正値）ならデータ次第で決める
+  const v = c.req.query('view')
+  const view = v === 'visit' || v === 'done' ? v : defaultView(stats)
   c.header('Cache-Control', 'private, no-store')
   return c.html(
     <Layout
@@ -303,7 +304,7 @@ ui.get('/stats', async (c) => {
       left={
         <StatsPage
           stats={stats}
-          dropAsFail={dropAsFail}
+          view={view}
           year={year}
           thisYear={thisYear}
           minYear={STATS_MIN_YEAR}

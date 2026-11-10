@@ -1,11 +1,15 @@
 // 部品見本（GET /_ui）。左にモックの記録一覧、右に「星降る街の周遊録」の記録詳細と部品を並べる。
 
+import type { DoneKind } from '../lib/stats'
 import {
-  Bars,
+  CountBars,
+  doneKindClass,
   Empty,
   Field,
   Kpis,
-  MonthCols,
+  Legend,
+  MonthStack,
+  RateBars,
   Sheet,
   SpoilerCard,
   StatusChip,
@@ -218,6 +222,16 @@ const markers = [
   { name: 'gray', label: '灰（その他・形式未設定）' },
 ] as const
 
+// 完了型の形式ごとの月別の完了数（見本）。並びは workKinds 順、形式未設定が最後
+const doneSeries: { key: DoneKind; label: string; counts: number[] }[] = [
+  { key: 'stroll', label: workKindLabels.stroll, counts: [1, 0, 1, 0, 1, 0, 2, 1, 0, 1, 0, 0] },
+  { key: 'line', label: workKindLabels.line, counts: [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] },
+  { key: 'web', label: workKindLabels.web, counts: [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0] },
+  { key: 'takeaway', label: workKindLabels.takeaway, counts: [1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 0, 0] },
+  { key: 'other', label: workKindLabels.other, counts: [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] },
+  { key: null, label: '形式未設定', counts: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0] },
+]
+
 const Parts = () => (
   <>
     <div class="sect">
@@ -255,8 +269,14 @@ const Parts = () => (
       />
     </div>
     <div class="sect">
-      <h2>部品: Bars</h2>
-      <Bars
+      <h2>部品: RateBars</h2>
+      <Legend
+        items={[
+          { label: '成功', cls: 'r-ok' },
+          { label: '失敗', cls: 'r-ng' },
+        ]}
+      />
+      <RateBars
         items={[
           { label: '★2', total: 1, cleared: 1 },
           { label: '★3', total: 1, cleared: 1 },
@@ -267,8 +287,34 @@ const Parts = () => (
       />
     </div>
     <div class="sect">
-      <h2>部品: MonthCols</h2>
-      <MonthCols counts={[0, 0, 0, 0, 1, 1, 0, 1, 1, 2, 0, 0]} />
+      <h2>部品: CountBars</h2>
+      <CountBars
+        items={doneSeries.map((s) => ({
+          label: s.label,
+          count: s.counts.reduce((a, b) => a + b, 0),
+          cls: doneKindClass(s.key),
+        }))}
+      />
+    </div>
+    <div class="sect">
+      <h2>部品: MonthStack（成功・失敗）</h2>
+      <MonthStack
+        series={[
+          { key: 'cleared', counts: [0, 0, 0, 0, 1, 1, 0, 1, 1, 2, 0, 0] },
+          { key: 'failed', counts: [0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0] },
+        ]}
+        cls={(k) => (k === 'cleared' ? 'r-ok' : 'r-ng')}
+        label={(k) => (k === 'cleared' ? '成功' : '失敗')}
+      />
+    </div>
+    <div class="sect">
+      <h2>部品: MonthStack（形式）</h2>
+      <Legend items={doneSeries.map((s) => ({ label: s.label, cls: doneKindClass(s.key) }))} />
+      <MonthStack
+        series={doneSeries}
+        cls={doneKindClass}
+        label={(k) => doneSeries.find((s) => s.key === k)?.label ?? ''}
+      />
     </div>
     <div class="sect">
       <h2>部品: Empty</h2>

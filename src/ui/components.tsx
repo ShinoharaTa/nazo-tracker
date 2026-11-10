@@ -2,6 +2,7 @@
 
 import type { Child } from 'hono/jsx'
 import { attemptStatuses } from '../db/schema'
+import type { DoneKind, MonthSeries } from '../lib/stats'
 import { type AttemptStatus, statusesFor, statusLabel, type WorkKind } from './labels'
 
 const BackIcon = () => (
@@ -328,30 +329,45 @@ export const MenuItem = (props: {
 }
 
 export const Kpis = (props: {
-  items: readonly { label: string; value: Child; note?: string; hero?: boolean }[]
+  items: readonly {
+    label: string
+    value: Child
+    note?: string
+    hero?: boolean
+    // hero の蛍光ペンの色。グラフの系列と同じ色を指すときだけ（docs/visual-design.md §3.3）
+    mark?: 'green' | 'pink'
+  }[]
 }) => (
   <div class="kpis">
     {props.items.map((k) => (
       <div class={k.hero ? 'kpi hero' : 'kpi'}>
         <span>{k.label}</span>
-        <b>{k.hero ? <span class="hl">{k.value}</span> : k.value}</b>
+        <b>{k.hero ? <span class={k.mark ? `hl mk-${k.mark}` : 'hl'}>{k.value}</span> : k.value}</b>
         {k.note ? <span>{k.note}</span> : null}
       </div>
     ))}
   </div>
 )
 
-// 成功率の横棒。total = クリア＋失敗、cleared = クリア
-export const Bars = (props: {
+// 完了型の形式 → グラフの系列クラス（docs/visual-design.md §3.7）
+export const doneKindClass = (k: DoneKind): string => (k === null ? 'k-none' : `k-${k}`)
+
+// 成功率の横棒。total = 成功＋失敗、cleared = 成功。1 本に成功（.r-ok）と失敗（.r-ng）を並べる
+export const RateBars = (props: {
   items: readonly { label: string; total: number; cleared: number }[]
 }) => (
   <div class="bars">
     {props.items.map(({ label, total, cleared }) => (
       <div class="bar">
         <span>{label}</span>
-        <div class="tr">
-          <div class="fl" style={`width:${total ? (cleared / total) * 100 : 0}%`} />
-        </div>
+        {total ? (
+          <div class="tr">
+            <div class="fl r-ok" style={`width:${(cleared / total) * 100}%`} />
+            <div class="fl r-ng" style={`width:${((total - cleared) / total) * 100}%`} />
+          </div>
+        ) : (
+          <div class="tr" />
+        )}
         <span class="v">
           {total ? `${Math.round((cleared / total) * 100)}% · ${cleared}/${total}` : '—'}
         </span>
@@ -360,21 +376,74 @@ export const Bars = (props: {
   </div>
 )
 
-// 月別の縦棒（1〜12 月）
-export const MonthCols = ({ counts }: { counts: readonly number[] }) => {
-  const max = Math.max(1, ...counts)
+// 件数の横棒。幅は最大の行を 100% とする。cls は系列のクラス
+export const CountBars = (props: {
+  items: readonly { label: string; count: number; cls: string }[]
+}) => {
+  const max = Math.max(1, ...props.items.map((i) => i.count))
   return (
-    <div class="cols">
-      {counts.map((n, i) => (
-        <div class="col">
-          <span>{n || ''}</span>
-          <i style={`height:${(n / max) * 70}px`} />
-          <span>{i + 1}</span>
+    <div class="bars">
+      {props.items.map(({ label, count, cls }) => (
+        <div class="bar">
+          <span>{label}</span>
+          <div class="tr">
+            <div class={`fl ${cls}`} style={`width:${(count / max) * 100}%`} />
+          </div>
+          <span class="v">{count} 件</span>
         </div>
       ))}
     </div>
   )
 }
+
+// 月別の積み上げ（1〜12 月）。系列の DOM 順 = 下から上。0 件の系列は描かず、aria-label にも入れない
+export const MonthStack = <K,>(props: {
+  series: MonthSeries<K>
+  cls: (k: K) => string
+  label: (k: K) => string
+}) => {
+  const totals = Array.from({ length: 12 }, (_, i) =>
+    props.series.reduce((sum, s) => sum + (s.counts[i] ?? 0), 0),
+  )
+  const max = Math.max(1, ...totals)
+  return (
+    <div class="cols">
+      {totals.map((total, i) => {
+        const parts = props.series
+          .map((s) => ({ key: s.key, n: s.counts[i] ?? 0 }))
+          .filter((p) => p.n > 0)
+        const aria = parts.length
+          ? `${i + 1}月 ${parts.map((p) => `${props.label(p.key)} ${p.n}`).join('・')}`
+          : `${i + 1}月 0 件`
+        return (
+          <div class="col" role="img" aria-label={aria}>
+            <span>{total || ''}</span>
+            {total ? (
+              <div class="stk">
+                {parts.map((p) => (
+                  <i class={props.cls(p.key)} style={`height:${(p.n / max) * 60}px`} />
+                ))}
+              </div>
+            ) : null}
+            <span>{i + 1}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// グラフの凡例。cls は系列のクラス（色と模様の見本になる）
+export const Legend = (props: { items: readonly { label: string; cls: string }[] }) => (
+  <ul class="legend">
+    {props.items.map((i) => (
+      <li>
+        <i class={`key ${i.cls}`} />
+        {i.label}
+      </li>
+    ))}
+  </ul>
+)
 
 // ネタバレ。本文は初期 HTML に含めず、public/app.js が「表示」操作時に src から断片を取得する。
 // JS が無いときは src へ普通に遷移する（spoilerResponse が全体ページを返す）
