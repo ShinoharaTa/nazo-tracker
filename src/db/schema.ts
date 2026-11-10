@@ -722,6 +722,8 @@ export const changeLog = sqliteTable(
 // ---------------------------------------------------------------------------
 
 // attempt ⋈ work ⋈ run ⋈ venue ⋈ organization。spoiler_memo は含めない。読むのは src/db/scoped.ts だけ
+// attempt / work / run / organization / venue / session を作り直す migration（drizzle-kit の __new_x）を書くときは、
+// 先に DROP VIEW v_attempt_enriched → 表の作り直し → CREATE VIEW を同じ migration に入れる
 export const vAttemptEnriched = sqliteView('v_attempt_enriched', {
   id: text('id').notNull(),
   userId: text('user_id').notNull(),

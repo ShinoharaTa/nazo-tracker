@@ -146,7 +146,8 @@ describe('GET /records', () => {
     expect(h).toContain('1 件プレイ ›')
     expect(h).toContain('class="chip st-cleared"')
     expect(h).toContain('難易度 4 · 同行 みお、けい')
-    expect(h).toContain('日付')
+    // StubDate は「日付<br/>なし」の 2 行
+    expect(h).toContain('<span class="nd">日付<br/>なし</span>')
     expect(h).not.toContain(SPOILER)
   })
 
@@ -221,6 +222,17 @@ describe('GET /records/:id', () => {
     expect(h).toContain(`<a class="ticket sel" href="/records/${ids.cleared}">`)
   })
 
+  it('?saved=1 で「保存しました」', async () => {
+    const h = await (await get(`/records/${ids.purchased}?saved=1`)).text()
+    expect(h).toContain('<p class="note" role="status">保存しました</p>')
+  })
+
+  it('ログイン中の /records/* は Cache-Control: private, no-store', async () => {
+    for (const p of ['/records', `/records/${ids.cleared}`, '/records/new', '/records/nope']) {
+      expect((await get(p)).headers.get('cache-control')).toBe('private, no-store')
+    }
+  })
+
   it('?created=1 で保存の案内', async () => {
     const h = await (await get(`/records/${ids.purchased}?created=1`)).text()
     expect(h).toContain('保存しました。日付・同行者・評価も足せます')
@@ -235,6 +247,7 @@ describe('GET /records/:id', () => {
     expect(h).toContain('見つかりませんでした。')
     expect(h).not.toContain(ids.cleared)
     expect(h).not.toContain('楽しかった')
+    expect(h).not.toContain(SPOILER)
   })
 
   it('無い id → 404', async () => {
@@ -280,6 +293,11 @@ describe('GET /records/:id/spoiler', () => {
     expect(await res.text()).not.toContain(SPOILER)
   })
 
+  it('存在しない id → 404', async () => {
+    const res = await get('/records/nope/spoiler', alice.cookie, { 'X-Requested-With': 'fetch' })
+    expect(res.status).toBe(404)
+  })
+
   it('未ログイン → 302 /login', async () => {
     const res = await get(path(), null)
     expect(res.status).toBe(302)
@@ -288,8 +306,10 @@ describe('GET /records/:id/spoiler', () => {
 })
 
 describe('GET /works/:id', () => {
-  it('ログイン中: 記録するリンクと「あなたの記録」', async () => {
-    const h = await (await get(`/works/${ids.work}`)).text()
+  it('ログイン中: 記録するリンクと「あなたの記録」、Cache-Control: private, no-store', async () => {
+    const res = await get(`/works/${ids.work}`)
+    expect(res.headers.get('cache-control')).toBe('private, no-store')
+    const h = await res.text()
     expect(h).toContain(`href="/records/new?work=${ids.work}"`)
     expect(h).toContain('<h2>あなたの記録</h2>')
     expect(h).toContain(`href="/records/${ids.cleared}"`)
@@ -301,8 +321,10 @@ describe('GET /works/:id', () => {
     expect(h).not.toContain('<h2>あなたの記録</h2>')
   })
 
-  it('未ログイン: ボタンは /login へ、「あなたの記録」無し', async () => {
-    const h = await (await get(`/works/${ids.work}`, null)).text()
+  it('未ログイン: ボタンは /login へ、「あなたの記録」無し、Cache-Control は付けない', async () => {
+    const res = await get(`/works/${ids.work}`, null)
+    expect(res.headers.get('cache-control')).toBeNull()
+    const h = await res.text()
     expect(h).toContain('<a class="btn" href="/login">記録する</a>')
     expect(h).toContain('<a class="btn" href="/login">マイリストに追加</a>')
     expect(h).not.toContain('/records/new?work=')

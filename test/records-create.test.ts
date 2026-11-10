@@ -183,8 +183,16 @@ describe('GET /records/new', () => {
 
   it('?q=WORDEAL で該当作品へのリンク', async () => {
     const h = await (await get(`/records/new?q=${encodeURIComponent('WORDEAL')}`)).text()
-    expect(h).toContain(`href="/records/new?work=${ids.work}"`)
-    expect(h).not.toContain(`href="/records/new?work=${ids.work2}"`)
+    expect(h).toContain(`href="/records/new?q=WORDEAL&amp;work=${ids.work}"`)
+    expect(h).not.toContain(`work=${ids.work2}"`)
+  })
+
+  it('?q=…&work=<id> のフォームは戻り先に q を引き継ぐ', async () => {
+    const q = encodeURIComponent('記録 作成')
+    const h = await (await get(`/records/new?q=${q}&work=${ids.work}`)).text()
+    expect(h).toContain(`<a class="back" href="/records/new?q=${q}"`)
+    const plain = await (await get(`/records/new?work=${ids.work}`)).text()
+    expect(plain).toContain('<a class="back" href="/records/new"')
   })
 
   it('0 件は一致なしの文言', async () => {

@@ -25,6 +25,12 @@ const records = new Hono<AppEnv>({ strict: false })
 // /records 自体も含む
 records.use('*', requireUser)
 
+// 本人のデータしか返さないので共有キャッシュに載せない（ネタバレ断片は spoilerResponse が付けた値のまま）
+records.use('*', async (c, next) => {
+  await next()
+  if (!c.res.headers.has('Cache-Control')) c.res.headers.set('Cache-Control', 'private, no-store')
+})
+
 const own = (c: Context<AppEnv>) => scopedTo(c.get('db'), currentUser(c).id).own()
 
 const toRecordsTab = (v: string | undefined): RecordsTab =>
@@ -92,7 +98,7 @@ const newFormPage = async (
   c: Context<AppEnv>,
   w: WorkDetailData,
   values: Form,
-  errors?: string[],
+  { errors, q }: { errors?: string[]; q?: string } = {},
 ) => (
   <Layout
     title="記録を追加"
@@ -104,6 +110,7 @@ const newFormPage = async (
         existing={await own(c).attemptsOfWork(w.id)}
         values={values}
         errors={errors}
+        q={q}
       />
     }
   />
@@ -121,7 +128,14 @@ records.get('/new', async (c) => {
   if ('redirect' in r) {
     return c.redirect(`/records/new?work=${encodeURIComponent(r.redirect)}`, 302)
   }
-  return c.html(await newFormPage(c, r.found, { work_id: r.found.id, status: '', on: todayJst() }))
+  return c.html(
+    await newFormPage(
+      c,
+      r.found,
+      { work_id: r.found.id, status: '', on: todayJst() },
+      { q: c.req.query('q') },
+    ),
+  )
 })
 
 // 軽い記録を作る。work_id は存在して未統合であること
@@ -135,7 +149,7 @@ records.post('/', async (c) => {
     )
   }
   const v = parseNewRecord(f)
-  if (!v.ok) return c.html(await newFormPage(c, r.found, f, v.errors), 400)
+  if (!v.ok) return c.html(await newFormPage(c, r.found, f, { errors: v.errors }), 400)
   const id = await own(c).createAttempt({ workId: r.found.id, ...v.value })
   return c.redirect(`/records/${id}?created=1`, 302)
 })

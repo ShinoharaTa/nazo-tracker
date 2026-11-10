@@ -30,9 +30,11 @@ const recordsTabs: readonly { key: RecordsTab; label: string; href: string }[] =
   { key: 'wish', label: 'マイリスト', href: '/records?tab=wish' },
 ]
 
-// 秒 → 「{h}時間{m}分」（分は四捨五入。1 時間未満は「{m}分」）
-export const formatDuration = (sec: number): string => {
+// 秒 → 「{h}時間{m}分」（分は四捨五入。1 時間未満は「{m}分」）。NULL と 0 分は null（表示しない）
+export const formatDuration = (sec: number | null): string | null => {
+  if (sec === null) return null
   const min = Math.round(sec / 60)
+  if (min === 0) return null
   const h = Math.floor(min / 60)
   const m = min % 60
   return h ? `${h}時間${m}分` : `${m}分`
@@ -52,7 +54,7 @@ export const RecordTicket = ({ a, selected }: { a: OwnAttemptRow; selected?: boo
       href={`/records/${a.id}`}
       selected={selected}
       stub={<StubDate date={a.displayOn} />}
-      meta={[kindText(a.work.kind) ?? '—', a.work.org?.name].filter(Boolean).join(' · ')}
+      meta={[kindText(a.work.kind), a.work.org?.name].filter(Boolean).join(' · ') || '—'}
       title={a.work.title}
       chip={<StatusChip status={a.status} />}
       extra={extra.length ? extra.join(' · ') : undefined}
@@ -123,6 +125,10 @@ export const RecordsList = ({
   </>
 )
 
+// 検索結果から軽い記録のフォームへ。q はフォームの戻り先に引き継ぐ
+const newRecordHrefBase = (q: string) =>
+  q ? `/records/new?q=${encodeURIComponent(q)}&work=` : '/records/new?work='
+
 // 記録の追加: 作品を選ぶ（右ページ）。q が空なら登録の新しい順
 export const NewRecordSearch = (props: {
   q: string
@@ -148,7 +154,7 @@ export const NewRecordSearch = (props: {
       </form>
       <div class="list">
         {props.items.length ? (
-          props.items.map((w) => <WorkTicket w={w} hrefBase="/records/new?work=" />)
+          props.items.map((w) => <WorkTicket w={w} hrefBase={newRecordHrefBase(props.q)} />)
         ) : props.q.trim() ? (
           <Empty>
             「{props.q}」に一致する作品はありません。作品の追加リクエストは P4 で入ります。
@@ -176,12 +182,17 @@ export const NewRecordForm = (props: {
   existing: { id: string; status: AttemptStatus; displayOn: string | null }[]
   values: Form
   errors?: readonly string[]
+  // 検索語。戻り先の /records/new?q= に引き継ぐ
+  q?: string
 }) => {
   const { w, existing, values } = props
   const latest = existing[0]
   return (
     <>
-      <TopBar back="/records/new" label="記録を追加" />
+      <TopBar
+        back={props.q ? `/records/new?q=${encodeURIComponent(props.q)}` : '/records/new'}
+        label="記録を追加"
+      />
       <div class="card">
         <div style="display:flex;flex-direction:column;gap:6px">
           <span class="meta">{workMeta(w)}</span>
@@ -246,9 +257,7 @@ const SessionLog = ({ s, last }: { s: OwnSession; last: boolean }) => (
     </div>
     <div class="body">
       <span class="sub">
-        {[s.playedOn, s.durationSec !== null ? formatDuration(s.durationSec) : null]
-          .filter(Boolean)
-          .join(' · ')}
+        {[s.playedOn, formatDuration(s.durationSec)].filter(Boolean).join(' · ')}
       </span>
       <b>{s.progressNote ?? '記録'}</b>
       {[s.memo, s.locationText, s.companions].map((t) =>
@@ -333,7 +342,7 @@ export const RecordDetail = ({
           </div>
           <div class="num">
             <span>合計</span>
-            <b>{total !== null ? formatDuration(total) : '–'}</b>
+            <b>{formatDuration(total) ?? '–'}</b>
           </div>
         </div>
       </div>

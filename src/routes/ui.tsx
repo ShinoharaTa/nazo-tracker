@@ -174,6 +174,8 @@ ui.get('/works/:id', async (c) => {
   const mine = user
     ? { attempts: await scopedTo(db, user.id).own().attemptsOfWork(r.found.id) }
     : null
+  // ログイン中は本人の記録を含むので共有キャッシュに載せない
+  if (user) c.header('Cache-Control', 'private, no-store')
   return c.html(
     <Layout
       title={r.found.title}
