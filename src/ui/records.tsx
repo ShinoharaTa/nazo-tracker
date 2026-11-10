@@ -31,8 +31,11 @@ import {
 import {
   type AttemptStatus,
   attemptStatusLabels,
+  isVisitKind,
   outcomeLabels,
   runChannelLabels,
+  statusLabel,
+  type WorkKind,
   workKindLabels,
 } from './labels'
 import { formatPeriod, WorkTicket } from './master'
@@ -57,6 +60,13 @@ export const formatDuration = (sec: number | null): string | null => {
 
 const kindText = (kind: OwnAttemptRow['work']['kind']) => (kind ? workKindLabels[kind] : null)
 
+// purchased_on の欄のラベル。来場型の purchased（予約済み）は参加予定日
+const purchasedOnLabel = (
+  kind: WorkKind | null,
+  status: string | undefined,
+  fallback: string,
+): string => (isVisitKind(kind) && status === 'purchased' ? '参加予定日' : fallback)
+
 // 記録一覧の 1 行
 export const RecordTicket = ({ a, selected }: { a: OwnAttemptRow; selected?: boolean }) => {
   const extra = [
@@ -71,7 +81,7 @@ export const RecordTicket = ({ a, selected }: { a: OwnAttemptRow; selected?: boo
       stub={<StubDate date={a.displayOn} />}
       meta={[kindText(a.work.kind), a.work.org?.name].filter(Boolean).join(' · ') || '—'}
       title={a.work.title}
-      chip={<StatusChip status={a.status} />}
+      chip={<StatusChip status={a.status} kind={a.work.kind} />}
       extra={extra.length ? extra.join(' · ') : undefined}
     />
   )
@@ -83,7 +93,11 @@ const WishRow = ({ w }: { w: OwnWishRow }) => (
     <WorkTicket
       w={{ id: w.workId, title: w.title, kind: w.kind, org: w.org, rep: null }}
       chip={
-        w.latestStatus ? <StatusChip status={w.latestStatus} /> : <span class="mark">未プレイ</span>
+        w.latestStatus ? (
+          <StatusChip status={w.latestStatus} kind={w.kind} />
+        ) : (
+          <span class="mark">未プレイ</span>
+        )
       }
       extra={`登録 ${isoToJstDate(w.createdAt) ?? '—'}`}
     />
@@ -291,7 +305,7 @@ export const NewRecordForm = (props: {
         <p class="note">
           この作品の記録が {existing.length} 件あります（最新:{' '}
           <a href={`/records/${latest.id}`}>
-            {attemptStatusLabels[latest.status]} {latest.displayOn ?? '日付なし'}
+            {statusLabel(latest.status, w.kind)} {latest.displayOn ?? '日付なし'}
           </a>
           ）。新しい挑戦として追加します。
         </p>
@@ -303,13 +317,19 @@ export const NewRecordForm = (props: {
         <StatusSeg
           name="status"
           idPrefix="new-status"
+          kind={w.kind}
           value={
             Object.hasOwn(attemptStatusLabels, values.status)
               ? (values.status as AttemptStatus)
               : undefined
           }
         />
-        <Field label="日付" name="on" type="date" value={values.on} />
+        <Field
+          label={purchasedOnLabel(w.kind, values.status, '日付')}
+          name="on"
+          type="date"
+          value={values.on}
+        />
         <p class="note">
           買った → 買った日、進行中 → 始めた日、クリア・失敗・断念 → 終わった日として保存します。
         </p>
@@ -408,8 +428,19 @@ export const StatusForm = ({
 }) => (
   <form method="post" action={`/records/${a.id}/status`} class="list">
     <FormErrors errors={errors ?? []} />
-    <StatusSeg name="status" idPrefix="status" value={statusValueOf(values.status)} />
-    <Field label="日付" name="on" type="date" value={values.on} />
+    <StatusSeg
+      name="status"
+      idPrefix="status"
+      kind={a.work.kind}
+      current={a.status}
+      value={statusValueOf(values.status)}
+    />
+    <Field
+      label={purchasedOnLabel(a.work.kind, values.status, '日付')}
+      name="on"
+      type="date"
+      value={values.on}
+    />
     <p class="note">空にすると今の日付を残します。</p>
     <button type="submit" class="btn">
       変更
@@ -439,7 +470,9 @@ export const RecordDetail = ({
   const total = a.sessionDurationSec ?? a.durationSec
   const run = a.run
   const kv = [
-    a.purchasedOn ? <KvRow label="買った日">{a.purchasedOn}</KvRow> : null,
+    a.purchasedOn ? (
+      <KvRow label={purchasedOnLabel(a.work.kind, a.status, '買った日')}>{a.purchasedOn}</KvRow>
+    ) : null,
     a.startedOn ? <KvRow label="開始日">{a.startedOn}</KvRow> : null,
     a.finishedOn ? <KvRow label="終了日">{a.finishedOn}</KvRow> : null,
     run ? (
@@ -485,7 +518,7 @@ export const RecordDetail = ({
           </span>
         </div>
         <div class="res">
-          <StatusChip status={a.status} size="lg" stamp={!!created} />
+          <StatusChip status={a.status} kind={a.work.kind} size="lg" stamp={!!created} />
           {a.displayOn ? <span class="res-date hl">{a.displayOn.replaceAll('-', '.')}</span> : null}
           {a.attemptNo >= 2 || latest ? (
             <span class="pen">
@@ -540,15 +573,17 @@ export const RecordDetail = ({
           </div>
         </div>
       ) : null}
-      <div class="sect">
-        <div class="row">
-          <h2>進行ログ</h2>
-          <a class="btn" href={`/records/${a.id}/sessions/new`}>
-            ＋ 進行ログ
-          </a>
+      {isVisitKind(a.work.kind) ? null : (
+        <div class="sect">
+          <div class="row">
+            <h2>進行ログ</h2>
+            <a class="btn" href={`/records/${a.id}/sessions/new`}>
+              ＋ 進行ログ
+            </a>
+          </div>
+          {a.sessions.length ? <SessionLogs a={a} /> : <Empty>進行ログはまだありません。</Empty>}
         </div>
-        {a.sessions.length ? <SessionLogs a={a} /> : <Empty>進行ログはまだありません。</Empty>}
-      </div>
+      )}
       <div class="sect">
         <h2>写真</h2>
         <div class="photos">
@@ -629,7 +664,13 @@ export const RecordEditForm = (props: {
       </div>
       <form method="post" action={`/records/${a.id}/edit`} class="sect list">
         <FormErrors errors={props.errors ?? []} />
-        <StatusSeg name="status" idPrefix="edit-status" value={statusValueOf(values.status)} />
+        <StatusSeg
+          name="status"
+          idPrefix="edit-status"
+          kind={a.work.kind}
+          current={a.status}
+          value={statusValueOf(values.status)}
+        />
         <Select
           label="回"
           name="run_id"
@@ -643,7 +684,12 @@ export const RecordEditForm = (props: {
           }))}
         />
         <div class="grid2">
-          <Field label="買った日" name="purchased_on" type="date" value={values.purchased_on} />
+          <Field
+            label={purchasedOnLabel(a.work.kind, values.status, '買った日')}
+            name="purchased_on"
+            type="date"
+            value={values.purchased_on}
+          />
           <Field label="開始日" name="started_on" type="date" value={values.started_on} />
           <Field label="終了日" name="finished_on" type="date" value={values.finished_on} />
         </div>

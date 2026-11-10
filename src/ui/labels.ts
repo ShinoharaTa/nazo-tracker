@@ -1,12 +1,12 @@
 // 列挙値の表示ラベル。値の正本は src/db/schema.ts。
 
-import type {
+import {
   attemptStatuses,
-  organizationAliasKinds,
-  runChannels,
-  shopKinds,
-  workAliasKinds,
-  workKinds,
+  type organizationAliasKinds,
+  type runChannels,
+  type shopKinds,
+  type workAliasKinds,
+  type workKinds,
 } from '../db/schema'
 import type { SessionOutcome } from '../db/scoped'
 
@@ -34,6 +34,20 @@ export const attemptStatusLabels: Record<AttemptStatus, string> = {
   failed: '失敗',
   dropped: '断念',
 }
+
+// 来場型（ルーム・公演）。進行中が無く、予約済み・クリア・失敗だけ
+export const isVisitKind = (kind: WorkKind | null | undefined): boolean =>
+  kind === 'hall' || kind === 'room'
+
+const visitStatuses: readonly AttemptStatus[] = ['purchased', 'cleared', 'failed']
+
+// 作品の形式で選べるステータス（形式未設定は全部）
+export const statusesFor = (kind: WorkKind | null | undefined): readonly AttemptStatus[] =>
+  isVisitKind(kind) ? visitStatuses : attemptStatuses
+
+// 来場型の purchased だけ「予約済み」
+export const statusLabel = (status: AttemptStatus, kind?: WorkKind | null): string =>
+  status === 'purchased' && isVisitKind(kind) ? '予約済み' : attemptStatusLabels[status]
 
 // 進行ログを足すときの結果。値の正本は src/db/scoped.ts の sessionOutcomes
 export const outcomeLabels: Record<SessionOutcome, string> = {
