@@ -17,7 +17,7 @@
    - `DISCORD_CLIENT_ID` は `wrangler.toml` の `[vars]`、シークレットは `npx wrangler secret put DISCORD_CLIENT_SECRET`
 6. オーナー: `wrangler.toml` の `OWNER_IDENTITIES = "discord:<自分の Discord ユーザー ID>"`。反映は次回ログイン時（既にログイン中なら一度ログアウトして再ログイン）。
 7. `wrangler.toml` の `AUTH_DEV_LOGIN = "0"`、`UI_GALLERY = "0"` を確認する。
-8. カスタムドメイン `nazo.shino3.net` を Worker に割り当て、`workers_dev = false` にする（`*.workers.dev` では公開しない）。
+8. カスタムドメインは `wrangler.toml` の `routes = [{ pattern = "nazo.shino3.net", custom_domain = true }]` と `workers_dev = false` で設定済み。`shino3.net` の DNS ゾーンが同じ Cloudflare アカウントにあれば、`npm run deploy` で DNS レコードと証明書が自動で作られる（ダッシュボードでの操作は不要。既に同名の DNS レコードがあると deploy が失敗するので、その場合は先に消す）。
 9. `npm run deploy` のあと確認する:
    - `curl -I https://nazo.shino3.net/healthz` が 200
    - `curl -I https://nazo.shino3.net/records` が 302、`location: /login`
