@@ -211,8 +211,9 @@ describe('GET /records/new', () => {
     const h = await (
       await get(`/records/new?q=${encodeURIComponent('存在しない作品名zzz')}`)
     ).text()
+    expect(h).toContain('「存在しない作品名zzz」に一致する作品はありません。')
     expect(h).toContain(
-      '「存在しない作品名zzz」に一致する作品はありません。作品の追加リクエストは P4 で入ります。',
+      `href="/requests/new?kind=new_work&amp;title=${encodeURIComponent('存在しない作品名zzz')}"`,
     )
   })
 

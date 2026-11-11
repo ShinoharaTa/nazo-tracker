@@ -3,6 +3,8 @@
 import {
   attemptStatuses,
   type organizationAliasKinds,
+  type requestKinds,
+  type requestStatuses,
   type runChannels,
   type shopKinds,
   type workAliasKinds,
@@ -16,6 +18,8 @@ export type RunChannel = (typeof runChannels)[number]
 export type WorkAliasKind = (typeof workAliasKinds)[number]
 export type OrganizationAliasKind = (typeof organizationAliasKinds)[number]
 export type ShopKind = (typeof shopKinds)[number]
+export type RequestKind = (typeof requestKinds)[number]
+export type RequestStatus = (typeof requestStatuses)[number]
 
 export const workKindLabels: Record<WorkKind, string> = {
   hall: '公演',
@@ -92,6 +96,29 @@ export const shopKindLabels: Record<ShopKind, string> = {
   official_store: '公式通販',
   physical_store: '実店舗',
   other: 'その他',
+}
+
+export const requestKindLabels: Record<RequestKind, string> = {
+  new_work: '作品を追加',
+  fix_work: '作品の情報を直す',
+  new_organization: '団体を追加',
+  new_shop: '販売先を追加',
+  new_booth: '出店を追加',
+  new_room_venue: '常設店舗を追加',
+  new_genre: 'ジャンルを追加',
+  import_trailcast: 'trailcast から取り込む',
+  other: 'その他',
+}
+
+// 依頼者に見せる状態。open と triaged は区別しない（選別は依頼者に関係ない）
+export const requestStatusLabels: Record<RequestStatus, string> = {
+  open: '受付済み',
+  triaged: '受付済み',
+  processing: '調べています',
+  proposed: '確認中',
+  done: '対応しました',
+  rejected: '見送りました',
+  needs_info: '質問があります',
 }
 
 // 名寄せ候補の reason（src/db/match.ts）。未知の値はそのまま

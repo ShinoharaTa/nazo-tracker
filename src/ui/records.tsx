@@ -40,6 +40,7 @@ import {
   workKindLabels,
 } from './labels'
 import { formatPeriod, WorkTicket } from './master'
+import { RequestNewWorkLink } from './requests'
 
 export type RecordsTab = 'all' | 'pending' | 'wish'
 
@@ -272,9 +273,10 @@ export const NewRecordSearch = (props: {
         {props.items.length ? (
           props.items.map((w) => <WorkTicket w={w} hrefBase={newRecordHrefBase(props.q)} />)
         ) : props.q.trim() ? (
-          <Empty>
-            「{props.q}」に一致する作品はありません。作品の追加リクエストは P4 で入ります。
-          </Empty>
+          <>
+            <Empty>「{props.q}」に一致する作品はありません。</Empty>
+            <RequestNewWorkLink q={props.q} />
+          </>
         ) : (
           <Empty>作品はまだ登録されていません。</Empty>
         )}
