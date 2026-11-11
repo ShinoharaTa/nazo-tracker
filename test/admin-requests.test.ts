@@ -66,6 +66,8 @@ describe('canTransition（§1.5 の表を全組み合わせ）', () => {
     'requester:needs_info>open',
     'owner:open>triaged',
     'owner:open>rejected',
+    'owner:triaged>rejected',
+    'owner:needs_info>rejected',
     'owner:processing>triaged',
     ...['open', 'triaged', 'processing', 'proposed', 'needs_info'].flatMap((f) => [
       `owner:${f}>needs_info`,
@@ -225,9 +227,22 @@ describe('選別', () => {
     expect((await rowOf(id))?.status).toBe('done')
   })
 
-  it('表に無い遷移は 400（triaged → rejected、open → open、不正値）', async () => {
+  it('triaged・needs_info からも見送れる。processing・proposed からは 400', async () => {
+    for (const status of ['triaged', 'needs_info']) {
+      const id = await insertRequest({ status })
+      expect((await setStatus(id, { to: 'rejected', note: '見送り' })).status).toBe(302)
+      expect(await rowOf(id)).toMatchObject({ status: 'rejected', triage_note: '見送り' })
+    }
+    for (const status of ['processing', 'proposed']) {
+      const id = await insertRequest({ status })
+      expect((await setStatus(id, { to: 'rejected', note: '見送り' })).status).toBe(400)
+      expect((await rowOf(id))?.status).toBe(status)
+    }
+  })
+
+  it('表に無い遷移は 400（triaged → triaged、open → open、不正値）', async () => {
     const t = await insertRequest({ status: 'triaged' })
-    expect((await setStatus(t, { to: 'rejected', note: 'x' })).status).toBe(400)
+    expect((await setStatus(t, { to: 'triaged' })).status).toBe(400)
     const o = await insertRequest()
     expect((await setStatus(o, { to: 'open' })).status).toBe(400)
     expect((await setStatus(o, { to: 'processing' })).status).toBe(400)

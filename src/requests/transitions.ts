@@ -17,7 +17,11 @@ export const canTransition = (
     case 'requester':
       return from === 'needs_info' && to === 'open'
     case 'owner':
-      if (from === 'open' && (to === 'triaged' || to === 'rejected')) return true
+      if (from === 'open' && to === 'triaged') return true
+      // 見送りは調べ始める前か、質問の返事待ちのときだけ（processing 以降は agent / 提案の側で終わらせる）
+      if (to === 'rejected' && (from === 'open' || from === 'triaged' || from === 'needs_info')) {
+        return true
+      }
       if ((to === 'needs_info' || to === 'done') && !closed.includes(from)) return true
       // CLI が途中で止まったときの戻し
       return from === 'processing' && to === 'triaged'
