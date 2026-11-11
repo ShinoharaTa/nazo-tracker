@@ -126,4 +126,21 @@ describe('relinkRunStmts', () => {
     expect(JSON.parse(results[0]?.before_json ?? '').work_id).toBe(w1)
     expect(JSON.parse(results[0]?.after_json ?? '').work_id).toBe(w2)
   })
+
+  it('work_id が同じなら文を返さない（run も change_log も変わらない）', async () => {
+    const w = await insertWork(env, { title: '付け替えなし' })
+    const runId = await insertRun(env, { workId: w, channel: 'online' })
+    const db = createDb(env.DB)
+    const before = await getRunRow(db, runId)
+    if (!before) throw new Error('run が無い')
+    const s = relinkRunStmts(db, before, w, { actor: { tokenId: 'unused' } })
+    expect(s).toEqual({ id: runId, stmts: [] })
+    await runStmts(db, s.stmts)
+
+    expect(await getRunRow(db, runId)).toEqual(before)
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM change_log WHERE row_id = ?')
+      .bind(runId)
+      .first<number>('n')
+    expect(n).toBe(0)
+  })
 })

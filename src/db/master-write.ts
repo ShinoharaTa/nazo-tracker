@@ -434,8 +434,10 @@ export const updateRun = (
   ctx: WriteCtx,
 ): Promise<boolean> => runUpdate(db, updateRunStmts(db, before, input, ctx))
 
-// 回を別の作品に付け替える（run.work_id + change_log の update）。P4 の承認で紐付け先を変えるとき用
+// 回を別の作品に付け替える（run.work_id + change_log の update）。P4 の承認で紐付け先を変えるとき用。
+// work_id が同じなら stmts は空
 export const relinkRunStmts = (db: Db, before: RunDbRow, workId: string, ctx: WriteCtx): Stmts => {
+  if (before.workId === workId) return { id: before.id, stmts: [] }
   const after: RunDbRow = { ...before, workId, updatedAt: nowIso() }
   return {
     id: before.id,
