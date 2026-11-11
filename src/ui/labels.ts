@@ -98,6 +98,9 @@ export const shopKindLabels: Record<ShopKind, string> = {
   other: 'その他',
 }
 
+// 退会したユーザーの表示名（src/auth/account.ts が user 行に書き、リクエストの依頼者表示にも使う）
+export const DELETED_DISPLAY_NAME = '退会したユーザー'
+
 export const requestKindLabels: Record<RequestKind, string> = {
   new_work: '作品を追加',
   fix_work: '作品の情報を直す',
@@ -119,6 +122,13 @@ export const requestStatusLabels: Record<RequestStatus, string> = {
   done: '対応しました',
   rejected: '見送りました',
   needs_info: '質問があります',
+}
+
+// オーナー画面の状態。open / triaged だけ依頼者向けと違う
+export const ownerRequestStatusLabels: Record<RequestStatus, string> = {
+  ...requestStatusLabels,
+  open: '未選別',
+  triaged: '選別済み',
 }
 
 // 名寄せ候補の reason（src/db/match.ts）。未知の値はそのまま

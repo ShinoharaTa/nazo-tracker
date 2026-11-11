@@ -2,13 +2,14 @@
 // 依頼者用の関数は必ず requester_user_id = viewerId で絞る（他人の行は「無い」と同じに扱う）。
 // 記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, count, desc, eq, gt, notInArray, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, notInArray, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
 import { addDays, nowIso } from '../lib/time'
-import type { RequestKind, RequestStatus } from '../ui/labels'
+import { canTransition, type RequestActor } from '../requests/transitions'
+import { DELETED_DISPLAY_NAME, type RequestKind, type RequestStatus } from '../ui/labels'
 import type { Db } from './client'
 import { PAGE_SIZE } from './master'
-import { request, work } from './schema'
+import { request, user, work } from './schema'
 
 // payload_json の形。キーは値があるものだけ
 export type RequestPayload = {
@@ -179,4 +180,125 @@ export const workTitleOf = async (
     .where(eq(work.id, id))
     .get()
   return row ? { id: row.id, title: row.title, live: row.mergedIntoId === null } : null
+}
+
+// ---- オーナー用（依頼者で絞らない）。依頼者は user から display_name だけを引く（記録は読まない）
+
+// 一覧のタブ。closed = done + rejected
+export const adminRequestTabs = [
+  'open',
+  'triaged',
+  'processing',
+  'needs_info',
+  'proposed',
+  'closed',
+] as const
+export type AdminRequestTab = (typeof adminRequestTabs)[number]
+
+const tabStatuses = (tab: AdminRequestTab): RequestStatus[] =>
+  tab === 'closed' ? ['done', 'rejected'] : [tab]
+
+export type AdminRequestRow = {
+  id: string
+  kind: RequestKind
+  payload: RequestPayload
+  status: RequestStatus
+  requesterName: string
+  createdAt: string
+}
+
+export type AdminRequest = OwnRequest & {
+  requesterName: string
+  triageNote: string | null
+  agentNote: string | null
+}
+
+// 退会済み（requester_user_id = NULL）は「退会したユーザー」
+const requesterName = (name: string | null): string => name ?? DELETED_DISPLAY_NAME
+
+// 完了・見送りは新しい順、それ以外（処理待ち）は古い順。50 件ずつ
+export const listRequests = async (
+  db: Db,
+  { status, page }: { status: AdminRequestTab; page: number },
+): Promise<{ items: AdminRequestRow[]; hasNext: boolean }> => {
+  const order =
+    status === 'closed'
+      ? [desc(request.createdAt), desc(request.id)]
+      : [asc(request.createdAt), asc(request.id)]
+  const rows = await db
+    .select({
+      id: request.id,
+      kind: request.kind,
+      payloadJson: request.payloadJson,
+      status: request.status,
+      displayName: user.displayName,
+      createdAt: request.createdAt,
+    })
+    .from(request)
+    .leftJoin(user, eq(user.id, request.requesterUserId))
+    .where(inArray(request.status, tabStatuses(status)))
+    .orderBy(...order)
+    .limit(PAGE_SIZE + 1)
+    .offset((page - 1) * PAGE_SIZE)
+  return {
+    items: rows.slice(0, PAGE_SIZE).map(({ payloadJson, displayName, ...r }) => ({
+      ...r,
+      payload: parsePayload(payloadJson),
+      requesterName: requesterName(displayName),
+    })),
+    hasNext: rows.length > PAGE_SIZE,
+  }
+}
+
+export const countRequests = async (db: Db, status: RequestStatus): Promise<number> => {
+  const row = await db.select({ n: count() }).from(request).where(eq(request.status, status)).get()
+  return row?.n ?? 0
+}
+
+export const getRequest = async (db: Db, id: string): Promise<AdminRequest | null> => {
+  const row = await db
+    .select({
+      ...ownCols,
+      triageNote: request.triageNote,
+      agentNote: request.agentNote,
+      displayName: user.displayName,
+    })
+    .from(request)
+    .leftJoin(user, eq(user.id, request.requesterUserId))
+    .where(eq(request.id, id))
+    .get()
+  if (!row) return null
+  const { displayName, triageNote, agentNote, ...own } = row
+  return { ...toOwn(own), requesterName: requesterName(displayName), triageNote, agentNote }
+}
+
+// 状態を変える。遷移は canTransition で判定し、読んでから書くまでに状態が変わっていれば invalid_transition。
+// note は triaged / rejected の triage_note（空なら今の値のまま）、question は needs_info の質問。
+// needs_info にするときは元の状態に関係なく前の reply を消す（古い返信が新しい質問への答えに見えないように）
+export const setRequestStatus = async (
+  db: Db,
+  id: string,
+  to: RequestStatus,
+  { note, question }: { note?: string | null; question?: string | null },
+  by: Extract<RequestActor, 'owner'>,
+): Promise<'ok' | 'not_found' | 'invalid_transition'> => {
+  const cur = await db
+    .select({ status: request.status })
+    .from(request)
+    .where(eq(request.id, id))
+    .get()
+  if (!cur) return 'not_found'
+  if (!canTransition(cur.status, to, by)) return 'invalid_transition'
+  const set: Partial<typeof request.$inferInsert> = { status: to, updatedAt: nowIso() }
+  if ((to === 'triaged' || to === 'rejected') && note) set.triageNote = note
+  if (to === 'needs_info') {
+    set.question = question ?? null
+    set.reply = null
+  }
+  const updated = await db
+    .update(request)
+    .set(set)
+    .where(and(eq(request.id, id), eq(request.status, cur.status)))
+    .returning({ id: request.id })
+  return updated.length ? 'ok' : 'invalid_transition'
 }

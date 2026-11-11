@@ -255,6 +255,20 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
   - kind: `new_work` / `fix_work` / `new_organization` / `new_shop` / `new_booth` / `new_room_venue`（常設店舗の公式 URL を渡す）/ `new_genre` / `import_trailcast` / `other`
   - status: `open` → `triaged` | `rejected` → `processing` → `proposed` → `done` | `needs_info`
   - `question`: needs_info の質問（依頼者に見える）/ `reply`: 依頼者の返信 / `agent_note`: agent のメモ（オーナーだけが見る）
+  - `payload_json`: `{"url","title","organization","note","target_id"}`（値の無いキーは省く。`target_id` は fix_work の対象作品）
+  - 状態遷移（判定は `src/requests/transitions.ts` の `canTransition` 1 か所。表に無い遷移は HTML 400「この状態からは変えられません。」、agent 409 `invalid_transition`）
+
+    | 誰 | from → to | 付随 |
+    |---|---|---|
+    | 依頼者 | `needs_info` → `open` | `reply` 必須（2000 字） |
+    | オーナー | `open` → `triaged` | `triage_note` 任意 |
+    | オーナー | `open` / `triaged` / `needs_info` → `rejected` | `triage_note` 必須（見送る理由。依頼者には見えない） |
+    | オーナー | `done` / `rejected` 以外 → `needs_info` | `question` 必須（1000 字）。元の状態に関係なく前の `reply` を消す（古い返信が新しい質問の答えに見えないように） |
+    | オーナー | `done` / `rejected` 以外 → `done` | — |
+    | オーナー | `processing` → `triaged` | CLI が途中で止まったときの戻し |
+    | agent | `open` / `triaged` → `processing` | — |
+    | agent | `processing` → `proposed` / `needs_info` / `triaged` | needs_info は `question` 必須。`note` は `agent_note` に |
+    | Worker | `proposed` → `done` | 紐付く提案が 1 件以上あり、`pending` が 0 件になった時点 |
   - INDEX(status), INDEX(requester_user_id, created_at)
 - `source(id, url, domain, method(escape_mcp / webfetch / manual / pds), fetched_at, content_hash, excerpt, robots_checked)`
 - `proposal(id, request_id NULL, kind, target_table, target_id NULL, confidence REAL, status(pending / applied / auto_applied / rejected / superseded / suppressed / reverted), fingerprint（部分 UNIQUE: `WHERE status = 'pending'`）, created_by_token_id, created_at, reviewed_at, reviewer_user_id, review_note, revert_until, applied_json NULL, reverted_at NULL, reverted_by_user_id NULL FK user, follow_up_of_id NULL FK proposal)`
