@@ -1,5 +1,6 @@
 // 作品の作成・編集と別名の追加・削除（/admin/works/*, /admin/work-aliases/*）。requireOwner は admin/index.tsx で掛かる。
 // 作成時だけ名寄せ候補（findCandidates）を見て、score ≥ SIMILAR_MIN があれば止める（同じ題名での再送は 1 回で通す）。
+// findCandidates は完全一致だけを返すので、止まるのは題名・別名が norm で一致するときだけ。
 
 import { Hono } from 'hono'
 import {
