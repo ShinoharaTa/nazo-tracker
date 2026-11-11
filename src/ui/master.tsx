@@ -325,6 +325,14 @@ export const WorkDetail = ({
           </ul>
         </div>
       ) : null}
+      {/* 未ログインは /login へ（next は作らない） */}
+      <div class="sect">
+        <p style="margin:0">
+          <a href={mine ? `/requests/new?kind=fix_work&target=${w.id}` : '/login'}>
+            情報の修正をリクエスト ›
+          </a>
+        </p>
+      </div>
     </>
   )
 }

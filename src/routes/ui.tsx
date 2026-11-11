@@ -16,6 +16,7 @@ import { todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
 import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
+import { RequestNewWorkLink } from '../ui/requests'
 import { StatsPage } from '../ui/stats'
 
 const ui = new Hono<AppEnv>({ strict: false })
@@ -96,7 +97,10 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
           <WorkTicket w={w} selected={w.id === selectedId} counts={counts.get(w.id)} />
         ))
       ) : q.trim() ? (
-        <Empty>「{q}」に一致する作品はありません</Empty>
+        <>
+          <Empty>「{q}」に一致する作品はありません</Empty>
+          <RequestNewWorkLink q={q} />
+        </>
       ) : kind !== 'all' ? (
         <Empty>この形式の作品はまだありません。</Empty>
       ) : (
@@ -377,6 +381,12 @@ const SettingsList = ({
           href="/settings/counts"
         />
         <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
+      </Menu>
+    </div>
+    <div class="sect">
+      <h2>リクエスト</h2>
+      <Menu>
+        <MenuItem label="作品の追加・修正をお願いする" href="/requests" />
       </Menu>
     </div>
     {user.role === 'owner' ? (
