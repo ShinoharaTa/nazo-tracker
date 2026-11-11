@@ -33,9 +33,8 @@ export type Variables = {
   user: SessionUser | null
   // session_token.id（cookie の token の SHA-256）。未ログインは null
   sessionId: string | null
-  // api_token.id と、requireAgent が引いた行。/api/agent/* の requireAgent を通ったときだけ入る
+  // requireAgent が引いた api_token の行。/api/agent/* の requireAgent を通ったときだけ入る
   // （取り出しは src/auth/agent.ts の currentAgent）
-  agentTokenId?: string
   agentToken?: ActiveToken
 }
 

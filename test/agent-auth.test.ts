@@ -241,19 +241,43 @@ describe('agent トークンで使えないルート', () => {
     expect((await post('{}', 'application/json; charset=utf-8')).status).toBe(403)
   })
 
-  it('PUT / DELETE も本文の検査を通す', async () => {
-    for (const method of ['PUT', 'DELETE']) {
-      const req = (headers: Record<string, string>, body?: string) =>
-        app.request(
-          '/api/agent/whoami',
-          { method, headers: { ...bearer(token), ...headers }, body },
-          env,
-        )
-      const noType = await req({})
-      expect(noType.status, method).toBe(415)
-      expect(await noType.json()).toEqual({ error: 'unsupported_media_type' })
-      expect((await req({ 'Content-Type': 'application/json' }, '{')).status, method).toBe(400)
-      expect((await req({ 'Content-Type': 'application/json' }, '{}')).status, method).toBe(403)
-    }
+  it('PUT も本文の検査を通す', async () => {
+    const req = (headers: Record<string, string>, body?: string) =>
+      app.request(
+        '/api/agent/whoami',
+        { method: 'PUT', headers: { ...bearer(token), ...headers }, body },
+        env,
+      )
+    const noType = await req({})
+    expect(noType.status).toBe(415)
+    expect(await noType.json()).toEqual({ error: 'unsupported_media_type' })
+    expect((await req({ 'Content-Type': 'application/json' }, '{')).status).toBe(400)
+    expect((await req({ 'Content-Type': 'application/json' }, '{}')).status).toBe(403)
+  })
+
+  it('DELETE は本文があるときだけ検査し、本文の無い DELETE は通す', async () => {
+    const del = (headers: Record<string, string>, body?: string) =>
+      app.request(
+        '/api/agent/whoami',
+        { method: 'DELETE', headers: { ...bearer(token), ...headers }, body },
+        env,
+      )
+    // 本文なし: Content-Type が無くても検査で止めず、未定義パスの 403
+    const none = await del({})
+    expect(none.status).toBe(403)
+    expect(await none.json()).toEqual({ error: 'forbidden' })
+    expect((await del({ 'Content-Length': '0' })).status).toBe(403)
+    // Content-Length > 0
+    const text = await del({ 'Content-Type': 'text/plain', 'Content-Length': '2' }, 'hi')
+    expect(text.status).toBe(415)
+    expect(await text.json()).toEqual({ error: 'unsupported_media_type' })
+    expect(
+      (await del({ 'Content-Type': 'application/json', 'Content-Length': '1' }, '{')).status,
+    ).toBe(400)
+    expect(
+      (await del({ 'Content-Type': 'application/json', 'Content-Length': '2' }, '{}')).status,
+    ).toBe(403)
+    // Transfer-Encoding あり
+    expect((await del({ 'Transfer-Encoding': 'chunked' }, 'hi')).status).toBe(415)
   })
 })

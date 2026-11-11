@@ -1,7 +1,7 @@
 // agent 用の JSON API（/api/agent/*、docs/agent-pipeline.md §5）。Bearer のトークンだけで認証し、cookie は見ない。
 // src/index.ts で csrf / attachUser より前に登録する。定義していないパスは認証後に全部 403。
 
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import { currentAgent, requireAgent } from '../auth/agent'
 import type { AppEnv } from '../env'
 
@@ -17,10 +17,14 @@ apiAgent.use('*', async (c, next) => {
 })
 apiAgent.use('*', requireAgent)
 
-// 本文を持ちうるメソッドは JSON の本文だけ。ここで一度読んで検査し、各ハンドラは c.req.json() で受け取る
-const BODY_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE']
+// POST / PUT / PATCH は JSON の本文だけ。DELETE は本文があるとき（Content-Length > 0 か Transfer-Encoding あり）
+// だけ同じ検査をし、本文の無い DELETE は通す。ここで一度読んで検査し、各ハンドラは c.req.json() で受け取る
+const BODY_METHODS = ['POST', 'PUT', 'PATCH']
+const hasBody = (c: Context<AppEnv>) =>
+  Number(c.req.header('Content-Length')) > 0 || c.req.header('Transfer-Encoding') !== undefined
 apiAgent.use('*', async (c, next) => {
-  if (!BODY_METHODS.includes(c.req.method)) return next()
+  const m = c.req.method
+  if (!BODY_METHODS.includes(m) && !(m === 'DELETE' && hasBody(c))) return next()
   const type = c.req.header('Content-Type')?.split(';')[0].trim().toLowerCase()
   if (type !== 'application/json') return c.json({ error: 'unsupported_media_type' }, 415)
   if (Number(c.req.header('Content-Length')) > BODY_MAX) return c.json({ error: 'too_large' }, 413)

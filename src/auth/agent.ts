@@ -38,7 +38,6 @@ export const requireAgent = createMiddleware<AppEnv>(async (c, next) => {
     await touchToken(db, row.id)
   }
   c.set('db', db)
-  c.set('agentTokenId', row.id)
   c.set('agentToken', row)
   await next()
 })

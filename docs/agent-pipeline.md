@@ -75,7 +75,7 @@ fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化し�
 ### トークン管理
 - 発行: オーナー UI（`/admin/tokens`）で名前（40 字）と期限（30 / 90（既定）/ 180 日）を指定 → 平文（`nzt_` + 32 バイト base64url）は発行の応答で一度だけ表示（`Cache-Control: no-store`）→ `~/.config/nazo-tracker/agent.env`（0600）に `NAZO_AGENT_TOKEN=`。scopes は v1 では固定（`master:read` / `request:rw` / `source:write` / `proposal:write`、画面で選ばない）。
 - 保存: D1 には SHA-256 ハッシュのみ（Secret は増やさない）。`last_used_at` は NULL か 1 時間より前のときだけ更新。失効は UI（再発行は新しく発行して古い方を失効）。
-- `/api/agent/*`: `Authorization: Bearer <token>` だけで認証し、cookie は見ない。無い・失効・期限切れ・でたらめは区別せず 401 `{"error":"invalid_token"}` + `WWW-Authenticate: Bearer`。全応答 `Cache-Control: no-store`。本文を持ちうるメソッド（POST / PUT / PATCH / DELETE）は `application/json` 以外 415、本文 64 KiB 超 413、壊れた JSON 400。定義していないパスは 403 `{"error":"forbidden"}`。疎通確認は `GET /api/agent/whoami` → `{"token_id","name","expires_at"}`。
+- `/api/agent/*`: `Authorization: Bearer <token>` だけで認証し、cookie は見ない。無い・失効・期限切れ・でたらめは区別せず 401 `{"error":"invalid_token"}` + `WWW-Authenticate: Bearer`。全応答 `Cache-Control: no-store`。POST / PUT / PATCH と、本文のある DELETE（`Content-Length` > 0 か `Transfer-Encoding` あり。本文の無い DELETE は検査しない）は `application/json` 以外 415、本文 64 KiB 超 413、壊れた JSON 400。定義していないパスは 403 `{"error":"forbidden"}`。疎通確認は `GET /api/agent/whoami` → `{"token_id","name","expires_at"}`。
 - `/api/agent` 以外のルートに `Authorization` ヘッダが付いていたら、形式（Bearer / Basic / 崩れた値）にもトークンの有効性にも関係なく 403 `{"error":"agent_token_not_allowed"}`（`rejectBearer`、`src/auth/agent.ts`）。
 - 申し送り: `scopes_json` の検査は PR-7 以降でルートを足すときに入れる（PR-6 時点では whoami しか無く、scopes は読んでいない）。
 - 申し送り: Workers Logs やトレースを有効にするときは、リクエストヘッダの `Authorization`（平文のトークン）が記録されないか確かめる。
