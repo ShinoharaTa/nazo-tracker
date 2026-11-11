@@ -69,8 +69,13 @@ describe('proposal / proposal_field / app_setting（0005）', () => {
   })
 
   it('proposal_field.accepted=2 は CHECK で失敗する', async () => {
+    await env.DB.prepare(
+      "INSERT INTO proposal (id, kind, target_table, fingerprint, created_at) VALUES ('p_2', 'create', 'work', 'fp_2', ?1)",
+    )
+      .bind(now)
+      .run()
     const insert = env.DB.prepare(
-      "INSERT INTO proposal_field (id, proposal_id, field, accepted) VALUES ('pf_1', 'p_1', 'work.title', 2)",
+      "INSERT INTO proposal_field (id, proposal_id, field, accepted) VALUES ('pf_1', 'p_2', 'work.title', 2)",
     )
     await expect(insert.run()).rejects.toThrow(/CHECK constraint failed/)
   })

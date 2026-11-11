@@ -1,5 +1,7 @@
 -- P4 補完パイプライン（data-model.md §4）。proposal / proposal_field は CHECK 追加のため作り直す（適用時点で両表は空の前提）。
 -- drizzle-kit の生成から、INSERT … SELECT の列を旧表にある列だけに直している（新しい列は旧表に無い）。
+-- 注意: D1 は PRAGMA foreign_keys=OFF が効かず、表に行があると DROP TABLE proposal の CASCADE で proposal_field が消える。
+-- 本番 D1 は未作成で空のため今回は安全。行がある表の作り直しにこのやり方を使い回さない。
 CREATE TABLE `app_setting` (
 	`key` text PRIMARY KEY NOT NULL,
 	`value` text NOT NULL,
