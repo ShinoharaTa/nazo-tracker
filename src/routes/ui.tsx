@@ -384,6 +384,7 @@ const SettingsList = ({
         <h2>管理（オーナーのみ）</h2>
         <Menu>
           <MenuItem label="マスタ管理" href="/admin" />
+          <MenuItem label="agent トークン" href="/admin/tokens" />
           <MenuItem label="承認待ちの提案" note="P4 で実装" disabled />
         </Menu>
       </div>

@@ -2,6 +2,7 @@
 
 import type { SessionUser } from './auth/session'
 import type { Db } from './db/client'
+import type { ActiveToken } from './db/tokens'
 
 export type Bindings = {
   DB: D1Database
@@ -32,6 +33,9 @@ export type Variables = {
   user: SessionUser | null
   // session_token.id（cookie の token の SHA-256）。未ログインは null
   sessionId: string | null
+  // requireAgent が引いた api_token の行。/api/agent/* の requireAgent を通ったときだけ入る
+  // （取り出しは src/auth/agent.ts の currentAgent）
+  agentToken?: ActiveToken
 }
 
 export type AppEnv = { Bindings: Bindings; Variables: Variables }
