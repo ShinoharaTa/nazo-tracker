@@ -1,5 +1,6 @@
 // マスタの統合（A → B。docs/data-model.md §5）。A への FK を B に付け替え、A は削除せず merged_into_id を立てる。
-// 全部を db.batch の 1 回（D1 では 1 トランザクション）で書く。A・B が存在し未統合で A ≠ B であることは呼び出し側で確かめる。
+// mergeXxxStmts は事前の SELECT だけ行って batch 用の文を返す（実行しない）。今の名前の関数はそれを
+// db.batch の 1 回（D1 では 1 トランザクション）で書く wrapper。A・B が存在し未統合で A ≠ B であることは呼び出し側で確かめる。
 // 記録系（attempt / wishlist / session）は UPDATE / DELETE するだけで SELECT しない（件数も取らない。docs/auth.md §6）。
 
 import { and, eq, inArray } from 'drizzle-orm'
@@ -7,7 +8,7 @@ import type { BatchItem } from 'drizzle-orm/batch'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { ulid } from '../lib/id'
 import { nowIso } from '../lib/time'
-import { logChange } from './change-log'
+import { logChange, type WriteCtx } from './change-log'
 import type { Db } from './client'
 import {
   type OrgAliasRow,
@@ -18,6 +19,7 @@ import {
   type WorkRow,
   workTitleNormTaken,
 } from './master'
+import { runStmts } from './master-write'
 import {
   attempt,
   booth,
@@ -36,12 +38,12 @@ import {
 
 const wishlistInto = alias(wishlist, 'wishlist_into')
 
-export const mergeWork = async (
+export const mergeWorkStmts = async (
   db: Db,
   a: WorkRow,
   b: WorkRow,
-  actorUserId: string,
-): Promise<void> => {
+  ctx: WriteCtx,
+): Promise<BatchItem<'sqlite'>[]> => {
   const now = nowIso()
   const extra: BatchItem<'sqlite'>[] = []
 
@@ -62,7 +64,7 @@ export const mergeWork = async (
         action: 'create',
         before: null,
         after: row,
-        actorUserId,
+        ...ctx,
       }),
     )
   }
@@ -86,12 +88,12 @@ export const mergeWork = async (
         action: 'update',
         before: b,
         after: bAfter,
-        actorUserId,
+        ...ctx,
       }),
     )
   }
 
-  await db.batch([
+  return [
     db.update(run).set({ workId: b.id, updatedAt: now }).where(eq(run.workId, a.id)),
     // run_id はそのまま。attempt_no の重複は許容
     db.update(attempt).set({ workId: b.id }).where(eq(attempt.workId, a.id)),
@@ -123,17 +125,17 @@ export const mergeWork = async (
       action: 'merge',
       before: a,
       after: aAfter,
-      actorUserId,
+      ...ctx,
     }),
-  ])
+  ]
 }
 
-export const mergeOrganization = async (
+export const mergeOrganizationStmts = async (
   db: Db,
   a: OrgRow,
   b: OrgRow,
-  actorUserId: string,
-): Promise<void> => {
+  ctx: WriteCtx,
+): Promise<BatchItem<'sqlite'>[]> => {
   const now = nowIso()
   const extra: BatchItem<'sqlite'>[] = []
 
@@ -156,7 +158,7 @@ export const mergeOrganization = async (
         action: 'create',
         before: null,
         after: row,
-        actorUserId,
+        ...ctx,
       }),
     )
   }
@@ -187,12 +189,12 @@ export const mergeOrganization = async (
         action: 'update',
         before: b,
         after: bAfter,
-        actorUserId,
+        ...ctx,
       }),
     )
   }
 
-  await db.batch([
+  return [
     db
       .update(work)
       .set({ primaryOrganizationId: b.id, updatedAt: now })
@@ -221,20 +223,20 @@ export const mergeOrganization = async (
       action: 'merge',
       before: a,
       after: aAfter,
-      actorUserId,
+      ...ctx,
     }),
-  ])
+  ]
 }
 
 // venue に別名の表は無いので、旧名は change_log にだけ残る
-export const mergeVenue = async (
+export const mergeVenueStmts = async (
   db: Db,
   a: VenueRow,
   b: VenueRow,
-  actorUserId: string,
-): Promise<void> => {
+  ctx: WriteCtx,
+): Promise<BatchItem<'sqlite'>[]> => {
   const now = nowIso()
-  await db.batch([
+  return [
     db.update(run).set({ venueId: b.id, updatedAt: now }).where(eq(run.venueId, a.id)),
     db.update(session).set({ venueId: b.id }).where(eq(session.venueId, a.id)),
     db.update(marketEdition).set({ venueId: b.id }).where(eq(marketEdition.venueId, a.id)),
@@ -246,7 +248,29 @@ export const mergeVenue = async (
       action: 'merge',
       before: a,
       after: { ...a, mergedIntoId: b.id },
-      actorUserId,
+      ...ctx,
     }),
-  ])
+  ]
+}
+
+export const mergeWork = async (db: Db, a: WorkRow, b: WorkRow, ctx: WriteCtx): Promise<void> => {
+  await runStmts(db, await mergeWorkStmts(db, a, b, ctx))
+}
+
+export const mergeOrganization = async (
+  db: Db,
+  a: OrgRow,
+  b: OrgRow,
+  ctx: WriteCtx,
+): Promise<void> => {
+  await runStmts(db, await mergeOrganizationStmts(db, a, b, ctx))
+}
+
+export const mergeVenue = async (
+  db: Db,
+  a: VenueRow,
+  b: VenueRow,
+  ctx: WriteCtx,
+): Promise<void> => {
+  await runStmts(db, await mergeVenueStmts(db, a, b, ctx))
 }

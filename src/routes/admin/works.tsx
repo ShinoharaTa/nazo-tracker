@@ -151,7 +151,7 @@ works.post('/works/new', async (c) => {
       return c.html(await newPage(db, { values: form, candidates, confirm: titleNorm }), 400)
     }
   }
-  const id = await createWork(db, v.value, currentUser(c).id)
+  const id = await createWork(db, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${id}?saved=1`, 302)
 })
 
@@ -178,7 +178,7 @@ works.post('/works/:id', async (c) => {
   const form = formOf(await c.req.parseBody(), workFields)
   const v = await validateWork(db, form, w.row.id)
   if (!v.ok) return c.html(await editPage(db, { ...w, values: form, errors: v.errors }), 400)
-  await updateWork(db, w.row, v.value, currentUser(c).id)
+  await updateWork(db, w.row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${w.row.id}?saved=1`, 302)
 })
 
@@ -192,7 +192,7 @@ works.post('/works/:id/aliases', async (c) => {
   if (!v.ok) {
     return c.html(await editPage(db, { ...w, aliasValues: form, aliasErrors: v.errors }), 400)
   }
-  await createWorkAlias(db, w.row.id, v.value, currentUser(c).id)
+  await createWorkAlias(db, w.row.id, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${w.row.id}`, 302)
 })
 
@@ -203,7 +203,7 @@ works.post('/work-aliases/:id/delete', async (c) => {
   // 親作品が統合済みなら追加と同じく 400
   const w = await getAdminWork(db, a.workId)
   if (w?.row.mergedIntoId) return c.html(mergedPage(w.mergedInto), 400)
-  await deleteWorkAlias(db, a, currentUser(c).id)
+  await deleteWorkAlias(db, a, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${a.workId}`, 302)
 })
 

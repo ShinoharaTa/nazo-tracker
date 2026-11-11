@@ -95,7 +95,7 @@ orgs.post('/orgs/new', async (c) => {
   const form = formOf(await c.req.parseBody(), orgFields)
   const v = await validateOrg(db, form)
   if (!v.ok) return c.html(newPage(form, v.errors), 400)
-  const id = await createOrg(db, v.value, currentUser(c).id)
+  const id = await createOrg(db, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/orgs/${id}?saved=1`, 302)
 })
 
@@ -116,7 +116,7 @@ orgs.post('/orgs/:id', async (c) => {
   const form = formOf(await c.req.parseBody(), orgFields)
   const v = await validateOrg(db, form, o.row.id)
   if (!v.ok) return c.html(editPage({ ...o, values: form, errors: v.errors }), 400)
-  await updateOrg(db, o.row, v.value, currentUser(c).id)
+  await updateOrg(db, o.row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/orgs/${o.row.id}?saved=1`, 302)
 })
 
@@ -130,7 +130,7 @@ orgs.post('/orgs/:id/aliases', async (c) => {
   if (!v.ok) {
     return c.html(editPage({ ...o, aliasValues: form, aliasErrors: v.errors }), 400)
   }
-  await createOrgAlias(db, o.row.id, v.value, currentUser(c).id)
+  await createOrgAlias(db, o.row.id, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/orgs/${o.row.id}`, 302)
 })
 
@@ -141,7 +141,7 @@ orgs.post('/org-aliases/:id/delete', async (c) => {
   // 親団体が統合済みなら追加と同じく 400
   const o = await getAdminOrg(db, a.organizationId)
   if (o?.row.mergedIntoId) return c.html(mergedPage(o.mergedInto), 400)
-  await deleteOrgAlias(db, a, currentUser(c).id)
+  await deleteOrgAlias(db, a, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/orgs/${a.organizationId}`, 302)
 })
 

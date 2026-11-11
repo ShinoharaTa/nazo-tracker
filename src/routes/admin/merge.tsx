@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono'
 import { currentUser } from '../../auth/middleware'
+import type { WriteCtx } from '../../db/change-log'
 import type { Db } from '../../db/client'
 import {
   getAdminOrg,
@@ -45,7 +46,7 @@ type Entity<R extends Row> = {
   details: (db: Db, r: R) => Promise<[string, string | null][]>
   // 確認画面の説明。b は統合先
   notes: (db: Db, a: R, b: R) => Promise<string[]>
-  merge: (db: Db, a: R, b: R, actorUserId: string) => Promise<void>
+  merge: (db: Db, a: R, b: R, ctx: WriteCtx) => Promise<void>
 }
 
 const orgName = async (db: Db, id: string | null): Promise<string | null> =>
@@ -215,7 +216,7 @@ const register = <R extends Row>(app: Hono<AppEnv>, e: Entity<R>) => {
         400,
       )
     }
-    await e.merge(db, r.a, r.b, currentUser(c).id)
+    await e.merge(db, r.a, r.b, { actor: { userId: currentUser(c).id } })
     return c.redirect(`${e.base}/${r.b.id}?merged=1`, 302)
   })
 }

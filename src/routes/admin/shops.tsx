@@ -64,7 +64,7 @@ shops.post('/shops/new', async (c) => {
       400,
     )
   }
-  const id = await createShop(db, v.value, currentUser(c).id)
+  const id = await createShop(db, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/shops/${id}?saved=1`, 302)
 })
 
@@ -99,7 +99,7 @@ shops.post('/shops/:id', async (c) => {
       400,
     )
   }
-  await updateShop(db, row, v.value, currentUser(c).id)
+  await updateShop(db, row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/shops/${row.id}?saved=1`, 302)
 })
 

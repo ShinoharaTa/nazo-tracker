@@ -94,7 +94,7 @@ venues.post('/venues/new', async (c) => {
       400,
     )
   }
-  const id = await createVenue(db, v.value, currentUser(c).id)
+  const id = await createVenue(db, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/venues/${id}?saved=1`, 302)
 })
 
@@ -134,7 +134,7 @@ venues.post('/venues/:id', async (c) => {
       400,
     )
   }
-  await updateVenue(db, r.row, v.value, currentUser(c).id)
+  await updateVenue(db, r.row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/venues/${r.row.id}?saved=1`, 302)
 })
 
