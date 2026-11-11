@@ -83,3 +83,33 @@ export const parseReply = (f: Form) => {
   const reply = field(errors, '返信', f.reply, str(2000, { multiline: true }), true)
   return done<string>(errors, reply ?? '')
 }
+
+export const statusChangeFields = ['to', 'note', 'question'] as const
+
+// オーナーが送れる行き先。open は遷移の表に無いので canTransition で必ず断られる
+const ownerTargets = ['triaged', 'rejected', 'needs_info', 'done', 'open'] as const
+export type OwnerTarget = (typeof ownerTargets)[number]
+
+export const isOwnerTarget = (v: string): v is OwnerTarget =>
+  (ownerTargets as readonly string[]).includes(v)
+
+// オーナーの状態変更（POST /admin/requests/:id/status）の付随入力。to の値と遷移の可否はルートで先に見る。
+// rejected は見送る理由が必須、needs_info は質問が必須（1000 字）
+export const parseStatusChange = (f: Form, to: OwnerTarget) => {
+  const errors: string[] = []
+  const note = field(errors, 'メモ', f.note, str(2000, { multiline: true }))
+  if (to === 'rejected' && f.note === '') {
+    errors.push('見送る理由をメモに書いてください（依頼者には見えません）。')
+  }
+  const question = field(
+    errors,
+    '質問',
+    f.question,
+    str(1000, { multiline: true }),
+    to === 'needs_info',
+  )
+  return done<{ note: string | null; question: string | null }>(errors, {
+    note: to === 'triaged' || to === 'rejected' ? note : null,
+    question: to === 'needs_info' ? question : null,
+  })
+}

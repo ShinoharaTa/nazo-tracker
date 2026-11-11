@@ -9,6 +9,7 @@ import { clearSessionCookie, type SessionUser } from '../auth/session'
 import type { Db } from '../db/client'
 import { countsFor, type WorkCounts } from '../db/counts'
 import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
+import { countRequests } from '../db/requests'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
 import { computeStats, defaultView } from '../lib/stats'
@@ -324,22 +325,33 @@ const linkNote = (linked: Set<string>, provider: string) =>
   linked.has(provider) ? '連携済み' : '未連携'
 
 // 設定一覧（左ページ）の中身。linked は連携済みの provider 名。displayName は DB の現在値（表示名フォーム用）
-type SettingsState = { linked: Set<string>; excludeFromCounts: boolean; displayName: string }
+// openRequests はオーナーのときだけ（未選別のリクエストの件数）
+type SettingsState = {
+  linked: Set<string>
+  excludeFromCounts: boolean
+  displayName: string
+  openRequests: number | null
+}
 
-const settingsState = async (db: Db, userId: string): Promise<SettingsState> => {
-  const own = scopedTo(db, userId).own()
-  const [linked, profile] = await Promise.all([own.linkedProviders(), own.profile()])
+const settingsState = async (db: Db, user: SessionUser): Promise<SettingsState> => {
+  const own = scopedTo(db, user.id).own()
+  const [linked, profile, openRequests] = await Promise.all([
+    own.linkedProviders(),
+    own.profile(),
+    user.role === 'owner' ? countRequests(db, 'open') : null,
+  ])
   return {
     linked,
     excludeFromCounts: profile.excludeFromCounts,
     displayName: profile.displayName,
+    openRequests,
   }
 }
 
 // 設定一覧（左ページ）
 const SettingsList = ({
   user,
-  state: { linked, excludeFromCounts },
+  state: { linked, excludeFromCounts, openRequests },
 }: {
   user: SessionUser
   state: SettingsState
@@ -394,6 +406,11 @@ const SettingsList = ({
         <h2>管理（オーナーのみ）</h2>
         <Menu>
           <MenuItem label="マスタ管理" href="/admin" />
+          <MenuItem
+            label="リクエスト"
+            note={`未選別 ${openRequests ?? 0}`}
+            href="/admin/requests"
+          />
           <MenuItem label="agent トークン" href="/admin/tokens" />
           <MenuItem label="承認待ちの提案" note="P4 で実装" disabled />
         </Menu>
@@ -410,7 +427,7 @@ const SettingsList = ({
 
 ui.get('/settings', async (c) => {
   const user = currentUser(c)
-  const state = await settingsState(c.get('db'), user.id)
+  const state = await settingsState(c.get('db'), user)
   return c.html(
     <Layout title="設定" tab="settings" left={<SettingsList user={user} state={state} />} />,
   )
@@ -477,7 +494,7 @@ const displayNamePage = (
 
 ui.get('/settings/name', async (c) => {
   const user = currentUser(c)
-  const state = await settingsState(c.get('db'), user.id)
+  const state = await settingsState(c.get('db'), user)
   return c.html(
     displayNamePage(user, state, {
       value: state.displayName,
@@ -492,7 +509,7 @@ ui.post('/settings/name', async (c) => {
   const raw = typeof body.displayName === 'string' ? body.displayName : ''
   const { name, error } = parseDisplayName(raw)
   if (error) {
-    const state = await settingsState(c.get('db'), user.id)
+    const state = await settingsState(c.get('db'), user)
     return c.html(displayNamePage(user, state, { value: name, error }), 400)
   }
   await scopedTo(c.get('db'), user.id).own().updateDisplayName(name)
@@ -519,7 +536,7 @@ const CountsForm = ({ excludeFromCounts }: { excludeFromCounts: boolean }) => (
 
 ui.get('/settings/counts', async (c) => {
   const user = currentUser(c)
-  const state = await settingsState(c.get('db'), user.id)
+  const state = await settingsState(c.get('db'), user)
   return c.html(
     <Layout
       title="作品の人数"
@@ -590,17 +607,17 @@ const deletePage = (user: SessionUser, state: SettingsState, error?: string) => 
 
 ui.get('/settings/delete', async (c) => {
   const user = currentUser(c)
-  return c.html(deletePage(user, await settingsState(c.get('db'), user.id)))
+  return c.html(deletePage(user, await settingsState(c.get('db'), user)))
 })
 
 ui.post('/settings/delete', async (c) => {
   const user = currentUser(c)
   if (user.role === 'owner') {
-    return c.html(deletePage(user, await settingsState(c.get('db'), user.id)), 400)
+    return c.html(deletePage(user, await settingsState(c.get('db'), user)), 400)
   }
   const body = await c.req.parseBody()
   if (body.confirm !== 'yes') {
-    const state = await settingsState(c.get('db'), user.id)
+    const state = await settingsState(c.get('db'), user)
     return c.html(deletePage(user, state, '確認のチェックを入れてください。'), 400)
   }
   await deleteAccount(c.get('db'), user.id)

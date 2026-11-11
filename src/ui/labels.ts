@@ -121,6 +121,13 @@ export const requestStatusLabels: Record<RequestStatus, string> = {
   needs_info: '質問があります',
 }
 
+// オーナー画面の状態。open / triaged だけ依頼者向けと違う
+export const ownerRequestStatusLabels: Record<RequestStatus, string> = {
+  ...requestStatusLabels,
+  open: '未選別',
+  triaged: '選別済み',
+}
+
 // 名寄せ候補の reason（src/db/match.ts）。未知の値はそのまま
 const matchReasonLabels: Record<string, string> = {
   escape_id_url: 'escape.id の URL が一致',

@@ -25,6 +25,7 @@ import { Menu, MenuItem, TopBar } from '../../ui/components'
 import { shopKindLabels, workKindLabels } from '../../ui/labels'
 import merge from './merge'
 import orgs from './orgs'
+import requests from './requests'
 import runs from './runs'
 import shops from './shops'
 import tokens from './tokens'
@@ -257,5 +258,6 @@ admin.route('/', orgs)
 admin.route('/', venues)
 admin.route('/', shops)
 admin.route('/', tokens)
+admin.route('/', requests)
 
 export default admin

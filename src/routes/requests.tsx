@@ -15,6 +15,7 @@ import {
 } from '../db/requests'
 import type { AppEnv } from '../env'
 import { type Form, formOf } from '../lib/form'
+import { canTransition } from '../requests/transitions'
 import {
   isMemberRequestKind,
   parseReply,
@@ -148,7 +149,7 @@ requests.post('/:id/reply', async (c) => {
   const r = await getOwnRequest(db, userId, id)
   if (!r) return notFoundPage(c)
   const f = formOf(await c.req.parseBody(), replyFields)
-  if (r.status !== 'needs_info') {
+  if (!canTransition(r.status, 'open', 'requester')) {
     return c.html(await detailPage(c, r, { errors: ['この状態からは変えられません。'] }), 400)
   }
   const v = parseReply(f)
