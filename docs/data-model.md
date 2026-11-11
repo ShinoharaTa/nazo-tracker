@@ -263,7 +263,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
     | 依頼者 | `needs_info` → `open` | `reply` 必須（2000 字） |
     | オーナー | `open` → `triaged` | `triage_note` 任意 |
     | オーナー | `open` / `triaged` / `needs_info` → `rejected` | `triage_note` 必須（見送る理由。依頼者には見えない） |
-    | オーナー | `done` / `rejected` 以外 → `needs_info` | `question` 必須（1000 字）。`needs_info` のまま質問をし直すときは前の `reply` を消す |
+    | オーナー | `done` / `rejected` 以外 → `needs_info` | `question` 必須（1000 字）。元の状態に関係なく前の `reply` を消す（古い返信が新しい質問の答えに見えないように） |
     | オーナー | `done` / `rejected` 以外 → `done` | — |
     | オーナー | `processing` → `triaged` | CLI が途中で止まったときの戻し |
     | agent | `open` / `triaged` → `processing` | — |

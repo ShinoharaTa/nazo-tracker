@@ -231,23 +231,21 @@ describe('選別', () => {
     expect(o).toContain('公演の URL はありますか')
   })
 
-  it('needs_info のまま質問をし直すと前の返信を消す。open からの質問では返信を残す', async () => {
-    const id = await insertRequest({ status: 'needs_info' })
-    await env.DB.prepare("UPDATE request SET question = '一つ目', reply = '前の返信' WHERE id = ?")
-      .bind(id)
-      .run()
-    expect((await setStatus(id, { to: 'needs_info', question: '二つ目' })).status).toBe(302)
-    const row = await env.DB.prepare('SELECT status, question, reply FROM request WHERE id = ?')
-      .bind(id)
-      .first()
-    expect(row).toEqual({ status: 'needs_info', question: '二つ目', reply: null })
-    expect(await (await get(`/requests/${id}`, member.cookie)).text()).not.toContain('前の返信')
-    const o = await insertRequest()
-    await env.DB.prepare("UPDATE request SET reply = '残る返信' WHERE id = ?").bind(o).run()
-    expect((await setStatus(o, { to: 'needs_info', question: '追加の質問' })).status).toBe(302)
-    expect(
-      (await env.DB.prepare('SELECT reply FROM request WHERE id = ?').bind(o).first())?.reply,
-    ).toBe('残る返信')
+  it('新しい質問を付けると、元の状態に関係なく前の返信を消す', async () => {
+    for (const status of ['needs_info', 'open']) {
+      const id = await insertRequest({ status })
+      await env.DB.prepare(
+        "UPDATE request SET question = '一つ目', reply = '前の返信' WHERE id = ?",
+      )
+        .bind(id)
+        .run()
+      expect((await setStatus(id, { to: 'needs_info', question: '二つ目' })).status).toBe(302)
+      const row = await env.DB.prepare('SELECT status, question, reply FROM request WHERE id = ?')
+        .bind(id)
+        .first()
+      expect(row).toEqual({ status: 'needs_info', question: '二つ目', reply: null })
+      expect(await (await get(`/requests/${id}`, member.cookie)).text()).not.toContain('前の返信')
+    }
   })
 
   it('done にできる。done からは何も変えられない', async () => {

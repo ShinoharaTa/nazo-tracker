@@ -274,7 +274,7 @@ export const getRequest = async (db: Db, id: string): Promise<AdminRequest | nul
 
 // 状態を変える。遷移は canTransition で判定し、読んでから書くまでに状態が変わっていれば invalid_transition。
 // note は triaged / rejected の triage_note（空なら今の値のまま）、question は needs_info の質問。
-// needs_info のまま質問をし直すときは前の reply を消す（古い返信が新しい質問への答えに見えないように）
+// needs_info にするときは元の状態に関係なく前の reply を消す（古い返信が新しい質問への答えに見えないように）
 export const setRequestStatus = async (
   db: Db,
   id: string,
@@ -291,8 +291,10 @@ export const setRequestStatus = async (
   if (!canTransition(cur.status, to, by)) return 'invalid_transition'
   const set: Partial<typeof request.$inferInsert> = { status: to, updatedAt: nowIso() }
   if ((to === 'triaged' || to === 'rejected') && note) set.triageNote = note
-  if (to === 'needs_info') set.question = question ?? null
-  if (cur.status === 'needs_info' && to === 'needs_info') set.reply = null
+  if (to === 'needs_info') {
+    set.question = question ?? null
+    set.reply = null
+  }
   const updated = await db
     .update(request)
     .set(set)
