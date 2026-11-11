@@ -22,8 +22,7 @@ import {
   wishlist,
 } from '../db/schema'
 import { nowIso } from '../lib/time'
-
-export const DELETED_DISPLAY_NAME = '退会したユーザー'
+import { DELETED_DISPLAY_NAME } from '../ui/labels'
 
 // FK の参照元から順に消す。1 回の batch（D1 では 1 トランザクション）で行う
 export const deleteAccount = async (db: Db, userId: string) => {

@@ -169,6 +169,21 @@ describe('一覧', () => {
   })
 })
 
+describe('Cache-Control', () => {
+  it('/admin/requests 以下は一覧・詳細・400 とも private, no-store', async () => {
+    const id = await insertRequest()
+    const responses = [
+      await get('/admin/requests'),
+      await get('/admin/requests?status=closed'),
+      await get(`/admin/requests/${id}`),
+      await setStatus(id, { to: 'rejected', note: '' }),
+    ]
+    for (const res of responses) {
+      expect(res.headers.get('cache-control')).toBe('private, no-store')
+    }
+  })
+})
+
 describe('選別', () => {
   it('open → triaged（メモ任意）、メモを保存', async () => {
     const id = await insertRequest()
@@ -214,6 +229,25 @@ describe('選別', () => {
     const o = await (await get(`/admin/requests/${id}`)).text()
     expect(o).toContain('依頼者に見せないメモ')
     expect(o).toContain('公演の URL はありますか')
+  })
+
+  it('needs_info のまま質問をし直すと前の返信を消す。open からの質問では返信を残す', async () => {
+    const id = await insertRequest({ status: 'needs_info' })
+    await env.DB.prepare("UPDATE request SET question = '一つ目', reply = '前の返信' WHERE id = ?")
+      .bind(id)
+      .run()
+    expect((await setStatus(id, { to: 'needs_info', question: '二つ目' })).status).toBe(302)
+    const row = await env.DB.prepare('SELECT status, question, reply FROM request WHERE id = ?')
+      .bind(id)
+      .first()
+    expect(row).toEqual({ status: 'needs_info', question: '二つ目', reply: null })
+    expect(await (await get(`/requests/${id}`, member.cookie)).text()).not.toContain('前の返信')
+    const o = await insertRequest()
+    await env.DB.prepare("UPDATE request SET reply = '残る返信' WHERE id = ?").bind(o).run()
+    expect((await setStatus(o, { to: 'needs_info', question: '追加の質問' })).status).toBe(302)
+    expect(
+      (await env.DB.prepare('SELECT reply FROM request WHERE id = ?').bind(o).first())?.reply,
+    ).toBe('残る返信')
   })
 
   it('done にできる。done からは何も変えられない', async () => {

@@ -304,9 +304,7 @@ export const AdminRequestDetail = (props: {
       <TopBar back="/admin/requests" label="リクエスト" />
       {props.saved ? <Saved /> : null}
       <div class="card">
-        <span class="title xl">
-          {headline(r)}
-        </span>
+        <span class="title xl">{headline(r)}</span>
         <span class="row" style="justify-content:flex-start">
           <span class="chip">{ownerRequestStatusLabels[r.status]}</span>
         </span>

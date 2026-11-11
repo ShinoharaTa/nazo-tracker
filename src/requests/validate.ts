@@ -81,8 +81,8 @@ export const parseReply = (f: Form) => {
 
 export const statusChangeFields = ['to', 'note', 'question'] as const
 
-// オーナーが送れる行き先。open は遷移の表に無いので canTransition で必ず断られる
-const ownerTargets = ['triaged', 'rejected', 'needs_info', 'done', 'open'] as const
+// オーナーが送れる行き先（これ以外の to は 400）
+const ownerTargets = ['triaged', 'rejected', 'needs_info', 'done'] as const
 export type OwnerTarget = (typeof ownerTargets)[number]
 
 export const isOwnerTarget = (v: string): v is OwnerTarget =>

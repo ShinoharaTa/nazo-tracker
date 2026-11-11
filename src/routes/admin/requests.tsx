@@ -22,6 +22,12 @@ import { toPage } from '../ui'
 
 const requests = new Hono<AppEnv>({ strict: false })
 
+// 依頼者の表示名・入力値を含むので共有キャッシュに載せない（/requests 自体も含む）
+requests.use('/requests/*', async (c, next) => {
+  await next()
+  c.res.headers.set('Cache-Control', 'private, no-store')
+})
+
 const toTab = (v: string | undefined): AdminRequestTab =>
   (adminRequestTabs as readonly string[]).includes(v ?? '') ? (v as AdminRequestTab) : 'open'
 

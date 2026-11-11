@@ -98,6 +98,9 @@ export const shopKindLabels: Record<ShopKind, string> = {
   other: 'その他',
 }
 
+// 退会したユーザーの表示名（src/auth/account.ts が user 行に書き、リクエストの依頼者表示にも使う）
+export const DELETED_DISPLAY_NAME = '退会したユーザー'
+
 export const requestKindLabels: Record<RequestKind, string> = {
   new_work: '作品を追加',
   fix_work: '作品の情報を直す',

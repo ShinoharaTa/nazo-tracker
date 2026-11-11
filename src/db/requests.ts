@@ -3,11 +3,10 @@
 // 記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
 import { and, asc, count, desc, eq, gt, inArray, notInArray, sql } from 'drizzle-orm'
-import { DELETED_DISPLAY_NAME } from '../auth/account'
 import { ulid } from '../lib/id'
 import { addDays, nowIso } from '../lib/time'
 import { canTransition, type RequestActor } from '../requests/transitions'
-import type { RequestKind, RequestStatus } from '../ui/labels'
+import { DELETED_DISPLAY_NAME, type RequestKind, type RequestStatus } from '../ui/labels'
 import type { Db } from './client'
 import { PAGE_SIZE } from './master'
 import { request, user, work } from './schema'
@@ -274,7 +273,8 @@ export const getRequest = async (db: Db, id: string): Promise<AdminRequest | nul
 }
 
 // 状態を変える。遷移は canTransition で判定し、読んでから書くまでに状態が変わっていれば invalid_transition。
-// note は triaged / rejected の triage_note（空なら今の値のまま）、question は needs_info の質問
+// note は triaged / rejected の triage_note（空なら今の値のまま）、question は needs_info の質問。
+// needs_info のまま質問をし直すときは前の reply を消す（古い返信が新しい質問への答えに見えないように）
 export const setRequestStatus = async (
   db: Db,
   id: string,
@@ -292,6 +292,7 @@ export const setRequestStatus = async (
   const set: Partial<typeof request.$inferInsert> = { status: to, updatedAt: nowIso() }
   if ((to === 'triaged' || to === 'rejected') && note) set.triageNote = note
   if (to === 'needs_info') set.question = question ?? null
+  if (cur.status === 'needs_info' && to === 'needs_info') set.reply = null
   const updated = await db
     .update(request)
     .set(set)
