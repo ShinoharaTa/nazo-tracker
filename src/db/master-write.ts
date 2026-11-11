@@ -96,7 +96,7 @@ export const createOrgStmts = (db: Db, input: OrgInput, ctx: WriteCtx): Stmts =>
   }
 }
 
-export const createOrg = (db: Db, input: OrgInput, ctx: WriteCtx): Promise<string> =>
+export const createOrg = async (db: Db, input: OrgInput, ctx: WriteCtx): Promise<string> =>
   runCreate(db, createOrgStmts(db, input, ctx))
 
 // 変更が無ければ stmts は空
@@ -121,7 +121,7 @@ export const updateOrgStmts = (db: Db, before: OrgRow, input: OrgInput, ctx: Wri
 }
 
 // 変更があれば true
-export const updateOrg = (
+export const updateOrg = async (
   db: Db,
   before: OrgRow,
   input: OrgInput,
@@ -151,7 +151,7 @@ export const createOrgAliasStmts = (
   }
 }
 
-export const createOrgAlias = (
+export const createOrgAlias = async (
   db: Db,
   organizationId: string,
   input: OrgAliasInput,
@@ -199,7 +199,7 @@ export const createVenueStmts = (db: Db, input: VenueInput, ctx: WriteCtx): Stmt
   }
 }
 
-export const createVenue = (db: Db, input: VenueInput, ctx: WriteCtx): Promise<string> =>
+export const createVenue = async (db: Db, input: VenueInput, ctx: WriteCtx): Promise<string> =>
   runCreate(db, createVenueStmts(db, input, ctx))
 
 export const updateVenueStmts = (
@@ -220,7 +220,7 @@ export const updateVenueStmts = (
   }
 }
 
-export const updateVenue = (
+export const updateVenue = async (
   db: Db,
   before: VenueRow,
   input: VenueInput,
@@ -245,7 +245,7 @@ export const createShopStmts = (db: Db, input: ShopInput, ctx: WriteCtx): Stmts 
   }
 }
 
-export const createShop = (db: Db, input: ShopInput, ctx: WriteCtx): Promise<string> =>
+export const createShop = async (db: Db, input: ShopInput, ctx: WriteCtx): Promise<string> =>
   runCreate(db, createShopStmts(db, input, ctx))
 
 export const updateShopStmts = (
@@ -266,7 +266,7 @@ export const updateShopStmts = (
   }
 }
 
-export const updateShop = (
+export const updateShop = async (
   db: Db,
   before: ShopRow,
   input: ShopInput,
@@ -303,7 +303,7 @@ export const createWorkStmts = (db: Db, input: WorkInput, ctx: WriteCtx): Stmts 
   }
 }
 
-export const createWork = (db: Db, input: WorkInput, ctx: WriteCtx): Promise<string> =>
+export const createWork = async (db: Db, input: WorkInput, ctx: WriteCtx): Promise<string> =>
   runCreate(db, createWorkStmts(db, input, ctx))
 
 export const updateWorkStmts = (
@@ -324,7 +324,7 @@ export const updateWorkStmts = (
   }
 }
 
-export const updateWork = (
+export const updateWork = async (
   db: Db,
   before: WorkRow,
   input: WorkInput,
@@ -354,7 +354,7 @@ export const createWorkAliasStmts = (
   }
 }
 
-export const createWorkAlias = (
+export const createWorkAlias = async (
   db: Db,
   workId: string,
   input: WorkAliasInput,
@@ -407,7 +407,7 @@ export const createRunStmts = (db: Db, workId: string, input: RunInput, ctx: Wri
   }
 }
 
-export const createRun = (
+export const createRun = async (
   db: Db,
   workId: string,
   input: RunInput,
@@ -427,7 +427,7 @@ export const updateRunStmts = (db: Db, before: RunDbRow, input: RunInput, ctx: W
   }
 }
 
-export const updateRun = (
+export const updateRun = async (
   db: Db,
   before: RunDbRow,
   input: RunInput,
@@ -435,7 +435,7 @@ export const updateRun = (
 ): Promise<boolean> => runUpdate(db, updateRunStmts(db, before, input, ctx))
 
 // 回を別の作品に付け替える（run.work_id + change_log の update）。P4 の承認で紐付け先を変えるとき用。
-// work_id が同じなら stmts は空
+// work_id が同じなら stmts は空。付け替え先が統合済みでないかは呼び出し側で確かめる
 export const relinkRunStmts = (db: Db, before: RunDbRow, workId: string, ctx: WriteCtx): Stmts => {
   if (before.workId === workId) return { id: before.id, stmts: [] }
   const after: RunDbRow = { ...before, workId, updatedAt: nowIso() }

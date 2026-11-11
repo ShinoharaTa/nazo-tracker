@@ -1,9 +1,9 @@
 import { env } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
-import { columnRow, logChange } from '../src/db/change-log'
+import { type Actor, columnRow, logChange } from '../src/db/change-log'
 import { createDb } from '../src/db/client'
 import { getRunRow } from '../src/db/master'
-import { relinkRunStmts, runStmts } from '../src/db/master-write'
+import { createWork, relinkRunStmts, runStmts } from '../src/db/master-write'
 import { organizationAlias, shop } from '../src/db/schema'
 import { loginAs } from './helpers/auth'
 import { insertRun, insertWork } from './helpers/master'
@@ -91,6 +91,43 @@ describe('logChange（トークン）', () => {
       Record<string, string | null>
     >()
     expect(row).toMatchObject({
+      actor_user_id: null,
+      actor_token_id: tokenId,
+      proposal_id: proposalId,
+    })
+  })
+
+  it('actor に userId と tokenId の両方は渡せない（型で落ちる）', () => {
+    // @ts-expect-error userId と tokenId はちょうど片方
+    const actor: Actor = { userId: 'u', tokenId: 't' }
+    expect(actor).toBeDefined()
+  })
+
+  it('wrapper（createWork）経由でも tokenId と proposalId が change_log に入る', async () => {
+    const { tokenId, proposalId } = await insertTokenAndProposal('wrap')
+    const db = createDb(env.DB)
+    const id = await createWork(
+      db,
+      {
+        title: 'トークンで作った作品',
+        kind: null,
+        primaryOrganizationId: null,
+        officialUrl: null,
+        description: null,
+        playerMin: null,
+        playerMax: null,
+        estimatedMinutes: null,
+        timeLimitMinutes: null,
+        firstReleasedOn: null,
+      },
+      { actor: { tokenId }, proposalId },
+    )
+    const row = await env.DB.prepare('SELECT * FROM change_log WHERE row_id = ?')
+      .bind(id)
+      .first<Record<string, string | null>>()
+    expect(row).toMatchObject({
+      table_name: 'work',
+      action: 'create',
       actor_user_id: null,
       actor_token_id: tokenId,
       proposal_id: proposalId,

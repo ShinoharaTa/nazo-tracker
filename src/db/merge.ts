@@ -1,6 +1,7 @@
 // マスタの統合（A → B。docs/data-model.md §5）。A への FK を B に付け替え、A は削除せず merged_into_id を立てる。
 // mergeXxxStmts は事前の SELECT だけ行って batch 用の文を返す（実行しない）。今の名前の関数はそれを
 // db.batch の 1 回（D1 では 1 トランザクション）で書く wrapper。A・B が存在し未統合で A ≠ B であることは呼び出し側で確かめる。
+// mergeXxxStmts の文は、a と b を書き換える文と同じ batch に混ぜない（事前 SELECT の値は同じ batch の書き込みを見ない）。
 // 記録系（attempt / wishlist / session）は UPDATE / DELETE するだけで SELECT しない（件数も取らない。docs/auth.md §6）。
 
 import { and, eq, inArray } from 'drizzle-orm'
