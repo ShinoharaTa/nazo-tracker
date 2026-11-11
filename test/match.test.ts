@@ -59,10 +59,10 @@ describe('GET /api/admin/match', () => {
     ids.merged = await insertWork(env, { title: 'マッチ統合済み作品', mergedIntoId: ids.cat })
     ids.aliased = await insertWork(env, { title: 'マッチ本題', kind: 'room' })
     await insertWorkAlias(env, { workId: ids.aliased, title: 'マッチ旧題', kind: 'former_title' })
-    // Dice 1.0 だが文字列が違う組
+    // Dice 1.0 だが文字列が違う組（Workers は similar を返さない）
     ids.doki = await insertWork(env, { title: 'どきどき', kind: 'room', orgId: ids.org })
     ids.doki3 = await insertWork(env, { title: 'どきどきどき', kind: 'room' })
-    // 題名で完全一致、別名で similar に当たる作品
+    // 題名で完全一致、別名は似ているだけの作品
     ids.pika = await insertWork(env, { title: 'ぴかぴか', kind: 'room' })
     await insertWorkAlias(env, { workId: ids.pika, title: 'ぴかぴかぴか', kind: 'alt_spelling' })
     // primary は別団体、run の名義が検証団
@@ -154,15 +154,12 @@ describe('GET /api/admin/match', () => {
     ])
   })
 
-  it('似た題名は similar と小数スコア', async () => {
+  it('似た題名は Workers では返さない（完全一致だけ）', async () => {
     const r = await match({ title: '猫の手も借りたい猫カフェ開店準備からの脱出' })
     // 「！」は norm で消えるので完全一致になる
     expect(r.works.find((w) => w.id === ids.cat)?.reason).toBe('title')
     const s = await match({ title: '猫の手も借りたい猫カフェ開店準備から脱出' })
-    const c = s.works.find((w) => w.id === ids.cat)
-    expect(c?.reason).toBe('similar')
-    expect(c?.score).toBeGreaterThanOrEqual(0.8)
-    expect(c?.score).toBeLessThan(1)
+    expect(s.works).toEqual([])
   })
 
   it('無関係なら works は空', async () => {
@@ -186,22 +183,19 @@ describe('GET /api/admin/match', () => {
     })
   })
 
-  it('似た団体名は similar', async () => {
+  it('似た団体名は Workers では返さない', async () => {
     const r = await match({ title: 'MATCHWORD', org: 'マッチ検証団体' })
-    const o = r.organizations.find((x) => x.id === ids.org)
-    expect(o?.reason).toBe('similar')
-    expect(o?.score).toBeGreaterThanOrEqual(0.8)
+    expect(r.organizations).toEqual([])
   })
 
-  it('Dice 1.0 の similar も 0.84 に丸め、同団体一致より下に並ぶ', async () => {
+  it('Dice 1.0 でも文字列が違えば候補に出ない', async () => {
     const r = await match({ title: 'どきどき', org: 'マッチ検証団' })
-    expect(r.works[0]).toMatchObject({ id: ids.doki, score: 0.95, reason: 'same_org_title' })
-    const i = r.works.findIndex((w) => w.id === ids.doki3)
-    expect(i).toBeGreaterThan(0)
-    expect(r.works[i]).toMatchObject({ score: 0.84, reason: 'similar' })
+    expect(r.works).toEqual([
+      expect.objectContaining({ id: ids.doki, score: 0.95, reason: 'same_org_title' }),
+    ])
   })
 
-  it('同じ作品が title と別名の similar に当たると title が残る', async () => {
+  it('別名が似ているだけなら題名の一致 1 件だけ', async () => {
     const r = await match({ title: 'ぴかぴか' })
     expect(r.works.filter((w) => w.id === ids.pika)).toEqual([
       expect.objectContaining({ score: 0.85, reason: 'title', via: 'name' }),
@@ -234,7 +228,7 @@ describe('GET /api/admin/match', () => {
     expect((await match({ title: 'ぬぬ' })).works).toEqual([])
   })
 
-  it('2 文字の org は完全一致だけ（similar は走らない）', async () => {
+  it('2 文字の org は完全一致だけ', async () => {
     const r = await match({ title: 'MATCHWORD', org: 'ナゾ' })
     expect(r.orgNorm).toBe('ナゾ')
     expect(r.organizations).toEqual([
