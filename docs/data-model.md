@@ -251,19 +251,25 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
 
 ## 4. 補完パイプライン（→ [agent-pipeline.md](./agent-pipeline.md)）
 
-- `request(id, requester_user_id NULL, kind, payload_json, status, triage_note, created_at, updated_at)`
+- `request(id, requester_user_id NULL, kind, payload_json, status, triage_note, question NULL, reply NULL, agent_note NULL, created_at, updated_at)`
   - kind: `new_work` / `fix_work` / `new_organization` / `new_shop` / `new_booth` / `new_room_venue`（常設店舗の公式 URL を渡す）/ `new_genre` / `import_trailcast` / `other`
   - status: `open` → `triaged` | `rejected` → `processing` → `proposed` → `done` | `needs_info`
-  - INDEX(status)
+  - `question`: needs_info の質問（依頼者に見える）/ `reply`: 依頼者の返信 / `agent_note`: agent のメモ（オーナーだけが見る）
+  - INDEX(status), INDEX(requester_user_id, created_at)
 - `source(id, url, domain, method(escape_mcp / webfetch / manual / pds), fetched_at, content_hash, excerpt, robots_checked)`
-- `proposal(id, request_id NULL, kind, target_table, target_id NULL, confidence REAL, status(pending / applied / auto_applied / rejected / superseded / suppressed), fingerprint（部分 UNIQUE: `WHERE status = 'pending'`）, created_by_token_id, created_at, reviewed_at, reviewer_user_id, review_note, revert_until)`
+- `proposal(id, request_id NULL, kind, target_table, target_id NULL, confidence REAL, status(pending / applied / auto_applied / rejected / superseded / suppressed / reverted), fingerprint（部分 UNIQUE: `WHERE status = 'pending'`）, created_by_token_id, created_at, reviewed_at, reviewer_user_id, review_note, revert_until, applied_json NULL, reverted_at NULL, reverted_by_user_id NULL FK user, follow_up_of_id NULL FK proposal)`
   - kind: `create` / `update` / `link`（run→work）/ `merge` / `create_attempt_import`
   - `match_candidates_json`: 名寄せ候補 `[{table,id,score,reason}]`
-  - INDEX(status), INDEX(target_table, target_id)
-- `proposal_field(id, proposal_id, field, old_value, new_value, source_id NULL)` — フィールド単位の差分と出典
+  - `reverted`: 自動反映を取り消した後
+  - `applied_json`: 反映で作った / 変えた行の id `{"organization"?,"venue"?,"shop"?,"work"?,"run"?}`
+  - `follow_up_of_id`: 元の提案（自己参照）
+  - INDEX(status), INDEX(target_table, target_id), INDEX(request_id)
+- `proposal_field(id, proposal_id, field, old_value, new_value, source_id NULL, confidence REAL NULL, accepted NULL)` — フィールド単位の差分と出典
+  - CHECK: `confidence BETWEEN 0 AND 1`、`accepted IN (0, 1)`（承認時に入れる）。INDEX(proposal_id)
 - `rejection_memory(fingerprint PK, reason, created_at)` — 同じ提案の再発を `suppressed` にする
 - `change_log(id, table_name, row_id, action, before_json, after_json, actor_user_id NULL FK user, actor_token_id NULL FK api_token, proposal_id NULL, created_at)` — CHECK: actor_user_id と actor_token_id のちょうど片方が NOT NULL。INDEX(table_name, row_id)
 - `api_token(id, name, token_hash, role(agent), scopes_json, expires_at, last_used_at, revoked_at, created_at)`
+- `app_setting(key PK, value NOT NULL, updated_at NOT NULL, updated_by_user_id NULL FK user)` — 運用の設定。CHECK: `key IN ('auto_apply')`。行が無ければ既定値
 
 ## 5. 名寄せ
 
