@@ -179,15 +179,23 @@ describe('POST /requests', () => {
   })
 
   it('escape.id のマイページの URL は 400', async () => {
-    for (const url of ['https://escape.id/me', 'https://escape.id/me/', 'https://ESCAPE.ID/me/x']) {
+    for (const url of [
+      'https://escape.id/me',
+      'https://escape.id/me/',
+      'https://ESCAPE.ID/me/x',
+      'https://www.escape.id/me/',
+      'https://m.escape.id/me',
+    ]) {
       await expectError(
         { kind: 'new_work', url },
         'escape.id のマイページの URL は受け付けられません。公演ページの URL を貼ってください。',
       )
     }
-    // /mesh のような前方一致は通る
+    // /mesh のような前方一致・escape.id に似た別ホストは通る
     const res = await post('/requests', { kind: 'new_work', url: 'https://escape.id/mesh' })
     expect(res.status).toBe(302)
+    const other = await post('/requests', { kind: 'new_work', url: 'https://notescape.id/me/' })
+    expect(other.status).toBe(302)
   })
 
   it('URL・長さの検証は既存の文言', async () => {
