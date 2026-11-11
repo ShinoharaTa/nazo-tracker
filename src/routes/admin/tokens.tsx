@@ -146,6 +146,7 @@ tokens.post('/tokens', async (c) => {
             <code>~/.config/nazo-tracker/agent.env</code> に <code>NAZO_AGENT_TOKEN=…</code>
             として保存し、<code>chmod 600</code> してください。
           </p>
+          <p class="note">再読み込みすると、もう 1 本発行されます。</p>
           <p class="note">期限: {dateOf(expiresAt, '')}</p>
           <a class="btn" href="/admin/tokens">
             一覧へ

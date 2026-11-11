@@ -60,7 +60,7 @@
 ### 実装上の規約
 - 禁止語チェックは `scripts/check-scoped.mjs`（`npm run lint` に含む）。
 - オーナー画面は `/admin/*`（`requireOwner`。owner 以外は 404、未ログインの GET は `302 /login`・POST は 401）。オーナー用 JSON API は `/api/admin/*`（owner 以外は未ログインを含め JSON の 404 `{ "error": "not_found" }`）。
-- agent トークンは `/api/agent/*`（`requireAgent`、Bearer のみ・cookie を見ない。`src/routes/api-agent.ts`）だけで受ける。それ以外の全ルートへの `Authorization: Bearer` は `rejectBearer` が 403 `{"error":"agent_token_not_allowed"}`、`/api/agent` の未定義パスは 403 `{"error":"forbidden"}`（記録・フレンド・画像の 403 はこれで満たす）。発行・失効はオーナー画面 `/admin/tokens`。詳細は agent-pipeline.md §5。
+- agent トークンは `/api/agent/*`（`requireAgent`、Bearer のみ・cookie を見ない。`src/routes/api-agent.ts`）だけで受ける。それ以外の全ルートへの `Authorization`（形式を問わない）は `rejectBearer` が 403 `{"error":"agent_token_not_allowed"}`、`/api/agent` の未定義パスは 403 `{"error":"forbidden"}`（記録・フレンド・画像の 403 はこれで満たす）。発行・失効はオーナー画面 `/admin/tokens`。詳細は agent-pipeline.md §5。
 - 匿名人数のオプトアウトは `GET/POST /settings/counts`（本人、`requireUser`。`own().setExcludeFromCounts` が `WHERE id = viewerId` で `user.exclude_from_counts` を書く）。
 - 記録系のルートは HTML の `/records/*`（本人。`src/routes/records.tsx`、`requireUser`）、JSON を出す段階で足す `/api/me/*`（本人。wishlist もここ）と `/api/friends/:userId/*`（射影）のみ。それ以外の URL でユーザー id を取らない。`/records/:id` 系は他人の id・無い id を 404 にする。
 - 禁止語（`check:scoped`）は記録系テーブル（`attempt` / `attemptGenre` / `session` / `image` / `wishlist` / `marketVisit`）とビュー `vAttemptEnriched`。

@@ -199,8 +199,18 @@ describe('agent トークンで使えないルート', () => {
       expect(res.status, path).toBe(403)
       expect(await res.json()).toEqual({ error: 'agent_token_not_allowed' })
     }
-    // 有効性は見ない（でたらめでも 403）
-    expect((await get('/records', bearer('garbage'))).status).toBe(403)
+    // 有効性も形式も見ない（でたらめ・タブ区切り・Bearer だけ・Basic でも 403）
+    for (const auth of [
+      'Bearer garbage',
+      `Bearer\t${token}`,
+      'Bearer',
+      'Basic dXNlcjpwYXNz',
+      token,
+    ]) {
+      const res = await get('/records', { Authorization: auth })
+      expect(res.status, auth).toBe(403)
+      expect(await res.json()).toEqual({ error: 'agent_token_not_allowed' })
+    }
   })
 
   it('/api/agent の未定義パスは 403 forbidden', async () => {
@@ -229,5 +239,21 @@ describe('agent トークンで使えないルート', () => {
     expect(await bad.json()).toEqual({ error: 'invalid_json' })
     // 通った本文は未定義の POST なので 403
     expect((await post('{}', 'application/json; charset=utf-8')).status).toBe(403)
+  })
+
+  it('PUT / DELETE も本文の検査を通す', async () => {
+    for (const method of ['PUT', 'DELETE']) {
+      const req = (headers: Record<string, string>, body?: string) =>
+        app.request(
+          '/api/agent/whoami',
+          { method, headers: { ...bearer(token), ...headers }, body },
+          env,
+        )
+      const noType = await req({})
+      expect(noType.status, method).toBe(415)
+      expect(await noType.json()).toEqual({ error: 'unsupported_media_type' })
+      expect((await req({ 'Content-Type': 'application/json' }, '{')).status, method).toBe(400)
+      expect((await req({ 'Content-Type': 'application/json' }, '{}')).status, method).toBe(403)
+    }
   })
 })

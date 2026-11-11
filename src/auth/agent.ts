@@ -1,9 +1,10 @@
 // agent トークン（Bearer）の認証（docs/auth.md §6、docs/agent-pipeline.md §5）。
-// /api/agent/* だけが Bearer を受け、cookie・c.get('user') は一切見ない。それ以外のルートへの Bearer は 403。
+// /api/agent/* だけが Bearer を受け、cookie・c.get('user') は一切見ない。それ以外のルートへの Authorization は 403。
 
+import type { Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { createDb } from '../db/client'
-import { findActiveToken, hashToken, touchToken } from '../db/tokens'
+import { type ActiveToken, findActiveToken, hashToken, touchToken } from '../db/tokens'
 import type { AppEnv } from '../env'
 
 // last_used_at はこれより古いときだけ書き直す
@@ -15,9 +16,10 @@ const isAgentPath = (path: string) => path === '/api/agent' || path.startsWith('
 const bearerOf = (header: string | undefined): string | null =>
   header && /^bearer /i.test(header) ? header.slice(7).trim() : null
 
-// /api/agent 以外に Bearer が来たら 403。トークンの有効性は見ない（記録系・オーナー画面へ agent を通さない）
+// /api/agent 以外に Authorization が来たら、形式（Bearer / Basic / 崩れた値）にも有効性にも関係なく 403。
+// 記録系・オーナー画面へ agent を通さない（このアプリの他のルートは Authorization を使わない）
 export const rejectBearer = createMiddleware<AppEnv>(async (c, next) => {
-  if (!isAgentPath(c.req.path) && bearerOf(c.req.header('Authorization')) !== null) {
+  if (!isAgentPath(c.req.path) && c.req.header('Authorization') !== undefined) {
     return c.json({ error: 'agent_token_not_allowed' }, 403)
   }
   await next()
@@ -37,5 +39,13 @@ export const requireAgent = createMiddleware<AppEnv>(async (c, next) => {
   }
   c.set('db', db)
   c.set('agentTokenId', row.id)
+  c.set('agentToken', row)
   await next()
 })
+
+// requireAgent を通したルートで、認証済みのトークンを取り出す
+export const currentAgent = (c: Context<AppEnv>): ActiveToken => {
+  const t = c.get('agentToken')
+  if (!t) throw new Error('requireAgent を通していないルートで currentAgent が呼ばれた')
+  return t
+}

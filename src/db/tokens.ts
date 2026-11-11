@@ -69,14 +69,18 @@ export const revokeToken = async (db: Db, id: string): Promise<void> => {
     .where(and(eq(apiToken.id, id), isNull(apiToken.revokedAt)))
 }
 
+export type ActiveToken = Pick<TokenRow, 'id' | 'name' | 'expiresAt' | 'lastUsedAt'>
+
 // 使えるトークン: role = agent・未失効・期限内。expires_at が NULL の行は作らないので、あっても使えない扱い
-export const findActiveToken = async (
-  db: Db,
-  hash: string,
-): Promise<{ id: string; lastUsedAt: string | null } | null> =>
+export const findActiveToken = async (db: Db, hash: string): Promise<ActiveToken | null> =>
   (
     await db
-      .select({ id: apiToken.id, lastUsedAt: apiToken.lastUsedAt })
+      .select({
+        id: apiToken.id,
+        name: apiToken.name,
+        expiresAt: apiToken.expiresAt,
+        lastUsedAt: apiToken.lastUsedAt,
+      })
       .from(apiToken)
       .where(
         and(
