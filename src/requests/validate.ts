@@ -27,10 +27,11 @@ export const requestFields = ['kind', 'url', 'title', 'organization', 'note', 't
 export const titleLabel = (kind: string): string =>
   kind === 'new_work' || kind === 'fix_work' ? '作品名' : '名前'
 
-// escape.id のマイページ（/me と /me/…）。本人の記録が載るので受け付けない
+// escape.id（www. などのサブドメインも）のマイページ（/me と /me/…）。本人の記録が載るので受け付けない
 export const isEscapeIdMyPage = (href: string): boolean => {
   const u = new URL(href)
-  return u.hostname === 'escape.id' && (u.pathname === '/me' || u.pathname.startsWith('/me/'))
+  const host = u.hostname === 'escape.id' || u.hostname.endsWith('.escape.id')
+  return host && (u.pathname === '/me' || u.pathname.startsWith('/me/'))
 }
 
 // target は fix_work のときだけ見る。ルートが引いた未統合の作品の id（無い・統合済みなら null）
