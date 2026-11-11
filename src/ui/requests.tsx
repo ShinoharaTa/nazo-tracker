@@ -167,15 +167,15 @@ export const RequestDetail = (props: {
         </p>
       ) : null}
       <div class="card">
-        <span class="title" style="font-size:22px">
-          {requestStatusLabels[r.status]}
-        </span>
+        <span class="title xl">{requestStatusLabels[r.status]}</span>
       </div>
       <div class="sect">
         <dl class="kv">
           <KvRow label="種類">{requestKindLabels[r.kind]}</KvRow>
           <PayloadRows r={r} target={target} />
-          <KvRow label="送った日">{createdOn(r.createdAt) ?? ''}</KvRow>
+          <KvRow label="送った日">
+            <span class="mono">{createdOn(r.createdAt) ?? ''}</span>
+          </KvRow>
         </dl>
       </div>
       {/* needs_info 以外への返信の 400 はここに出す（フォームが無いので） */}
@@ -304,7 +304,7 @@ export const AdminRequestDetail = (props: {
       <TopBar back="/admin/requests" label="リクエスト" />
       {props.saved ? <Saved /> : null}
       <div class="card">
-        <span class="title" style="font-size:22px">
+        <span class="title xl">
           {headline(r)}
         </span>
         <span class="row" style="justify-content:flex-start">
@@ -316,8 +316,12 @@ export const AdminRequestDetail = (props: {
           <KvRow label="種類">{requestKindLabels[r.kind]}</KvRow>
           <KvRow label="依頼者">{r.requesterName}</KvRow>
           <PayloadRows r={r} target={target} />
-          <KvRow label="作成日">{createdOn(r.createdAt) ?? ''}</KvRow>
-          <KvRow label="更新日">{createdOn(r.updatedAt) ?? ''}</KvRow>
+          <KvRow label="作成日">
+            <span class="mono">{createdOn(r.createdAt) ?? ''}</span>
+          </KvRow>
+          <KvRow label="更新日">
+            <span class="mono">{createdOn(r.updatedAt) ?? ''}</span>
+          </KvRow>
           {r.question ? <KvRow label="質問">{multi(r.question)}</KvRow> : null}
           {r.reply ? <KvRow label="返信">{multi(r.reply)}</KvRow> : null}
           {r.triageNote ? <KvRow label="選別メモ">{multi(r.triageNote)}</KvRow> : null}
