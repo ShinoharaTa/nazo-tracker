@@ -122,7 +122,7 @@ runs.post('/works/:id/runs/new', async (c) => {
       400,
     )
   }
-  await createRun(db, w.row.id, v.value, currentUser(c).id)
+  await createRun(db, w.row.id, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${w.row.id}?saved=1`, 302)
 })
 
@@ -169,7 +169,7 @@ runs.post('/runs/:id', async (c) => {
       400,
     )
   }
-  await updateRun(db, r.row, v.value, currentUser(c).id)
+  await updateRun(db, r.row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${r.row.workId}?saved=1`, 302)
 })
 
