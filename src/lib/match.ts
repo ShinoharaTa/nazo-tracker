@@ -1,5 +1,5 @@
 // 名寄せの純関数（docs/data-model.md §5）。DB を引く側は src/db/match.ts。
-// trigrams / dice と SIMILAR_* は Workers では呼ばない。CLI 用（P5 がローカルで類似度を測る）。
+// trigrams / dice は Workers では呼ばない。CLI 用（P5 がローカルで類似度を測る）。
 
 // 長さ 3 の部分文字列の集合（パディング無し）。3 文字未満は文字列そのもの 1 つ。長さはコードポイントで数える
 export const trigrams = (s: string): Set<string> => {
