@@ -73,8 +73,10 @@ fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化し�
 **推薦 W-1。** W-3 は緊急時のオーナー手作業のみに限定し、Claude には渡さない。W-2 は W-1 の上に後付け可能。
 
 ### トークン管理
-- 発行: オーナー UI で `name, scopes, expires_at` を指定 → 平文は一度だけ表示 → `~/.config/nazo-tracker/agent.env`（0600）に `NAZO_AGENT_TOKEN=`。
-- 保存: D1 には SHA-256 ハッシュのみ。`last_used_at` 更新。失効・再発行は UI。
+- 発行: オーナー UI（`/admin/tokens`）で名前（40 字）と期限（30 / 90（既定）/ 180 日）を指定 → 平文（`nzt_` + 32 バイト base64url）は発行の応答で一度だけ表示（`Cache-Control: no-store`）→ `~/.config/nazo-tracker/agent.env`（0600）に `NAZO_AGENT_TOKEN=`。scopes は v1 では固定（`master:read` / `request:rw` / `source:write` / `proposal:write`、画面で選ばない）。
+- 保存: D1 には SHA-256 ハッシュのみ（Secret は増やさない）。`last_used_at` は NULL か 1 時間より前のときだけ更新。失効は UI（再発行は新しく発行して古い方を失効）。
+- `/api/agent/*`: `Authorization: Bearer <token>` だけで認証し、cookie は見ない。無い・失効・期限切れ・でたらめは区別せず 401 `{"error":"invalid_token"}` + `WWW-Authenticate: Bearer`。全応答 `Cache-Control: no-store`。POST / PATCH は `application/json` 以外 415、本文 64 KiB 超 413、壊れた JSON 400。定義していないパスは 403 `{"error":"forbidden"}`。疎通確認は `GET /api/agent/whoami` → `{"token_id","name","expires_at"}`。
+- `/api/agent` 以外のルートに `Authorization: Bearer` が来たら、トークンの有効性を見ずに 403 `{"error":"agent_token_not_allowed"}`（`rejectBearer`、`src/auth/agent.ts`）。
 - 監査: agent による全書き込みは `change_log.actor = token:<id>`。
 - CLI は `127.0.0.1` に何も listen しない。HTTPS で `nazo.shino3.net` へ。
 

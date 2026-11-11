@@ -32,6 +32,8 @@ export type Variables = {
   user: SessionUser | null
   // session_token.id（cookie の token の SHA-256）。未ログインは null
   sessionId: string | null
+  // api_token.id。/api/agent/* の requireAgent を通ったときだけ入る
+  agentTokenId: string
 }
 
 export type AppEnv = { Bindings: Bindings; Variables: Variables }

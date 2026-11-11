@@ -1,9 +1,11 @@
 import { Hono } from 'hono'
 import { csrf } from 'hono/csrf'
+import { rejectBearer } from './auth/agent'
 import { attachUser } from './auth/middleware'
 import type { AppEnv } from './env'
 import admin from './routes/admin'
 import apiAdmin from './routes/api-admin'
+import apiAgent from './routes/api-agent'
 import auth from './routes/auth'
 import dev from './routes/dev'
 import gallery from './routes/gallery'
@@ -18,6 +20,11 @@ app.get('/healthz', async (c) => {
   const row = await c.env.DB.prepare('SELECT 1 AS one').first<{ one: number }>()
   return c.json({ ok: true, db: row?.one === 1 })
 })
+
+// agent トークン（Bearer）は /api/agent だけで受け、それ以外は 403。/api/agent は cookie を見ないので
+// csrf / attachUser より前に置く（中の catch-all が全パスに応答し、後ろの middleware へは落ちない）
+app.use('*', rejectBearer)
+app.route('/api/agent', apiAgent)
 
 // 安全メソッド以外は Origin が APP_ORIGIN か Sec-Fetch-Site: same-origin のときだけ通す
 app.use('*', csrf({ origin: (origin, c) => origin === c.env.APP_ORIGIN }))

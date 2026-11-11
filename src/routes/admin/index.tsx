@@ -27,6 +27,7 @@ import merge from './merge'
 import orgs from './orgs'
 import runs from './runs'
 import shops from './shops'
+import tokens from './tokens'
 import venues from './venues'
 import works from './works'
 
@@ -255,5 +256,6 @@ admin.route('/', runs)
 admin.route('/', orgs)
 admin.route('/', venues)
 admin.route('/', shops)
+admin.route('/', tokens)
 
 export default admin
