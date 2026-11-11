@@ -69,11 +69,13 @@ export const proposalStatuses = [
   'rejected',
   'superseded',
   'suppressed',
+  'reverted',
 ] as const
 export const apiTokenRoles = ['agent'] as const
 export const userRoles = ['member', 'owner'] as const
 export const shareLevels = ['none', 'status', 'rating', 'memo'] as const
 export const oauthStateModes = ['login', 'link'] as const
+export const appSettingKeys = ['auto_apply'] as const
 
 // ---------------------------------------------------------------------------
 // マスタ（data-model.md §2）
@@ -604,11 +606,18 @@ export const request = sqliteTable(
     payloadJson: text('payload_json').notNull(),
     status: text('status', { enum: requestStatuses }).notNull().default('open'),
     triageNote: text('triage_note'),
+    // needs_info の質問（依頼者に見える）
+    question: text('question'),
+    // 依頼者の返信
+    reply: text('reply'),
+    // agent のメモ（オーナーだけが見る）
+    agentNote: text('agent_note'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [
     index('request_status_idx').on(t.status),
+    index('request_requester_created_idx').on(t.requesterUserId, t.createdAt),
     check('request_kind_check', oneOf('kind', requestKinds)),
     check('request_status_check', oneOf('status', requestStatuses)),
   ],
@@ -666,6 +675,11 @@ export const proposal = sqliteTable(
     reviewerUserId: text('reviewer_user_id').references(() => user.id),
     reviewNote: text('review_note'),
     revertUntil: text('revert_until'),
+    // 作った / 変えた行の id {"organization"?,"venue"?,"shop"?,"work"?,"run"?}
+    appliedJson: text('applied_json'),
+    revertedAt: text('reverted_at'),
+    revertedByUserId: text('reverted_by_user_id').references(() => user.id),
+    followUpOfId: text('follow_up_of_id').references((): AnySQLiteColumn => proposal.id),
   },
   (t) => [
     // 同じ fingerprint の pending は 1 件まで
@@ -674,21 +688,33 @@ export const proposal = sqliteTable(
       .where(sql`"status" = 'pending'`),
     index('proposal_status_idx').on(t.status),
     index('proposal_target_table_target_idx').on(t.targetTable, t.targetId),
+    index('proposal_request_idx').on(t.requestId),
     check('proposal_kind_check', oneOf('kind', proposalKinds)),
     check('proposal_status_check', oneOf('status', proposalStatuses)),
   ],
 )
 
-export const proposalField = sqliteTable('proposal_field', {
-  id: text('id').primaryKey(),
-  proposalId: text('proposal_id')
-    .notNull()
-    .references(() => proposal.id, { onDelete: 'cascade' }),
-  field: text('field').notNull(),
-  oldValue: text('old_value'),
-  newValue: text('new_value'),
-  sourceId: text('source_id').references(() => source.id),
-})
+export const proposalField = sqliteTable(
+  'proposal_field',
+  {
+    id: text('id').primaryKey(),
+    proposalId: text('proposal_id')
+      .notNull()
+      .references(() => proposal.id, { onDelete: 'cascade' }),
+    field: text('field').notNull(),
+    oldValue: text('old_value'),
+    newValue: text('new_value'),
+    sourceId: text('source_id').references(() => source.id),
+    confidence: real('confidence'),
+    // 承認時に入れる（1 = 採用 / 0 = 不採用）
+    accepted: integer('accepted'),
+  },
+  (t) => [
+    index('proposal_field_proposal_idx').on(t.proposalId),
+    check('proposal_field_confidence_check', sql`"confidence" BETWEEN 0 AND 1`),
+    check('proposal_field_accepted_check', bool01('accepted')),
+  ],
+)
 
 export const rejectionMemory = sqliteTable('rejection_memory', {
   fingerprint: text('fingerprint').primaryKey(),
@@ -715,6 +741,18 @@ export const changeLog = sqliteTable(
     // actor はユーザーかトークンのちょうど片方
     check('change_log_actor_check', sql`("actor_user_id" IS NULL) <> ("actor_token_id" IS NULL)`),
   ],
+)
+
+// 運用の設定（キーは CHECK で限る）。行が無ければ既定値
+export const appSetting = sqliteTable(
+  'app_setting',
+  {
+    key: text('key', { enum: appSettingKeys }).primaryKey(),
+    value: text('value').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    updatedByUserId: text('updated_by_user_id').references(() => user.id),
+  },
+  () => [check('app_setting_key_check', oneOf('key', appSettingKeys))],
 )
 
 // ---------------------------------------------------------------------------
