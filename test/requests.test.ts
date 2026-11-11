@@ -185,6 +185,11 @@ describe('POST /requests', () => {
       'https://ESCAPE.ID/me/x',
       'https://www.escape.id/me/',
       'https://m.escape.id/me',
+      'https://escape.id./me/',
+      'https://escape.id//me/x',
+      'https://escape.id/%6De/',
+      'https://escape.id/ME/',
+      'https://escape.id/%E0%A4%A/',
     ]) {
       await expectError(
         { kind: 'new_work', url },
@@ -287,6 +292,22 @@ describe('GET /requests', () => {
     const h = await (await get('/requests', bob.cookie)).text()
     expect(h).not.toContain(id)
     expect(h).not.toContain('アリスだけの依頼')
+  })
+})
+
+describe('Cache-Control', () => {
+  it('/requests 以下は一覧・フォーム・詳細・400 とも private, no-store', async () => {
+    const id = await insertRequest(alice.userId)
+    const responses = [
+      await get('/requests'),
+      await get('/requests/new'),
+      await get(`/requests/${id}`),
+      await get('/requests/nope'),
+      await post('/requests', { kind: 'new_work' }),
+    ]
+    for (const res of responses) {
+      expect(res.headers.get('cache-control')).toBe('private, no-store')
+    }
   })
 })
 

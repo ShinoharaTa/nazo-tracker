@@ -116,9 +116,7 @@ export const RequestDetail = (props: {
         </p>
       ) : null}
       <div class="card">
-        <span class="title" style="font-size:22px">
-          {requestStatusLabels[r.status]}
-        </span>
+        <span class="title xl">{requestStatusLabels[r.status]}</span>
       </div>
       <div class="sect">
         <dl class="kv">
@@ -142,7 +140,9 @@ export const RequestDetail = (props: {
               <span style="white-space:pre-wrap">{p.note}</span>
             </KvRow>
           ) : null}
-          <KvRow label="送った日">{createdOn(r.createdAt) ?? ''}</KvRow>
+          <KvRow label="送った日">
+            <span class="mono">{createdOn(r.createdAt) ?? ''}</span>
+          </KvRow>
         </dl>
       </div>
       {/* needs_info 以外への返信の 400 はここに出す（フォームが無いので） */}

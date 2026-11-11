@@ -41,6 +41,8 @@
   --warn: #1c1c1c;
   --sans: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  /* 詳細の 1 番目（docs/visual-design.md §2.2） */
+  --fs-xl: 22px;
   color-scheme: light;
 }
 html,
@@ -227,6 +229,14 @@ a {
   font-weight: 700;
   line-height: 26px;
   font-feature-settings: "palt";
+}
+/* 詳細ページの 1 番目 */
+.title.xl {
+  font-size: var(--fs-xl);
+}
+/* 数字（日付など）の桁揃え */
+.mono {
+  font-family: var(--mono);
 }
 /* list: cut long titles at 2 lines; detail pages show the full title */
 .ticket .title {
