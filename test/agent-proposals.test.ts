@@ -523,6 +523,59 @@ describe('POST /api/agent/proposals の書き込み', () => {
     ).toBe(33)
   })
 
+  it('販売の回で販売先を @shop にした束は 201、参照はそのまま・他の値は正規化して保存', async () => {
+    const u = uniq()
+    const r = await post('/api/agent/proposals', {
+      kind: 'create',
+      target_table: 'work',
+      fields: [
+        f('work.title', `販売の作品 ${u}`),
+        f('run.channel', 'sale'),
+        f('run.shop_id', '@shop'),
+        f('run.price_yen', '03000'),
+        f('run.ticket_url', `https://sale-${u}.example`),
+        f('shop.name', `束の販売先 ${u}`),
+        f('shop.kind', 'official_store'),
+        f('shop.url', `https://shop-sale-${u}.example`),
+      ],
+    })
+    expect(r.status).toBe(201)
+    const vals = await env.DB.prepare(
+      'SELECT field, new_value FROM proposal_field WHERE proposal_id = ? ORDER BY field',
+    )
+      .bind(r.body.id)
+      .all()
+    expect(vals.results).toEqual([
+      { field: 'run.channel', new_value: 'sale' },
+      { field: 'run.price_yen', new_value: '3000' },
+      { field: 'run.shop_id', new_value: '@shop' },
+      { field: 'run.ticket_url', new_value: `https://sale-${u}.example/` },
+      { field: 'shop.kind', new_value: 'official_store' },
+      { field: 'shop.name', new_value: `束の販売先 ${u}` },
+      { field: 'shop.url', new_value: `https://shop-sale-${u}.example/` },
+      { field: 'work.title', new_value: `販売の作品 ${u}` },
+    ])
+  })
+
+  it('@shop なのに channel が sale でなければ 400 invalid_fields', async () => {
+    const u = uniq()
+    const r = await post('/api/agent/proposals', {
+      kind: 'create',
+      target_table: 'work',
+      fields: [
+        f('work.title', `公演の作品 ${u}`),
+        f('run.channel', 'performance'),
+        f('run.shop_id', '@shop'),
+        f('shop.name', `使えない販売先 ${u}`),
+        f('shop.kind', 'booth'),
+      ],
+    })
+    expect(r).toEqual({
+      status: 400,
+      body: { error: 'invalid_fields', details: ['販売先は販売のときだけ選べます。'] },
+    })
+  })
+
   it('fingerprint と保存値は正規化後（URL の末尾スラッシュ・"08" と "8" が同じ）', async () => {
     const u = uniq()
     const body = (url: string, min: string) => ({
