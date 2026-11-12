@@ -1,6 +1,6 @@
 // オーナー用の JSON API（/api/admin/*）。非オーナーには JSON の 404 を返す
 
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import { requireOwnerApi } from '../auth/middleware'
 import { findCandidates } from '../db/match'
 import type { AppEnv } from '../env'
@@ -18,8 +18,8 @@ apiAdmin.use('*', async (c, next) => {
 })
 apiAdmin.use('*', requireOwnerApi)
 
-// 名寄せ候補（docs/data-model.md §5）。title か url のどちらかが要る
-apiAdmin.get('/match', async (c) => {
+// 名寄せ候補（docs/data-model.md §5）。title か url のどちらかが要る。/api/agent/match も同じ処理
+export const matchHandler = async (c: Context<AppEnv>) => {
   const title = c.req.query('title')?.trim() ?? ''
   const org = c.req.query('org')?.trim() ?? ''
   const url = c.req.query('url')?.trim() ?? ''
@@ -28,6 +28,7 @@ apiAdmin.get('/match', async (c) => {
   if ([...org].length > NAME_MAX) return c.json({ error: 'org_too_long' }, 400)
   if (url && !normalizeMatchUrl(url)) return c.json({ error: 'invalid_url' }, 400)
   return c.json(await findCandidates(c.get('db'), { title, org, url }))
-})
+}
+apiAdmin.get('/match', matchHandler)
 
 export default apiAdmin

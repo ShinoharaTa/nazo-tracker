@@ -76,6 +76,13 @@ fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化し�
 - 発行: オーナー UI（`/admin/tokens`）で名前（40 字）と期限（30 / 90（既定）/ 180 日）を指定 → 平文（`nzt_` + 32 バイト base64url）は発行の応答で一度だけ表示（`Cache-Control: no-store`）→ `~/.config/nazo-tracker/agent.env`（0600）に `NAZO_AGENT_TOKEN=`。scopes は v1 では固定（`master:read` / `request:rw` / `source:write` / `proposal:write`、画面で選ばない）。
 - 保存: D1 には SHA-256 ハッシュのみ（Secret は増やさない）。`last_used_at` は NULL か 1 時間より前のときだけ更新。失効は UI（再発行は新しく発行して古い方を失効）。
 - `/api/agent/*`: `Authorization: Bearer <token>` だけで認証し、cookie は見ない。無い・失効・期限切れ・でたらめは区別せず 401 `{"error":"invalid_token"}` + `WWW-Authenticate: Bearer`。全応答 `Cache-Control: no-store`。POST / PUT / PATCH と、本文のある DELETE（`Content-Length` > 0 か `Transfer-Encoding` あり。本文の無い DELETE は検査しない）は `application/json` 以外 415、本文 64 KiB 超 413、壊れた JSON 400。定義していないパスは 403 `{"error":"forbidden"}`。疎通確認は `GET /api/agent/whoami` → `{"token_id","name","expires_at"}`。
+- 読み取りとリクエスト状態（`src/routes/api-agent.ts`）。匿名人数・記録に関する値は返さない（`countsFor` を呼ばない）:
+  - `GET /api/agent/requests?status=open,triaged&limit=50`: status はカンマ区切り（既定 `triaged`、不正値 400 `invalid_status`）、limit は 1〜100（範囲外は寄せる）。`created_at` 昇順。`{items:[{id,kind,payload,status,question,reply,created_at,updated_at}]}`。依頼者の id・表示名、`triage_note`・`agent_note` は返さない。
+  - `GET /api/agent/requests/:id`: 同じ形 1 件。無い → 404 `not_found`。
+  - `PATCH /api/agent/requests/:id` `{status, question?, note?}`: 遷移は `canTransition` の agent の行だけ（表に無い遷移 409 `{"error":"invalid_transition","from","to"}`）。needs_info は `question` 必須（400 `question_required`、1000 字まで）、needs_info にすると前の `reply` を消す。`note` は `agent_note` に（2000 字まで）。200 `{id,status}`。
+  - `GET /api/agent/match?title=&org=&url=`: `/api/admin/match` と同じ検証・同じ形（完全一致のみ）。
+  - `GET /api/agent/rows/:table/:id`: table ∈ work / run / organization / venue / shop（不正 400 `invalid_table`）。DB 列名の行 1 つ（`note` は除く）。work は `aliases`・`runs` も付ける。統合済みも返す。無い → 404 `not_found`。
+  - `GET /api/agent/index/:table?part=name|alias&after=&limit=1000`: table ∈ work / organization / venue（venue は name のみ、不正 400 `invalid_part`）。未統合だけ（alias は未統合の作品・団体の別名）、id 昇順、limit は 1〜2000。work `{id,work_id,title,title_norm,org_id}`、organization `{id,organization_id,name,name_norm}`、venue `{id,name,name_norm,prefecture}`。`{items, next}`（続きがあれば最後の id、無ければ null。次は `after=<next>`）。
 - `/api/agent` 以外のルートに `Authorization` ヘッダが付いていたら、形式（Bearer / Basic / 崩れた値）にもトークンの有効性にも関係なく 403 `{"error":"agent_token_not_allowed"}`（`rejectBearer`、`src/auth/agent.ts`）。
 - 申し送り: `scopes_json` の検査は PR-7 以降でルートを足すときに入れる（PR-6 時点では whoami しか無く、scopes は読んでいない）。
 - 申し送り: Workers Logs やトレースを有効にするときは、リクエストヘッダの `Authorization`（平文のトークン）が記録されないか確かめる。

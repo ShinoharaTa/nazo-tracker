@@ -1,9 +1,10 @@
 // マスタ（作品・団体・会場・販売先・回）の読み取り。全ユーザー共有なので scopedTo を通さない。
 // 記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, desc, eq, exists, inArray, isNull, ne, or, type SQL, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, exists, gt, inArray, isNull, ne, or, type SQL, sql } from 'drizzle-orm'
 import { alias, type SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { norm } from '../lib/norm'
+import { columnRow } from './change-log'
 import type { Db } from './client'
 import {
   booth,
@@ -818,4 +819,125 @@ export const orgNameNormTaken = async (
       .get(),
   ])
   return !!(o || a)
+}
+
+// ---- agent 用（/api/agent/rows・/api/agent/index）。マスタだけを DB 列名（snake_case）のキーで返す
+
+export const agentRowTables = ['work', 'run', 'organization', 'venue', 'shop'] as const
+export type AgentRowTable = (typeof agentRowTables)[number]
+
+const rowTables = { work, run, organization, venue, shop }
+
+// note（オーナーのメモ）は agent に渡さない
+const withoutNote = (row: Record<string, unknown>) => {
+  const { note: _, ...rest } = row
+  return rest
+}
+
+// 行 1 つ。統合済みも返す（merged_into_id 入り）。work には別名と回（DB の行）を付ける
+export const getAgentRow = async (
+  db: Db,
+  table: AgentRowTable,
+  id: string,
+): Promise<Record<string, unknown> | null> => {
+  const t = rowTables[table]
+  const row = await db.select().from(t).where(eq(t.id, id)).get()
+  if (!row) return null
+  const out = withoutNote(columnRow(t, row))
+  if (table !== 'work') return out
+  const [aliases, runs] = await Promise.all([
+    db.select().from(workAlias).where(eq(workAlias.workId, id)).orderBy(workAlias.id),
+    db.select().from(run).where(eq(run.workId, id)).orderBy(run.id),
+  ])
+  return {
+    ...out,
+    aliases: aliases.map((a) => columnRow(workAlias, a)),
+    runs: runs.map((r) => withoutNote(columnRow(run, r))),
+  }
+}
+
+export const agentIndexTables = ['work', 'organization', 'venue'] as const
+export type AgentIndexTable = (typeof agentIndexTables)[number]
+export type AgentIndexPart = 'name' | 'alias'
+
+// 名寄せ用の軽い一覧（CLI がローカルで類似度を計算する）。未統合だけ、id 昇順で after より後を limit 件。
+// next は続きがあるときの最後の id。alias は未統合の作品・団体に付いた別名
+export const listAgentIndex = async (
+  db: Db,
+  table: AgentIndexTable,
+  part: AgentIndexPart,
+  after: string | null,
+  limit: number,
+): Promise<{ items: Record<string, unknown>[]; next: string | null }> => {
+  const n = limit + 1
+  let rows: { id: string }[]
+  if (table === 'work' && part === 'name') {
+    rows = await db
+      .select({
+        id: work.id,
+        work_id: work.id,
+        title: work.title,
+        title_norm: work.titleNorm,
+        org_id: work.primaryOrganizationId,
+      })
+      .from(work)
+      .where(and(isNull(work.mergedIntoId), after ? gt(work.id, after) : undefined))
+      .orderBy(asc(work.id))
+      .limit(n)
+  } else if (table === 'work') {
+    rows = await db
+      .select({
+        id: workAlias.id,
+        work_id: workAlias.workId,
+        title: workAlias.title,
+        title_norm: workAlias.titleNorm,
+        org_id: work.primaryOrganizationId,
+      })
+      .from(workAlias)
+      .innerJoin(work, eq(work.id, workAlias.workId))
+      .where(and(isNull(work.mergedIntoId), after ? gt(workAlias.id, after) : undefined))
+      .orderBy(asc(workAlias.id))
+      .limit(n)
+  } else if (table === 'organization' && part === 'name') {
+    rows = await db
+      .select({
+        id: organization.id,
+        organization_id: organization.id,
+        name: organization.name,
+        name_norm: organization.nameNorm,
+      })
+      .from(organization)
+      .where(and(isNull(organization.mergedIntoId), after ? gt(organization.id, after) : undefined))
+      .orderBy(asc(organization.id))
+      .limit(n)
+  } else if (table === 'organization') {
+    rows = await db
+      .select({
+        id: organizationAlias.id,
+        organization_id: organizationAlias.organizationId,
+        name: organizationAlias.name,
+        name_norm: organizationAlias.nameNorm,
+      })
+      .from(organizationAlias)
+      .innerJoin(organization, eq(organization.id, organizationAlias.organizationId))
+      .where(
+        and(isNull(organization.mergedIntoId), after ? gt(organizationAlias.id, after) : undefined),
+      )
+      .orderBy(asc(organizationAlias.id))
+      .limit(n)
+  } else {
+    rows = await db
+      .select({
+        id: venue.id,
+        name: venue.name,
+        name_norm: venue.nameNorm,
+        prefecture: venue.prefecture,
+      })
+      .from(venue)
+      .where(and(isNull(venue.mergedIntoId), after ? gt(venue.id, after) : undefined))
+      .orderBy(asc(venue.id))
+      .limit(n)
+  }
+  const items = rows.slice(0, limit)
+  return { items, next: rows.length > limit ? (items.at(-1)?.id ?? null) : null }
 }
