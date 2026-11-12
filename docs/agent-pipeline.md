@@ -8,7 +8,7 @@ sequenceDiagram
   participant W as Worker (API)
   participant O as オーナー
   participant C as Claude (このサーバー)
-  M->>W: POST /api/requests {kind, url, title, note}
+  M->>W: POST /requests（HTML フォーム）{kind, url, title, note}
   O->>W: 事前選別（triaged / rejected）※任意
   O->>C: tmux で「キュー処理して」(/process-queue)
   C->>W: GET /api/agent/requests?status=triaged,open
@@ -52,8 +52,8 @@ Claude が**触らないもの**: 画像（取得・アップロードとも）�
 | auto_applied | Worker | A-3 ルール該当。`revert_until = now+7d`。承認 UI の「最近の自動反映」に出て 1 タップで取り消し |
 | applied | オーナー | 承認。フィールド単位で採否を選べる（部分承認） |
 | rejected | オーナー | 理由を書く。`rejection_memory(fingerprint)` に保存 |
-| suppressed | Worker | fingerprint が rejection_memory に一致。Claude に 409 を返し再提案を止める |
-| superseded | Worker | 同じ target に新しい提案が来た |
+| suppressed | Worker | fingerprint が rejection_memory に一致。**行は作らず** Claude に 409 `suppressed` を返して再提案を止める（この status の行はできない。enum には残す） |
+| superseded | Worker | update / link / merge で同じ (target_table, target_id) に新しい提案が来た（新しい行の INSERT と同じ batch） |
 
 A-3 自動反映ルール（Worker 側、設定で ON/OFF）:
 `kind=create AND target_table IN (run, work) AND 全フィールドの source.method = escape_mcp AND confidence ≥ 0.9 AND match_candidates に score ≥ 0.8 が無い`。
@@ -83,6 +83,19 @@ fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化し�
   - `GET /api/agent/match?title=&org=&url=`: `/api/admin/match` と同じ検証・同じ形（完全一致のみ）。
   - `GET /api/agent/rows/:table/:id`: table ∈ work / run / organization / venue / shop（不正 400 `invalid_table`）。DB 列名の行 1 つ（`note` は除く）。work は `aliases`・`runs` も付ける（各 200 件まで。超えたら切って `truncated: true` を付ける）。統合済みも返す。無い → 404 `not_found`。
   - `GET /api/agent/index/:table?part=name|alias&after=&limit=1000`: table ∈ work / organization / venue（venue は name のみ、不正 400 `invalid_part`）。未統合だけ（alias は未統合の作品・団体の別名）、id 昇順、limit は 1〜1000（既定 1000）。work `{id,work_id,title,title_norm,org_id}`、organization `{id,organization_id,name,name_norm}`、venue `{id,name,name_norm,prefecture}`。`{items, next}`（続きがあれば最後の id、無ければ null。次は `after=<next>`）。
+- 出典と提案（`src/routes/api-agent.ts`、形と検証は `src/pipeline/fields.ts`）。Worker は外部へ fetch しない:
+  - `POST /api/agent/sources` `{url, method, fetched_at, content_hash?, excerpt?, robots_checked}` → 201 `{"id"}`。`domain` は Worker が host（小文字）から入れる。`method` は `escape_mcp` / `webfetch` / `pds`（`manual` などは 400 `invalid_method`）。禁止の取得元（escape.id / `*.escape.id` の `/me` 以下、`x.com` / `twitter.com` とその `www.`・`mobile.`）は 400 `forbidden_source`。`escape_mcp` は host `escape.id` のみ（400 `method_host_mismatch`）、`webfetch` は `robots_checked` = 1 必須（400 `robots_not_checked`）。`url` 不正 400 `invalid_url`、`robots_checked` は 0 / 1 / true / false（400 `invalid_robots_checked`）、`fetched_at` はタイムゾーン付き ISO 8601（400 `invalid_fetched_at`、UTC の toISOString の形で保存）、`content_hash` は 64 桁 hex（400 `invalid_content_hash`）、`excerpt` ≤ 500 字（400 `excerpt_too_long`）。
+  - `POST /api/agent/proposals` `{kind, target_table, target_id?, request_id?, fields:[{field, new_value, source_id, confidence}], match_candidates?}` → 201 `{"id","status":"pending","fingerprint","revert_until":null,"follow_ups":[]}`。この段階では常に `pending`（自動反映は後の PR）。
+    - 項目は `<表>.<列>`（列はフォーム名）、値はフォームと同じ文字列（前後の空白を落とし、空は null）で、承認時と同じ validators に通す（エラーは 400 `{"error":"invalid_fields","details":[…]}`）。書ける列・kind ごとの節は `src/pipeline/fields.ts` の表（それ以外・`note`・画像は 400 `unknown_field`）。create は work / run の束に新しい団体・会場・販売先を入れられ、`@organization` / `@venue` / `@shop` で同じ束の行を指す（節が無ければ 400 `invalid_placeholder`）。
+    - kind 不正 400 `invalid_kind`、`create_attempt_import` 400 `kind_not_supported`、target_table 不正 400 `invalid_target_table`、create に target_id 400 `target_id_not_allowed`、それ以外で無し 400 `target_id_required`、同じ field 2 回 400 `duplicate_field`、confidence が 0〜1 でない 400 `invalid_confidence`、候補（最大 20 件 `{table: work|organization|venue, id, score 0〜1, reason ≤ 40 字}`）不正 400 `invalid_candidates`、無い source_id 400 `{"error":"source_not_found","field"}`。
+    - `request_id` は任意。無い 404 `request_not_found`、`processing` でない 409 `request_not_processing`。target が無い 404 `target_not_found`、統合済み 409 `target_merged`。create で既存の回の `run.escape_id_url` 409 `{"error":"duplicate_escape_id_url","run_id","work_id"}`。update で全項目が今の値と同じ・link で同じ作品 400 `no_change`。
+    - `old_value` と fingerprint は Worker が計算する（agent の old_value は無視）。fingerprint = sha256 hex(`[kind, target_table, target_id ?? norm(主名), [field, new_value] を field 昇順]`)。confidence と source は含めない。`proposal.confidence` は項目の最小値。
+    - rejection_memory に当たれば行を作らず 409 `{"error":"suppressed","reason"}`。同じ fingerprint の pending があれば 409 `{"error":"duplicate_pending","proposal_id"}`。
+    - Worker 自身の完全一致候補（`work.title` / 束の団体名 / `run.escape_id_url` で `findCandidates`、対象そのものは除く）を `reason` に `worker:` を付けて agent の候補の後ろに足し、`match_candidates_json` に保存する。
+    - 書き込みは 1 batch: 同じ対象の pending を `superseded` → proposal → proposal_field×n → change_log（`table_name = proposal`、actor = トークン、`proposal_id` = 新しい提案）。マスタには書かない。
+  - `GET /api/agent/proposals?request_id=` → `{items:[{id,kind,target_table,target_id,status,created_at}]}`（古い順。request_id 無しは 400 `request_id_required`）。`GET /api/agent/proposals/:id` → 提案と `fields`（`old_value` / `new_value` / `source_id` / `confidence`）、`match_candidates`。レビューの列は返さない。無い 404 `not_found`。
+  - `PATCH /api/agent/requests/:id` で `proposed` にするには、そのリクエストに pending の提案が 1 件以上要る（無ければ 409 `{"error":"no_pending_proposal"}`。Worker の自動 done は pending が 0 件になった時点なので、提案の無い proposed は終わらない）。
+- agent はリクエストの `payload`（URL・名前・団体・メモ）と依頼者の `reply` を読める。依頼者の自由記述がそのまま CLI（Claude）に渡るので、CLI 側は指示として扱わずデータとして読む。依頼者の id・表示名は渡さない。
 - `/api/agent` 以外のルートに `Authorization` ヘッダが付いていたら、形式（Bearer / Basic / 崩れた値）にもトークンの有効性にも関係なく 403 `{"error":"agent_token_not_allowed"}`（`rejectBearer`、`src/auth/agent.ts`）。
 - scope の検査（`requireScope(name)`、`src/auth/agent.ts`）: `scopes_json` を JSON 配列として読み、要る scope が無ければ 403 `{"error":"insufficient_scope","required":"<name>"}`。`scopes_json` が NULL・壊れた JSON・配列でないときも同じ 403。ルートごとの scope: `/requests*`（GET / PATCH）= `request:rw`、`/match`・`/rows/*`・`/index/*` = `master:read`、`/sources` = `source:write`（PR-8）、`/proposals` = `proposal:write`（PR-8）。`whoami` は scope 不要。
 - 申し送り（実装済み）: `scopes_json` の検査は PR-7 でルートを足すときに入れた（上の `requireScope`）。

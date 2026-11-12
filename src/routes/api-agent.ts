@@ -2,6 +2,7 @@
 // src/index.ts で csrf / attachUser より前に登録する。定義していないパスは認証後に全部 403。
 
 import { type Context, Hono } from 'hono'
+import { escapeRunUrl } from '../admin/validate'
 import { currentAgent, requireAgent, requireScope } from '../auth/agent'
 import {
   type AgentIndexPart,
@@ -12,6 +13,21 @@ import {
   getAgentRow,
   listAgentIndex,
 } from '../db/master'
+import { runStmts } from '../db/master-write'
+import { findCandidates } from '../db/match'
+import {
+  countPendingForRequest,
+  createProposalStmts,
+  createSource,
+  existingSourceIds,
+  getProposalWithFields,
+  getRejection,
+  getTargetRow,
+  isLiveRow,
+  listProposalsByRequest,
+  pendingIdByFingerprint,
+  runByEscapeIdUrl,
+} from '../db/proposals'
 import {
   getAgentRequest,
   listAgentRequests,
@@ -20,6 +36,9 @@ import {
 } from '../db/requests'
 import { requestStatuses } from '../db/schema'
 import type { AppEnv } from '../env'
+import { url as urlParser } from '../lib/form'
+import { isEscapeIdMyPage } from '../lib/url'
+import { fingerprintOf, matchInputOf, parseProposal, validateBundle } from '../pipeline/fields'
 import { canTransition } from '../requests/transitions'
 import type { RequestStatus } from '../ui/labels'
 import { matchHandler } from './match-handler'
@@ -137,6 +156,10 @@ apiAgent.patch('/requests/:id', requireScope('request:rw'), async (c) => {
   if (!canTransition(cur.status, to, 'agent')) {
     return c.json({ error: 'invalid_transition', from: cur.status, to }, 409)
   }
+  // 提案を 1 件も出さずに「確認中」にはしない（pending が 0 件だと Worker の自動 done が起きない）
+  if (to === 'proposed' && (await countPendingForRequest(db, id)) === 0) {
+    return c.json({ error: 'no_pending_proposal' }, 409)
+  }
   const res = await setRequestStatus(db, id, to, { note, question }, 'agent')
   if (res === 'not_found') return c.json({ error: 'not_found' }, 404)
   if (res === 'invalid_transition') {
@@ -183,6 +206,174 @@ apiAgent.get('/index/:table', requireScope('master:read'), async (c) => {
       limit,
     ),
   )
+})
+
+// ---- 出典（source）。Worker は外部へ取りに行かず、agent が取った記録だけを受け取る（docs/sources.md §4）
+
+const EXCERPT_MAX = 500
+const agentSourceMethods = ['escape_mcp', 'webfetch', 'pds'] as const
+// X（旧 Twitter）は取得元にしない
+const xHosts = ['x.com', 'twitter.com'].flatMap((h) => [h, `www.${h}`, `mobile.${h}`])
+// ISO 8601 の日時（タイムゾーン付き）
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/
+
+apiAgent.post('/sources', requireScope('source:write'), async (c) => {
+  const body: unknown = await c.req.json()
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return c.json({ error: 'invalid_body' }, 400)
+  }
+  const b = body as Record<string, unknown>
+  const parsed = typeof b.url === 'string' ? urlParser()(b.url.trim()) : null
+  if (!parsed?.ok) return c.json({ error: 'invalid_url' }, 400)
+  const href = parsed.value
+  const host = new URL(href).hostname.replace(/\.+$/, '').toLowerCase()
+  if (isEscapeIdMyPage(href) || xHosts.includes(host)) {
+    return c.json({ error: 'forbidden_source' }, 400)
+  }
+  const method = b.method
+  if (typeof method !== 'string' || !(agentSourceMethods as readonly string[]).includes(method)) {
+    return c.json({ error: 'invalid_method' }, 400)
+  }
+  if (method === 'escape_mcp' && host !== 'escape.id') {
+    return c.json({ error: 'method_host_mismatch' }, 400)
+  }
+  const robots = b.robots_checked
+  if (robots !== 0 && robots !== 1 && robots !== true && robots !== false) {
+    return c.json({ error: 'invalid_robots_checked' }, 400)
+  }
+  const robotsChecked = robots === 1 || robots === true ? 1 : 0
+  if (method === 'webfetch' && robotsChecked !== 1) {
+    return c.json({ error: 'robots_not_checked' }, 400)
+  }
+  const fetchedAt = b.fetched_at
+  if (
+    typeof fetchedAt !== 'string' ||
+    !ISO_DATETIME.test(fetchedAt) ||
+    Number.isNaN(Date.parse(fetchedAt))
+  ) {
+    return c.json({ error: 'invalid_fetched_at' }, 400)
+  }
+  const hash = b.content_hash ?? null
+  if (hash !== null && (typeof hash !== 'string' || !/^[0-9a-f]{64}$/i.test(hash))) {
+    return c.json({ error: 'invalid_content_hash' }, 400)
+  }
+  const excerpt = b.excerpt ?? null
+  if (excerpt !== null && (typeof excerpt !== 'string' || [...excerpt].length > EXCERPT_MAX)) {
+    return c.json({ error: 'excerpt_too_long' }, 400)
+  }
+  const id = await createSource(c.get('db'), {
+    url: href,
+    domain: host,
+    method: method as (typeof agentSourceMethods)[number],
+    fetchedAt: new Date(fetchedAt).toISOString(),
+    contentHash: hash?.toLowerCase() ?? null,
+    excerpt: excerpt || null,
+    robotsChecked,
+  })
+  return c.json({ id }, 201)
+})
+
+// ---- 提案（proposal）。この段階では常に pending（自動反映は PR-10）
+
+const isUniqueViolation = (e: unknown) =>
+  String((e as { cause?: unknown })?.cause ?? e).includes('UNIQUE constraint failed')
+
+apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
+  const parsed = parseProposal(await c.req.json())
+  if (!parsed.ok) return c.json(parsed.error.body, parsed.error.status)
+  const d = parsed.value
+  const db = c.get('db')
+
+  if (d.requestId) {
+    const r = await getAgentRequest(db, d.requestId)
+    if (!r) return c.json({ error: 'request_not_found' }, 404)
+    if (r.status !== 'processing') return c.json({ error: 'request_not_processing' }, 409)
+  }
+
+  let target: Record<string, unknown> | null = null
+  if (d.targetId) {
+    target = await getTargetRow(db, d.targetTable, d.targetId)
+    if (!target) return c.json({ error: 'target_not_found' }, 404)
+    if (target.merged_into_id) return c.json({ error: 'target_merged' }, 409)
+  }
+
+  const sourceIds = [...new Set(d.items.flatMap((i) => (i.sourceId ? [i.sourceId] : [])))]
+  const found = await existingSourceIds(db, sourceIds)
+  const missing = d.items.find((i) => i.sourceId && !found.has(i.sourceId))
+  if (missing) return c.json({ error: 'source_not_found', field: missing.field }, 400)
+
+  // 既にある回の escape.id URL で作ろうとしている（検証の「同じ URL の回があります」より先に、回と作品を返す）
+  const escapeUrl = d.items.find((i) => i.field === 'run.escape_id_url')?.newValue
+  if (d.kind === 'create' && escapeUrl) {
+    const norm = escapeRunUrl()(escapeUrl)
+    const dup = norm.ok ? await runByEscapeIdUrl(db, norm.value) : undefined
+    if (dup) {
+      return c.json({ error: 'duplicate_escape_id_url', run_id: dup.id, work_id: dup.workId }, 409)
+    }
+  }
+
+  const v = await validateBundle(db, d, target, { isLive: (t, id) => isLiveRow(db, t, id) })
+  if (v.errors.length) return c.json({ error: 'invalid_fields', details: v.errors }, 400)
+  if (v.noChange) return c.json({ error: 'no_change' }, 400)
+
+  const fingerprint = await fingerprintOf(d)
+  const rejected = await getRejection(db, fingerprint)
+  if (rejected) return c.json({ error: 'suppressed', reason: rejected.reason }, 409)
+  const pendingId = await pendingIdByFingerprint(db, fingerprint)
+  if (pendingId) return c.json({ error: 'duplicate_pending', proposal_id: pendingId }, 409)
+
+  // Worker 自身の完全一致を worker: 付きで足す（対象そのものは除く）
+  const m = matchInputOf(d)
+  const own =
+    m.title || m.org || m.url ? await findCandidates(db, m) : { works: [], organizations: [] }
+  const workerCandidates = [
+    ...own.works.map((w) => ({
+      table: 'work',
+      id: w.id,
+      score: w.score,
+      reason: `worker:${w.reason}`,
+    })),
+    ...own.organizations.map((o) => ({
+      table: 'organization',
+      id: o.id,
+      score: o.score,
+      reason: `worker:${o.reason}`,
+    })),
+  ].filter((x) => !(x.table === d.targetTable && x.id === d.targetId))
+
+  const s = await createProposalStmts(db, {
+    draft: d,
+    oldValues: v.oldValues,
+    fingerprint,
+    candidatesJson: JSON.stringify([...d.candidates, ...workerCandidates]),
+    tokenId: currentAgent(c).id,
+  })
+  try {
+    await runStmts(db, s.stmts)
+  } catch (e) {
+    // 確かめてから書くまでの間に同じ fingerprint の pending ができた
+    if (!isUniqueViolation(e)) throw e
+    const id = await pendingIdByFingerprint(db, fingerprint)
+    if (!id) throw e
+    return c.json({ error: 'duplicate_pending', proposal_id: id }, 409)
+  }
+  return c.json(
+    { id: s.id, status: 'pending', fingerprint, revert_until: null, follow_ups: [] },
+    201,
+  )
+})
+
+// リクエストに紐付く提案（request_id 必須）
+apiAgent.get('/proposals', requireScope('proposal:write'), async (c) => {
+  const requestId = c.req.query('request_id')?.trim()
+  if (!requestId) return c.json({ error: 'request_id_required' }, 400)
+  return c.json({ items: await listProposalsByRequest(c.get('db'), requestId) })
+})
+
+apiAgent.get('/proposals/:id', requireScope('proposal:write'), async (c) => {
+  const p = await getProposalWithFields(c.get('db'), c.req.param('id'))
+  if (!p) return c.json({ error: 'not_found' }, 404)
+  return c.json(p)
 })
 
 // 定義していない API は全部禁止（記録系の名前でも 403）

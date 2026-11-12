@@ -280,7 +280,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
   - INDEX(status), INDEX(target_table, target_id), INDEX(request_id)
 - `proposal_field(id, proposal_id, field, old_value, new_value, source_id NULL, confidence REAL NULL, accepted NULL)` — フィールド単位の差分と出典
   - CHECK: `confidence BETWEEN 0 AND 1`、`accepted IN (0, 1)`（承認時に入れる）。INDEX(proposal_id)
-- `rejection_memory(fingerprint PK, reason, created_at)` — 同じ提案の再発を `suppressed` にする
+- `rejection_memory(fingerprint PK, reason, created_at)` — 却下した提案の fingerprint。同じ fingerprint の提案は proposal の行を作らず 409 `{"error":"suppressed","reason"}` だけを返す（status の `suppressed` は使わない。enum には残す）
 - `change_log(id, table_name, row_id, action, before_json, after_json, actor_user_id NULL FK user, actor_token_id NULL FK api_token, proposal_id NULL, created_at)` — CHECK: actor_user_id と actor_token_id のちょうど片方が NOT NULL。INDEX(table_name, row_id)
 - `api_token(id, name, token_hash, role(agent), scopes_json, expires_at, last_used_at, revoked_at, created_at)`
 - `app_setting(key PK, value NOT NULL, updated_at NOT NULL, updated_by_user_id NULL FK user)` — 運用の設定。CHECK: `key IN ('auto_apply')`。行が無ければ既定値
