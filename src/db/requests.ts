@@ -273,14 +273,15 @@ export const getRequest = async (db: Db, id: string): Promise<AdminRequest | nul
 }
 
 // 状態を変える。遷移は canTransition で判定し、読んでから書くまでに状態が変わっていれば invalid_transition。
-// note は triaged / rejected の triage_note（空なら今の値のまま）、question は needs_info の質問。
+// note はオーナーなら triaged / rejected の triage_note、agent なら agent_note（どちらも空なら今の値のまま）。
+// question は needs_info の質問。
 // needs_info にするときは元の状態に関係なく前の reply を消す（古い返信が新しい質問への答えに見えないように）
 export const setRequestStatus = async (
   db: Db,
   id: string,
   to: RequestStatus,
   { note, question }: { note?: string | null; question?: string | null },
-  by: Extract<RequestActor, 'owner'>,
+  by: Extract<RequestActor, 'owner' | 'agent'>,
 ): Promise<'ok' | 'not_found' | 'invalid_transition'> => {
   const cur = await db
     .select({ status: request.status })
@@ -290,7 +291,8 @@ export const setRequestStatus = async (
   if (!cur) return 'not_found'
   if (!canTransition(cur.status, to, by)) return 'invalid_transition'
   const set: Partial<typeof request.$inferInsert> = { status: to, updatedAt: nowIso() }
-  if ((to === 'triaged' || to === 'rejected') && note) set.triageNote = note
+  if (by === 'owner' && (to === 'triaged' || to === 'rejected') && note) set.triageNote = note
+  if (by === 'agent' && note) set.agentNote = note
   if (to === 'needs_info') {
     set.question = question ?? null
     set.reply = null
@@ -301,4 +303,26 @@ export const setRequestStatus = async (
     .where(and(eq(request.id, id), eq(request.status, cur.status)))
     .returning({ id: request.id })
   return updated.length ? 'ok' : 'invalid_transition'
+}
+
+// ---- agent 用（/api/agent/requests）。依頼者の id・表示名は持たない（依頼者用と同じ列だけ）
+
+// 指定した状態のものを古い順に
+export const listAgentRequests = async (
+  db: Db,
+  statuses: RequestStatus[],
+  limit: number,
+): Promise<OwnRequest[]> =>
+  (
+    await db
+      .select(ownCols)
+      .from(request)
+      .where(inArray(request.status, statuses))
+      .orderBy(asc(request.createdAt), asc(request.id))
+      .limit(limit)
+  ).map(toOwn)
+
+export const getAgentRequest = async (db: Db, id: string): Promise<OwnRequest | null> => {
+  const row = await db.select(ownCols).from(request).where(eq(request.id, id)).get()
+  return row ? toOwn(row) : null
 }
