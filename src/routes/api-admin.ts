@@ -1,13 +1,9 @@
 // オーナー用の JSON API（/api/admin/*）。非オーナーには JSON の 404 を返す
 
-import { type Context, Hono } from 'hono'
+import { Hono } from 'hono'
 import { requireOwnerApi } from '../auth/middleware'
-import { findCandidates } from '../db/match'
 import type { AppEnv } from '../env'
-import { normalizeMatchUrl } from '../lib/match'
-
-// 名前・題名の上限（コードポイント）。マスタの入力上限と同じ
-const NAME_MAX = 200
+import { matchHandler } from './match-handler'
 
 const apiAdmin = new Hono<AppEnv>({ strict: false })
 
@@ -18,17 +14,7 @@ apiAdmin.use('*', async (c, next) => {
 })
 apiAdmin.use('*', requireOwnerApi)
 
-// 名寄せ候補（docs/data-model.md §5）。title か url のどちらかが要る。/api/agent/match も同じ処理
-export const matchHandler = async (c: Context<AppEnv>) => {
-  const title = c.req.query('title')?.trim() ?? ''
-  const org = c.req.query('org')?.trim() ?? ''
-  const url = c.req.query('url')?.trim() ?? ''
-  if (!title && !url) return c.json({ error: 'title_or_url_required' }, 400)
-  if ([...title].length > NAME_MAX) return c.json({ error: 'title_too_long' }, 400)
-  if ([...org].length > NAME_MAX) return c.json({ error: 'org_too_long' }, 400)
-  if (url && !normalizeMatchUrl(url)) return c.json({ error: 'invalid_url' }, 400)
-  return c.json(await findCandidates(c.get('db'), { title, org, url }))
-}
+// 名寄せ候補（docs/data-model.md §5）。処理は /api/agent/match と共用
 apiAdmin.get('/match', matchHandler)
 
 export default apiAdmin

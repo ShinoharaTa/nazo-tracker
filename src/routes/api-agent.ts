@@ -22,13 +22,13 @@ import { requestStatuses } from '../db/schema'
 import type { AppEnv } from '../env'
 import { canTransition } from '../requests/transitions'
 import type { RequestStatus } from '../ui/labels'
-import { matchHandler } from './api-admin'
+import { matchHandler } from './match-handler'
 
 // 本文の上限（バイト）
 const BODY_MAX = 64 * 1024
 // 一覧の件数（既定・上限）。範囲外・数でない値は既定か上限に寄せる
 const REQUESTS_LIMIT = { def: 50, max: 100 }
-const INDEX_LIMIT = { def: 1000, max: 2000 }
+const INDEX_LIMIT = { def: 1000, max: 1000 }
 // 質問はオーナーの質問と同じ上限、メモは依頼者のメモと同じ上限（コードポイント）
 const QUESTION_MAX = 1000
 const NOTE_MAX = 2000

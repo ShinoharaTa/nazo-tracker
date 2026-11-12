@@ -834,6 +834,9 @@ const withoutNote = (row: Record<string, unknown>) => {
   return rest
 }
 
+// work の行に付ける別名・回の上限（各）。超えたら切って truncated: true を付ける
+export const AGENT_ROW_CHILDREN_MAX = 200
+
 // 行 1 つ。統合済みも返す（merged_into_id 入り）。work には別名と回（DB の行）を付ける
 export const getAgentRow = async (
   db: Db,
@@ -845,14 +848,27 @@ export const getAgentRow = async (
   if (!row) return null
   const out = withoutNote(columnRow(t, row))
   if (table !== 'work') return out
+  // 1 件多く読んで、上限を超えたかを見る
   const [aliases, runs] = await Promise.all([
-    db.select().from(workAlias).where(eq(workAlias.workId, id)).orderBy(workAlias.id),
-    db.select().from(run).where(eq(run.workId, id)).orderBy(run.id),
+    db
+      .select()
+      .from(workAlias)
+      .where(eq(workAlias.workId, id))
+      .orderBy(workAlias.id)
+      .limit(AGENT_ROW_CHILDREN_MAX + 1),
+    db
+      .select()
+      .from(run)
+      .where(eq(run.workId, id))
+      .orderBy(run.id)
+      .limit(AGENT_ROW_CHILDREN_MAX + 1),
   ])
+  const truncated = aliases.length > AGENT_ROW_CHILDREN_MAX || runs.length > AGENT_ROW_CHILDREN_MAX
   return {
     ...out,
-    aliases: aliases.map((a) => columnRow(workAlias, a)),
-    runs: runs.map((r) => withoutNote(columnRow(run, r))),
+    aliases: aliases.slice(0, AGENT_ROW_CHILDREN_MAX).map((a) => columnRow(workAlias, a)),
+    runs: runs.slice(0, AGENT_ROW_CHILDREN_MAX).map((r) => withoutNote(columnRow(run, r))),
+    ...(truncated ? { truncated: true } : {}),
   }
 }
 

@@ -223,6 +223,22 @@ describe('マスタの行', () => {
     expect(r.body.merged_into_id).toBe(into)
   })
 
+  it('work の runs が 200 件を超えたら 200 件で切り truncated: true を付ける', async () => {
+    const workId = await insertWork(env, { title: '回の多い作品' })
+    const at = '2026-01-01T00:00:00.000Z'
+    const stmt = env.DB.prepare(
+      "INSERT INTO run (id, work_id, channel, is_permanent, created_at, updated_at) VALUES (?, ?, 'online', 0, ?, ?)",
+    )
+    await env.DB.batch(Array.from({ length: 201 }, () => stmt.bind(ulid(), workId, at, at)))
+    const r = await get(`/api/agent/rows/work/${workId}`)
+    expect(r.status).toBe(200)
+    expect(r.body.runs as unknown[]).toHaveLength(200)
+    expect(r.body.truncated).toBe(true)
+    // 超えていなければ付けない
+    const small = await insertWork(env, { title: '回の少ない作品' })
+    expect(await get(`/api/agent/rows/work/${small}`)).not.toHaveProperty('body.truncated')
+  })
+
   it('table 不正は 400 invalid_table、無い id は 404', async () => {
     expect(await get('/api/agent/rows/attempt/x')).toEqual({
       status: 400,
