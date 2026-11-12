@@ -84,7 +84,8 @@ fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化し�
   - `GET /api/agent/rows/:table/:id`: table ∈ work / run / organization / venue / shop（不正 400 `invalid_table`）。DB 列名の行 1 つ（`note` は除く）。work は `aliases`・`runs` も付ける。統合済みも返す。無い → 404 `not_found`。
   - `GET /api/agent/index/:table?part=name|alias&after=&limit=1000`: table ∈ work / organization / venue（venue は name のみ、不正 400 `invalid_part`）。未統合だけ（alias は未統合の作品・団体の別名）、id 昇順、limit は 1〜2000。work `{id,work_id,title,title_norm,org_id}`、organization `{id,organization_id,name,name_norm}`、venue `{id,name,name_norm,prefecture}`。`{items, next}`（続きがあれば最後の id、無ければ null。次は `after=<next>`）。
 - `/api/agent` 以外のルートに `Authorization` ヘッダが付いていたら、形式（Bearer / Basic / 崩れた値）にもトークンの有効性にも関係なく 403 `{"error":"agent_token_not_allowed"}`（`rejectBearer`、`src/auth/agent.ts`）。
-- 申し送り: `scopes_json` の検査は PR-7 以降でルートを足すときに入れる（PR-6 時点では whoami しか無く、scopes は読んでいない）。
+- scope の検査（`requireScope(name)`、`src/auth/agent.ts`）: `scopes_json` を JSON 配列として読み、要る scope が無ければ 403 `{"error":"insufficient_scope","required":"<name>"}`。`scopes_json` が NULL・壊れた JSON・配列でないときも同じ 403。ルートごとの scope: `/requests*`（GET / PATCH）= `request:rw`、`/match`・`/rows/*`・`/index/*` = `master:read`、`/sources` = `source:write`（PR-8）、`/proposals` = `proposal:write`（PR-8）。`whoami` は scope 不要。
+- 申し送り（実装済み）: `scopes_json` の検査は PR-7 でルートを足すときに入れた（上の `requireScope`）。
 - 申し送り: Workers Logs やトレースを有効にするときは、リクエストヘッダの `Authorization`（平文のトークン）が記録されないか確かめる。
 - 監査: agent による全書き込みは `change_log.actor = token:<id>`。
 - CLI は `127.0.0.1` に何も listen しない。HTTPS で `nazo.shino3.net` へ。

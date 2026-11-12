@@ -2,7 +2,7 @@
 // src/index.ts で csrf / attachUser より前に登録する。定義していないパスは認証後に全部 403。
 
 import { type Context, Hono } from 'hono'
-import { currentAgent, requireAgent } from '../auth/agent'
+import { currentAgent, requireAgent, requireScope } from '../auth/agent'
 import {
   type AgentIndexPart,
   type AgentIndexTable,
@@ -90,7 +90,7 @@ const requestJson = (r: OwnRequest) => ({
 })
 
 // リクエスト一覧。status はカンマ区切り（既定 triaged）、古い順
-apiAgent.get('/requests', async (c) => {
+apiAgent.get('/requests', requireScope('request:rw'), async (c) => {
   const raw = c.req.query('status')
   const statuses = raw === undefined ? ['triaged'] : raw.split(',').map((s) => s.trim())
   if (!statuses.every(isStatus)) return c.json({ error: 'invalid_status' }, 400)
@@ -99,7 +99,7 @@ apiAgent.get('/requests', async (c) => {
   return c.json({ items: items.map(requestJson) })
 })
 
-apiAgent.get('/requests/:id', async (c) => {
+apiAgent.get('/requests/:id', requireScope('request:rw'), async (c) => {
   const r = await getAgentRequest(c.get('db'), c.req.param('id'))
   if (!r) return c.json({ error: 'not_found' }, 404)
   return c.json(requestJson(r))
@@ -113,7 +113,7 @@ const optText = (v: unknown): string | null | false => {
 }
 
 // 状態の更新。遷移は src/requests/transitions.ts の agent の行だけ
-apiAgent.patch('/requests/:id', async (c) => {
+apiAgent.patch('/requests/:id', requireScope('request:rw'), async (c) => {
   const body: unknown = await c.req.json()
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return c.json({ error: 'invalid_body' }, 400)
@@ -149,10 +149,10 @@ apiAgent.patch('/requests/:id', async (c) => {
 })
 
 // 名寄せ候補（/api/admin/match と同じ検証・同じ形。完全一致のみ）
-apiAgent.get('/match', matchHandler)
+apiAgent.get('/match', requireScope('master:read'), matchHandler)
 
 // マスタの行 1 つ（DB 列名、note は除く）
-apiAgent.get('/rows/:table/:id', async (c) => {
+apiAgent.get('/rows/:table/:id', requireScope('master:read'), async (c) => {
   const table = c.req.param('table')
   if (!(agentRowTables as readonly string[]).includes(table)) {
     return c.json({ error: 'invalid_table' }, 400)
@@ -163,7 +163,7 @@ apiAgent.get('/rows/:table/:id', async (c) => {
 })
 
 // 名寄せ用の軽い一覧（未統合だけ、id 昇順）。venue は name のみ
-apiAgent.get('/index/:table', async (c) => {
+apiAgent.get('/index/:table', requireScope('master:read'), async (c) => {
   const table = c.req.param('table')
   if (!(agentIndexTables as readonly string[]).includes(table)) {
     return c.json({ error: 'invalid_table' }, 400)

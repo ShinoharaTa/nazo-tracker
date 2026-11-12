@@ -383,3 +383,72 @@ describe('名寄せ候補', () => {
     expect(res.status).toBe(401)
   })
 })
+
+describe('scope', () => {
+  const allScopes = ['master:read', 'request:rw', 'source:write', 'proposal:write']
+  const routes: { path: string; method: 'GET' | 'PATCH'; scope: string }[] = [
+    { path: '/api/agent/requests', method: 'GET', scope: 'request:rw' },
+    { path: '/api/agent/requests/x', method: 'GET', scope: 'request:rw' },
+    { path: '/api/agent/requests/x', method: 'PATCH', scope: 'request:rw' },
+    { path: '/api/agent/match?title=x', method: 'GET', scope: 'master:read' },
+    { path: '/api/agent/rows/work/x', method: 'GET', scope: 'master:read' },
+    { path: '/api/agent/index/work', method: 'GET', scope: 'master:read' },
+  ]
+
+  let scoped = { id: '', token: '' }
+  beforeAll(async () => {
+    scoped = await createToken(createDb(env.DB), 'agent-read-scope', 90)
+  })
+
+  const setScopes = (json: string | null) =>
+    env.DB.prepare('UPDATE api_token SET scopes_json = ? WHERE id = ?').bind(json, scoped.id).run()
+
+  const call = (r: (typeof routes)[number]) =>
+    app.request(
+      r.path,
+      {
+        method: r.method,
+        headers: {
+          Authorization: `Bearer ${scoped.token}`,
+          ...(r.method === 'PATCH' ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: r.method === 'PATCH' ? JSON.stringify({ status: 'processing' }) : undefined,
+      },
+      env,
+    )
+
+  it('要る scope が無いトークンは各ルートで 403 insufficient_scope', async () => {
+    for (const r of routes) {
+      await setScopes(JSON.stringify(allScopes.filter((s) => s !== r.scope)))
+      const res = await call(r)
+      expect(res.status, `${r.method} ${r.path}`).toBe(403)
+      expect(await res.json()).toEqual({ error: 'insufficient_scope', required: r.scope })
+    }
+  })
+
+  it('scopes_json が NULL・壊れた JSON・配列でないときは全部 403', async () => {
+    for (const json of [null, '[', '{"master:read":true}', '"master:read"', '[]']) {
+      await setScopes(json)
+      for (const r of routes) {
+        const res = await call(r)
+        expect(res.status, `${json} ${r.method} ${r.path}`).toBe(403)
+        expect(await res.json()).toEqual({ error: 'insufficient_scope', required: r.scope })
+      }
+    }
+  })
+
+  it('全 scope なら通る（403 にならない）。whoami は scope 不要', async () => {
+    await setScopes(JSON.stringify(allScopes))
+    for (const r of routes) {
+      const res = await call(r)
+      expect(res.status, `${r.method} ${r.path}`).not.toBe(403)
+    }
+    await setScopes(null)
+    const who = await app.request(
+      '/api/agent/whoami',
+      { headers: { Authorization: `Bearer ${scoped.token}` } },
+      env,
+    )
+    expect(who.status).toBe(200)
+  })
+})
