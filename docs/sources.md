@@ -56,4 +56,4 @@ LINE 謎・Web 謎の横断ポータルは検索で見つからなかった（Ap
 
 `url / domain / method / fetched_at / content_hash / excerpt(≤500 字) / robots_checked`。提案の各フィールドが `source_id` を指す。本文全文は保存しない（著作物の複製を避ける）。
 
-禁止の取得元は Worker（`POST /api/agent/sources`）が 400 `forbidden_source` で拒否する: escape.id / `*.escape.id` のマイページ（`/me` 以下。本人の記録が載る）、X（`x.com` / `twitter.com` とその `www.`・`mobile.`）。`method=escape_mcp` は escape.id の URL だけ、`method=webfetch` は robots.txt を確認済み（`robots_checked=1`）のときだけ受け付ける。Worker は記録を受け取るだけで、外部サイトへは取りに行かない。
+禁止の取得元は Worker（`POST /api/agent/sources`）が 400 `forbidden_source` で拒否する: escape.id / `*.escape.id` のマイページ（`/me` 以下。本人の記録が載る）、X（host が `x.com` / `twitter.com` / `t.co` そのものか、そのサブドメイン）。userinfo（`user:pass@`）付きの URL も受け付けない（400 `invalid_url`）。`method=escape_mcp` は escape.id の URL だけ、`method=webfetch` は robots.txt を確認済み（`robots_checked=1`）のときだけ受け付ける。Worker は記録を受け取るだけで、外部サイトへは取りに行かない。

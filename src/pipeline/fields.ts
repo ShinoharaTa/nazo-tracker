@@ -87,6 +87,8 @@ const targetTablesOf = (kind: ProposalKind): readonly ProposalTable[] =>
 
 export const MATCH_CANDIDATES_MAX = 20
 const REASON_MAX = 40
+// 候補の id の上限（存在は確かめない。承認画面で引く）
+const CANDIDATE_ID_MAX = 64
 
 export type ProposalItem = {
   field: string
@@ -139,7 +141,8 @@ const parseCandidates = (v: unknown): MatchCandidateJson[] | null => {
     if (typeof table !== 'string' || !(mergeTables as readonly string[]).includes(table)) {
       return null
     }
-    if (typeof id !== 'string' || !id.trim() || !isScore(score)) return null
+    if (typeof id !== 'string' || !id.trim() || id.trim().length > CANDIDATE_ID_MAX) return null
+    if (!isScore(score)) return null
     if (typeof reason !== 'string' || [...reason].length > REASON_MAX) return null
     out.push({ table, id: id.trim(), score, reason })
   }
@@ -279,14 +282,39 @@ export type BundleDeps = {
   isLive: (table: 'work' | 'organization' | 'venue', id: string) => Promise<boolean>
 }
 
-// 束を validators に通す。target は update / link / merge の現在の行（DB 列名キー）。
-// 戻り値の oldValues は項目ごとの old_value（create は全部 null）、noChange は全項目が今の値と同じとき
+export type BundleResult = {
+  errors: string[]
+  // validator が正規化した後の値に置き換えた項目（fingerprint と保存に使う。URL・数値の書き方の違いを畳む）
+  items: ProposalItem[]
+  // 項目ごとの old_value（create は全部 null）
+  oldValues: (string | null)[]
+  // 全項目が今の値と同じ
+  noChange: boolean
+}
+
+// 検証後の値（camelCase キーの Input）→ 項目の文字列。null・空・is_permanent=0 は null
+const inputValue = (column: string, input: Record<string, unknown>): string | null =>
+  formValueOf(column, input[camel(column)]) || null
+
+// 項目を正規化後の値に。参照プレースホルダと Input に無い列（run.work_id など）は送られた値のまま
+const normalize = (
+  items: ProposalItem[],
+  inputs: Partial<Record<ProposalTable, Record<string, unknown>>>,
+): ProposalItem[] =>
+  items.map((i) => {
+    const input = inputs[i.table]
+    if (!input || (placeholders[i.field] && i.newValue?.startsWith('@'))) return i
+    if (!(camel(i.column) in input)) return i
+    return { ...i, newValue: inputValue(i.column, input) }
+  })
+
+// 束を validators に通す。target は update / link / merge の現在の行（DB 列名キー）
 export const validateBundle = async (
   db: Db,
   d: ProposalDraft,
   target: Record<string, unknown> | null,
   deps: BundleDeps,
-): Promise<{ errors: string[]; oldValues: (string | null)[]; noChange: boolean }> => {
+): Promise<BundleResult> => {
   const errors: string[] = []
   const oldValues = d.items.map((i) =>
     target ? formValueOf(i.column, target[i.column]) || null : null,
@@ -302,7 +330,12 @@ export const validateBundle = async (
     } else if (!(await deps.isLive(table, i.newValue))) {
       errors.push(`${label}が見つからないか、統合済みです。`)
     }
-    return { errors, oldValues, noChange: errors.length === 0 && oldValues[0] === i.newValue }
+    return {
+      errors,
+      items: d.items,
+      oldValues,
+      noChange: errors.length === 0 && oldValues[0] === i.newValue,
+    }
   }
 
   if (d.kind === 'update') {
@@ -319,37 +352,50 @@ export const validateBundle = async (
             : t === 'venue'
               ? await validateVenue(db, f)
               : await validateShop(db, f, selfId)
-    if (!r.ok) return { errors: r.errors, oldValues, noChange: false }
+    if (!r.ok) return { errors: r.errors, items: d.items, oldValues, noChange: false }
     // 検証後の値（正規化済み）が全項目で今の値と同じなら変更なし
     const input = r.value as Record<string, unknown>
     const noChange = d.items.every(
       (i) => (input[camel(i.column)] ?? null) === (target?.[i.column] ?? null),
     )
-    return { errors, oldValues, noChange }
+    return { errors, items: normalize(d.items, { [t]: input }), oldValues, noChange }
   }
 
   // create: 作る節を順に検証する（団体 → 会場 → 販売先 → 作品 → 回）
+  const inputs: Partial<Record<ProposalTable, Record<string, unknown>>> = {}
+  const keep = (
+    t: ProposalTable,
+    r: { ok: true; value: object } | { ok: false; errors: string[] },
+  ) => {
+    if (r.ok) inputs[t] = r.value as Record<string, unknown>
+    else errors.push(...r.errors)
+  }
   const has = (t: ProposalTable) => d.targetTable === t || d.items.some((i) => i.table === t)
-  if (has('organization')) {
-    const r = await validateOrg(db, formFor('organization', d.items, null))
-    if (!r.ok) errors.push(...r.errors)
-  }
-  if (has('venue')) {
-    const r = await validateVenue(db, formFor('venue', d.items, null))
-    if (!r.ok) errors.push(...r.errors)
-  }
-  if (has('shop')) {
-    const r = await validateShop(db, formFor('shop', d.items, null))
-    if (!r.ok) errors.push(...r.errors)
-  }
-  if (has('work')) {
-    const r = await validateWork(db, formFor('work', d.items, null))
-    if (!r.ok) errors.push(...r.errors)
-  }
+  if (has('organization'))
+    keep('organization', await validateOrg(db, formFor('organization', d.items, null)))
+  if (has('venue')) keep('venue', await validateVenue(db, formFor('venue', d.items, null)))
+  if (has('shop')) keep('shop', await validateShop(db, formFor('shop', d.items, null)))
+  if (has('work')) keep('work', await validateWork(db, formFor('work', d.items, null)))
   if (has('run')) {
     const f = formFor('run', d.items, null)
     const r = await validateRun(db, f)
-    errors.push(...runPlaceholderErrors(d.items, f, r.ok ? [] : r.errors))
+    const runErrors = runPlaceholderErrors(d.items, f, r.ok ? [] : r.errors)
+    errors.push(...runErrors)
+    if (r.ok) inputs.run = r.value as Record<string, unknown>
+    else if (runErrors.length === 0) {
+      // 販売先を @shop で指したときだけ（空にした shop_id で「販売先を選んで」が出る）。
+      // 正規化した値を取るため、channel の制約を外したフォームで通し直す（channel・参照の列は送られた値のまま使う）
+      const relaxed = await validateRun(db, {
+        ...f,
+        channel: 'performance',
+        venue_id: '',
+        shop_id: '',
+      })
+      if (relaxed.ok) {
+        const { channel: _, venueId: __, shopId: ___, ...rest } = relaxed.value
+        inputs.run = rest
+      }
+    }
     if (d.targetTable === 'run') {
       const workId = f.work_id
       if (!workId) errors.push('作品を入力してください。')
@@ -358,7 +404,12 @@ export const validateBundle = async (
       }
     }
   }
-  return { errors, oldValues, noChange: false }
+  return {
+    errors,
+    items: errors.length ? d.items : normalize(d.items, inputs),
+    oldValues,
+    noChange: false,
+  }
 }
 
 // Worker が名寄せ候補を引く値（work.title / 束の団体名 / run.escape_id_url）

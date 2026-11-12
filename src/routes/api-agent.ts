@@ -37,6 +37,7 @@ import {
 import { requestStatuses } from '../db/schema'
 import type { AppEnv } from '../env'
 import { url as urlParser } from '../lib/form'
+import { hasUserinfo } from '../lib/match'
 import { isEscapeIdMyPage } from '../lib/url'
 import { fingerprintOf, matchInputOf, parseProposal, validateBundle } from '../pipeline/fields'
 import { canTransition } from '../requests/transitions'
@@ -213,8 +214,9 @@ apiAgent.get('/index/:table', requireScope('master:read'), async (c) => {
 
 const EXCERPT_MAX = 500
 const agentSourceMethods = ['escape_mcp', 'webfetch', 'pds'] as const
-// X（旧 Twitter）は取得元にしない
-const xHosts = ['x.com', 'twitter.com'].flatMap((h) => [h, `www.${h}`, `mobile.${h}`])
+// X（旧 Twitter）とその短縮 URL は取得元にしない（サブドメインも全部）
+const xHosts = ['x.com', 'twitter.com', 't.co']
+const isXHost = (host: string) => xHosts.some((h) => host === h || host.endsWith(`.${h}`))
 // ISO 8601 の日時（タイムゾーン付き）
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/
 
@@ -225,10 +227,11 @@ apiAgent.post('/sources', requireScope('source:write'), async (c) => {
   }
   const b = body as Record<string, unknown>
   const parsed = typeof b.url === 'string' ? urlParser()(b.url.trim()) : null
-  if (!parsed?.ok) return c.json({ error: 'invalid_url' }, 400)
+  // userinfo（user:pass@）付きは出典にしない
+  if (!parsed?.ok || hasUserinfo(parsed.value)) return c.json({ error: 'invalid_url' }, 400)
   const href = parsed.value
   const host = new URL(href).hostname.replace(/\.+$/, '').toLowerCase()
-  if (isEscapeIdMyPage(href) || xHosts.includes(host)) {
+  if (isEscapeIdMyPage(href) || isXHost(host)) {
     return c.json({ error: 'forbidden_source' }, 400)
   }
   const method = b.method
@@ -316,15 +319,17 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   const v = await validateBundle(db, d, target, { isLive: (t, id) => isLiveRow(db, t, id) })
   if (v.errors.length) return c.json({ error: 'invalid_fields', details: v.errors }, 400)
   if (v.noChange) return c.json({ error: 'no_change' }, 400)
+  // 以下の fingerprint・候補・保存は validator が正規化した後の値で
+  const nd = { ...d, items: v.items }
 
-  const fingerprint = await fingerprintOf(d)
+  const fingerprint = await fingerprintOf(nd)
   const rejected = await getRejection(db, fingerprint)
   if (rejected) return c.json({ error: 'suppressed', reason: rejected.reason }, 409)
   const pendingId = await pendingIdByFingerprint(db, fingerprint)
   if (pendingId) return c.json({ error: 'duplicate_pending', proposal_id: pendingId }, 409)
 
   // Worker 自身の完全一致を worker: 付きで足す（対象そのものは除く）
-  const m = matchInputOf(d)
+  const m = matchInputOf(nd)
   const own =
     m.title || m.org || m.url ? await findCandidates(db, m) : { works: [], organizations: [] }
   const workerCandidates = [
@@ -343,10 +348,10 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   ].filter((x) => !(x.table === d.targetTable && x.id === d.targetId))
 
   const s = await createProposalStmts(db, {
-    draft: d,
+    draft: nd,
     oldValues: v.oldValues,
     fingerprint,
-    candidatesJson: JSON.stringify([...d.candidates, ...workerCandidates]),
+    candidatesJson: JSON.stringify([...nd.candidates, ...workerCandidates]),
     tokenId: currentAgent(c).id,
   })
   try {
@@ -370,7 +375,9 @@ apiAgent.get('/proposals', requireScope('proposal:write'), async (c) => {
   if (!requestId) return c.json({ error: 'request_id_required' }, 400)
   const after = c.req.query('after') || null
   const limit = limitOf(c.req.query('limit'), PROPOSALS_LIMIT)
-  return c.json(await listProposalsByRequest(c.get('db'), requestId, after, limit))
+  const r = await listProposalsByRequest(c.get('db'), requestId, after, limit)
+  if (r === 'invalid_after') return c.json({ error: 'invalid_after' }, 400)
+  return c.json(r)
 })
 
 apiAgent.get('/proposals/:id', requireScope('proposal:write'), async (c) => {

@@ -109,7 +109,11 @@ export type NewProposal = {
   tokenId: string
 }
 
-// 提案 1 件の文: 同じ対象の pending を superseded（update / link / merge のとき）→ proposal → proposal_field×n。
+// proposal_field の INSERT 1 文あたりの行数。D1 は 1 文の変数が 100 個まで（1 行 7〜8 個）
+const FIELD_ROWS_PER_INSERT = 12
+
+// 提案 1 件の文: 同じリクエスト・同じ kind・同じ対象の pending を superseded（update / link / merge のとき）
+// → proposal → proposal_field（FIELD_ROWS_PER_INSERT 行ずつ）。
 // proposal の作成と置き換えは change_log にも残す（actor = トークン、proposal_id = 新しい提案）
 export const createProposalStmts = async (db: Db, p: NewProposal): Promise<Stmts> => {
   const { draft: d } = p
@@ -128,6 +132,8 @@ export const createProposalStmts = async (db: Db, p: NewProposal): Promise<Stmts
         and(
           eq(proposal.targetTable, d.targetTable),
           eq(proposal.targetId, d.targetId),
+          eq(proposal.kind, d.kind),
+          d.requestId ? eq(proposal.requestId, d.requestId) : isNull(proposal.requestId),
           eq(proposal.status, 'pending'),
         ),
       )
@@ -164,19 +170,24 @@ export const createProposalStmts = async (db: Db, p: NewProposal): Promise<Stmts
     createdByTokenId: p.tokenId,
     createdAt: now,
   }
+  const fieldRows = d.items.map((i, n) => ({
+    id: ulid(),
+    proposalId: id,
+    field: i.field,
+    oldValue: p.oldValues[n],
+    newValue: i.newValue,
+    sourceId: i.sourceId,
+    confidence: i.confidence,
+  }))
+  const fieldInserts: Stmts['stmts'] = []
+  for (let n = 0; n < fieldRows.length; n += FIELD_ROWS_PER_INSERT) {
+    fieldInserts.push(
+      db.insert(proposalField).values(fieldRows.slice(n, n + FIELD_ROWS_PER_INSERT)),
+    )
+  }
   stmts.push(
     db.insert(proposal).values(row),
-    db.insert(proposalField).values(
-      d.items.map((i, n) => ({
-        id: ulid(),
-        proposalId: id,
-        field: i.field,
-        oldValue: p.oldValues[n],
-        newValue: i.newValue,
-        sourceId: i.sourceId,
-        confidence: i.confidence,
-      })),
-    ),
+    ...fieldInserts,
     logChange(db, {
       table: proposal,
       rowId: id,
@@ -200,13 +211,13 @@ const listCols = {
 }
 
 // リクエストに紐付く提案を古い順（created_at, id）に、after（提案の id）より後を limit 件。
-// next は続きがあるときの最後の id。after が無い id なら先頭から
+// next は続きがあるときの最後の id。after がそのリクエストの提案でなければ 'invalid_after'
 export const listProposalsByRequest = async (
   db: Db,
   requestId: string,
   after: string | null,
   limit: number,
-): Promise<{ items: { id: string }[]; next: string | null }> => {
+): Promise<{ items: { id: string }[]; next: string | null } | 'invalid_after'> => {
   const cur = after
     ? await db
         .select({ id: proposal.id, createdAt: proposal.createdAt })
@@ -214,6 +225,7 @@ export const listProposalsByRequest = async (
         .where(and(eq(proposal.id, after), eq(proposal.requestId, requestId)))
         .get()
     : undefined
+  if (after && !cur) return 'invalid_after'
   const rows = await db
     .select(listCols)
     .from(proposal)

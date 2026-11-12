@@ -80,6 +80,9 @@ describe('POST /api/agent/sources', () => {
       'https://www.escape.id/me/history',
       'https://x.com/someone/status/1',
       'https://mobile.twitter.com/someone',
+      'https://api.x.com/2/tweets',
+      'https://t.co/abc',
+      'https://pbs.twimg.x.com/a',
     ]) {
       const r = await post('/api/agent/sources', {
         ...okSource,
@@ -118,6 +121,24 @@ describe('POST /api/agent/sources', () => {
       status: 400,
       body: { error: 'invalid_content_hash' },
     })
+  })
+
+  it('X に似た別ドメインは X 扱いしない。userinfo 付きは 400 invalid_url', async () => {
+    for (const url of ['https://notx.com/a', 'https://t.com/a', 'https://xtwitter.com/a']) {
+      const r = await post('/api/agent/sources', {
+        ...okSource,
+        url,
+        method: 'webfetch',
+        robots_checked: 1,
+      })
+      expect(r.status, url).toBe(201)
+    }
+    expect(
+      await post('/api/agent/sources', {
+        ...okSource,
+        url: 'https://u:p@escape.id/foo-org/e-bar/',
+      }),
+    ).toEqual({ status: 400, body: { error: 'invalid_url' } })
   })
 
   it('正常は 201 で domain が入る（500 字の excerpt は通る）', async () => {
@@ -199,6 +220,13 @@ describe('POST /api/agent/proposals の形', () => {
         ...base,
         fields: [f('work.title', 'a')],
         match_candidates: [{ table: 'run', id: 'x', score: 0.5, reason: 'r' }],
+      }),
+    ).toEqual({ status: 400, body: { error: 'invalid_candidates' } })
+    expect(
+      await post('/api/agent/proposals', {
+        ...base,
+        fields: [f('work.title', 'a')],
+        match_candidates: [{ table: 'work', id: 'x'.repeat(65), score: 0.5, reason: 'r' }],
       }),
     ).toEqual({ status: 400, body: { error: 'invalid_candidates' } })
   })
@@ -416,6 +444,112 @@ describe('POST /api/agent/proposals の書き込み', () => {
     ).toBe(1)
   })
 
+  it('別のリクエスト・別の kind の pending は置き換えない', async () => {
+    const workId = await insertWork(env, { title: `置き換えない ${uniq()}` })
+    const into = await insertWork(env, { title: `統合先候補 ${uniq()}` })
+    const reqA = await insertRequest('processing')
+    const reqB = await insertRequest('processing')
+    const up = (d: string, requestId?: string) =>
+      post('/api/agent/proposals', {
+        kind: 'update',
+        target_table: 'work',
+        target_id: workId,
+        request_id: requestId,
+        fields: [f('work.description', d)],
+      })
+    const merge = await post('/api/agent/proposals', {
+      kind: 'merge',
+      target_table: 'work',
+      target_id: workId,
+      fields: [f('work.merged_into_id', into)],
+    })
+    const a = await up('A の説明', reqA)
+    const b = await up('B の説明', reqB)
+    const none = await up('依頼なしの説明')
+    for (const r of [merge, a, b, none]) expect(r.status).toBe(201)
+    const st = (id: unknown) =>
+      env.DB.prepare('SELECT status FROM proposal WHERE id = ?').bind(id).first('status')
+    for (const r of [merge, a, b, none]) expect(await st(r.body.id)).toBe('pending')
+    // 同じリクエスト・同じ kind なら置き換える
+    const a2 = await up('A の説明 2', reqA)
+    expect(a2.status).toBe(201)
+    expect(await st(a.body.id)).toBe('superseded')
+    expect(await st(b.body.id)).toBe('pending')
+    expect(await st(merge.body.id)).toBe('pending')
+  })
+
+  it('最大の束（作品 10 + 回 12 + 団体 3 + 会場 4 + 販売先 4 = 33 項目）が 201', async () => {
+    const u = uniq()
+    const fields = [
+      f('work.title', `最大の束 ${u}`),
+      f('work.kind', 'room'),
+      f('work.primary_organization_id', '@organization'),
+      f('work.official_url', `https://max-${u}.example/`),
+      f('work.description', '説明'),
+      f('work.player_min', '2'),
+      f('work.player_max', '6'),
+      f('work.estimated_minutes', '90'),
+      f('work.time_limit_minutes', '60'),
+      f('work.first_released_on', '2026-01-01'),
+      f('run.channel', 'performance'),
+      f('run.organization_id', '@organization'),
+      f('run.billed_as', '名義'),
+      f('run.venue_id', '@venue'),
+      f('run.shop_id', null),
+      f('run.start_on', '2026-01-01'),
+      f('run.end_on', null),
+      f('run.is_permanent', '1'),
+      f('run.escape_id_url', `https://escape.id/max-org/e-${u}/`),
+      f('run.ticket_url', `https://ticket-${u}.example/`),
+      f('run.price_yen', '3000'),
+      f('run.escape_type_raw', 'room'),
+      f('organization.name', `最大の団体 ${u}`),
+      f('organization.site_url', `https://org-${u}.example/`),
+      f('organization.escape_id_url', `https://escape.id/max${seq}-org/`),
+      f('venue.name', `最大の会場 ${u}`),
+      f('venue.prefecture', '東京都'),
+      f('venue.address', '住所'),
+      f('venue.organization_id', '@organization'),
+      f('shop.name', `最大の販売先 ${u}`),
+      f('shop.kind', 'official_store'),
+      f('shop.url', `https://shop-${u}.example/`),
+      f('shop.organization_id', null),
+    ]
+    expect(fields).toHaveLength(33)
+    const r = await post('/api/agent/proposals', { kind: 'create', target_table: 'work', fields })
+    expect(r.status).toBe(201)
+    expect(
+      await count('SELECT COUNT(*) AS n FROM proposal_field WHERE proposal_id = ?', r.body.id),
+    ).toBe(33)
+  })
+
+  it('fingerprint と保存値は正規化後（URL の末尾スラッシュ・"08" と "8" が同じ）', async () => {
+    const u = uniq()
+    const body = (url: string, min: string) => ({
+      kind: 'create',
+      target_table: 'work',
+      fields: [
+        f('work.title', `正規化 ${u}`),
+        f('work.official_url', url),
+        f('work.player_min', min),
+      ],
+    })
+    const a = await post('/api/agent/proposals', body(`https://norm-${u}.example`, '08'))
+    expect(a.status).toBe(201)
+    const vals = await env.DB.prepare(
+      'SELECT field, new_value FROM proposal_field WHERE proposal_id = ? ORDER BY field',
+    )
+      .bind(a.body.id)
+      .all()
+    expect(vals.results).toEqual([
+      { field: 'work.official_url', new_value: `https://norm-${u}.example/` },
+      { field: 'work.player_min', new_value: '8' },
+      { field: 'work.title', new_value: `正規化 ${u}` },
+    ])
+    const b = await post('/api/agent/proposals', body(`https://norm-${u}.example/`, '8'))
+    expect(b).toEqual({ status: 409, body: { error: 'duplicate_pending', proposal_id: a.body.id } })
+  })
+
   it('link と merge の old_value・検証', async () => {
     const w1 = await insertWork(env, { title: `紐付け元 ${uniq()}` })
     const w2 = await insertWork(env, { title: `紐付け先 ${uniq()}` })
@@ -584,6 +718,11 @@ describe('GET /api/agent/proposals のページング', () => {
       ((await get(`/api/agent/proposals?request_id=${req}&limit=0`)).body.items as unknown[])
         .length,
     ).toBe(1)
+    // そのリクエストに無い id の after は 400
+    expect(await get(`/api/agent/proposals?request_id=${req}&after=nope`)).toEqual({
+      status: 400,
+      body: { error: 'invalid_after' },
+    })
     const all = await get(`/api/agent/proposals?request_id=${req}&limit=999`)
     expect((all.body.items as unknown[]).length).toBe(3)
     expect(all.body.next).toBeNull()
