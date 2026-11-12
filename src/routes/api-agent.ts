@@ -48,6 +48,7 @@ const BODY_MAX = 64 * 1024
 // 一覧の件数（既定・上限）。範囲外・数でない値は既定か上限に寄せる
 const REQUESTS_LIMIT = { def: 50, max: 100 }
 const INDEX_LIMIT = { def: 1000, max: 1000 }
+const PROPOSALS_LIMIT = { def: 50, max: 100 }
 // 質問はオーナーの質問と同じ上限、メモは依頼者のメモと同じ上限（コードポイント）
 const QUESTION_MAX = 1000
 const NOTE_MAX = 2000
@@ -363,11 +364,13 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   )
 })
 
-// リクエストに紐付く提案（request_id 必須）
+// リクエストに紐付く提案（request_id 必須）。古い順、after（前の頁の next）で続き
 apiAgent.get('/proposals', requireScope('proposal:write'), async (c) => {
   const requestId = c.req.query('request_id')?.trim()
   if (!requestId) return c.json({ error: 'request_id_required' }, 400)
-  return c.json({ items: await listProposalsByRequest(c.get('db'), requestId) })
+  const after = c.req.query('after') || null
+  const limit = limitOf(c.req.query('limit'), PROPOSALS_LIMIT)
+  return c.json(await listProposalsByRequest(c.get('db'), requestId, after, limit))
 })
 
 apiAgent.get('/proposals/:id', requireScope('proposal:write'), async (c) => {

@@ -559,6 +559,37 @@ describe('GET /api/agent/proposals と PATCH proposed', () => {
   })
 })
 
+describe('GET /api/agent/proposals のページング', () => {
+  it('古い順に limit 件、next と after で続き。limit は 1〜100 に収める', async () => {
+    const req = await insertRequest('processing')
+    const ids: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const id = ulid()
+      ids.push(id)
+      await env.DB.prepare(
+        "INSERT INTO proposal (id, request_id, kind, target_table, status, fingerprint, created_at) VALUES (?, ?, 'create', 'work', 'pending', ?, ?)",
+      )
+        .bind(id, req, ulid(), new Date(Date.UTC(2026, 0, 1, 0, 0, 3 - i)).toISOString())
+        .run()
+    }
+    // created_at の古い順（id の順とは逆）
+    const order = [...ids].reverse()
+    const p1 = await get(`/api/agent/proposals?request_id=${req}&limit=2`)
+    expect((p1.body.items as { id: string }[]).map((i) => i.id)).toEqual(order.slice(0, 2))
+    expect(p1.body.next).toBe(order[1])
+    const p2 = await get(`/api/agent/proposals?request_id=${req}&limit=2&after=${p1.body.next}`)
+    expect((p2.body.items as { id: string }[]).map((i) => i.id)).toEqual(order.slice(2))
+    expect(p2.body.next).toBeNull()
+    expect(
+      ((await get(`/api/agent/proposals?request_id=${req}&limit=0`)).body.items as unknown[])
+        .length,
+    ).toBe(1)
+    const all = await get(`/api/agent/proposals?request_id=${req}&limit=999`)
+    expect((all.body.items as unknown[]).length).toBe(3)
+    expect(all.body.next).toBeNull()
+  })
+})
+
 describe('fingerprint', () => {
   const base = { kind: 'create' as const, targetTable: 'work' as const, targetId: null }
   const items = [

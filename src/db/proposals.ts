@@ -1,7 +1,7 @@
 // 出典（source）・提案（proposal / proposal_field）・却下記憶（rejection_memory）の読み書き（docs/agent-pipeline.md §4・§5）。
 // マスタは読むだけ（反映は PR-9 以降）。記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNull, or } from 'drizzle-orm'
 import { ulid } from '../lib/id'
 import { nowIso } from '../lib/time'
 import type { ProposalDraft, ProposalTable } from '../pipeline/fields'
@@ -199,13 +199,40 @@ const listCols = {
   created_at: proposal.createdAt,
 }
 
-// リクエストに紐付く提案を古い順に
-export const listProposalsByRequest = (db: Db, requestId: string) =>
-  db
+// リクエストに紐付く提案を古い順（created_at, id）に、after（提案の id）より後を limit 件。
+// next は続きがあるときの最後の id。after が無い id なら先頭から
+export const listProposalsByRequest = async (
+  db: Db,
+  requestId: string,
+  after: string | null,
+  limit: number,
+): Promise<{ items: { id: string }[]; next: string | null }> => {
+  const cur = after
+    ? await db
+        .select({ id: proposal.id, createdAt: proposal.createdAt })
+        .from(proposal)
+        .where(and(eq(proposal.id, after), eq(proposal.requestId, requestId)))
+        .get()
+    : undefined
+  const rows = await db
     .select(listCols)
     .from(proposal)
-    .where(eq(proposal.requestId, requestId))
+    .where(
+      and(
+        eq(proposal.requestId, requestId),
+        cur
+          ? or(
+              gt(proposal.createdAt, cur.createdAt),
+              and(eq(proposal.createdAt, cur.createdAt), gt(proposal.id, cur.id)),
+            )
+          : undefined,
+      ),
+    )
     .orderBy(asc(proposal.createdAt), asc(proposal.id))
+    .limit(limit + 1)
+  const items = rows.slice(0, limit)
+  return { items, next: rows.length > limit ? items[items.length - 1].id : null }
+}
 
 // 提案 1 件と項目（agent 用。レビューの列は返さない）
 export const getProposalWithFields = async (db: Db, id: string) => {
