@@ -72,6 +72,12 @@ describe('リクエストの状態更新', () => {
       status: 200,
       body: { id, status: 'processing' },
     })
+    // proposed にするには pending の提案が要る
+    await env.DB.prepare(
+      "INSERT INTO proposal (id, request_id, kind, target_table, status, fingerprint, created_at) VALUES (?, ?, 'create', 'work', 'pending', ?, ?)",
+    )
+      .bind(ulid(), id, ulid(), new Date().toISOString())
+      .run()
     const r = await patch(id, { status: 'proposed', note: '作品を 1 件提案' })
     expect(r).toEqual({ status: 200, body: { id, status: 'proposed' } })
     expect(await reqRow(id)).toMatchObject({ status: 'proposed', agent_note: '作品を 1 件提案' })
@@ -402,13 +408,17 @@ describe('名寄せ候補', () => {
 
 describe('scope', () => {
   const allScopes = ['master:read', 'request:rw', 'source:write', 'proposal:write']
-  const routes: { path: string; method: 'GET' | 'PATCH'; scope: string }[] = [
+  const routes: { path: string; method: 'GET' | 'PATCH' | 'POST'; scope: string }[] = [
     { path: '/api/agent/requests', method: 'GET', scope: 'request:rw' },
     { path: '/api/agent/requests/x', method: 'GET', scope: 'request:rw' },
     { path: '/api/agent/requests/x', method: 'PATCH', scope: 'request:rw' },
     { path: '/api/agent/match?title=x', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/rows/work/x', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/index/work', method: 'GET', scope: 'master:read' },
+    { path: '/api/agent/sources', method: 'POST', scope: 'source:write' },
+    { path: '/api/agent/proposals', method: 'POST', scope: 'proposal:write' },
+    { path: '/api/agent/proposals?request_id=x', method: 'GET', scope: 'proposal:write' },
+    { path: '/api/agent/proposals/x', method: 'GET', scope: 'proposal:write' },
   ]
 
   let scoped = { id: '', token: '' }
@@ -426,9 +436,9 @@ describe('scope', () => {
         method: r.method,
         headers: {
           Authorization: `Bearer ${scoped.token}`,
-          ...(r.method === 'PATCH' ? { 'Content-Type': 'application/json' } : {}),
+          ...(r.method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: r.method === 'PATCH' ? JSON.stringify({ status: 'processing' }) : undefined,
+        body: r.method !== 'GET' ? JSON.stringify({ status: 'processing' }) : undefined,
       },
       env,
     )
