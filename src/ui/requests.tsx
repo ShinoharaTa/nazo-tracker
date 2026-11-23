@@ -2,6 +2,7 @@
 // triage_note / agent_note / 提案の中身は出さない（docs/agent-pipeline.md §2）。
 
 import type { Child } from 'hono/jsx'
+import type { AdminProposalRow } from '../db/proposals'
 import {
   type AdminRequest,
   type AdminRequestRow,
@@ -26,6 +27,7 @@ import {
   TopBar,
 } from './components'
 import { ownerRequestStatusLabels, requestKindLabels, requestStatusLabels } from './labels'
+import { ProposalTicket } from './proposals'
 
 const KvRow = ({ label, children }: { label: string; children?: Child }) => (
   <>
@@ -148,10 +150,12 @@ export const NewRequestForm = (props: {
   )
 }
 
-// 詳細（右ページ）。target は fix_work の対象作品の題名（消えていれば null）
+// 詳細（右ページ）。target は fix_work の対象作品の題名（消えていれば null）。
+// workId は done のとき、このリクエストの提案で反映された作品
 export const RequestDetail = (props: {
   r: OwnRequest
   target: { id: string; title: string } | null
+  workId?: string | null
   created?: boolean
   replyValue?: string
   errors?: readonly string[]
@@ -168,6 +172,9 @@ export const RequestDetail = (props: {
       ) : null}
       <div class="card">
         <span class="title xl">{requestStatusLabels[r.status]}</span>
+        {r.status === 'done' && props.workId ? (
+          <a href={`/works/${props.workId}`}>作品を見る ›</a>
+        ) : null}
       </div>
       <div class="sect">
         <dl class="kv">
@@ -291,6 +298,7 @@ const StatusForm = (props: {
 export const AdminRequestDetail = (props: {
   r: AdminRequest
   target: { id: string; title: string } | null
+  proposals: AdminProposalRow[]
   saved?: boolean
   values?: Form
   errors?: readonly string[]
@@ -382,7 +390,15 @@ export const AdminRequestDetail = (props: {
       ) : null}
       <div class="sect">
         <h2>提案</h2>
-        <Empty>提案はまだありません。</Empty>
+        {props.proposals.length ? (
+          <div class="list">
+            {props.proposals.map((p) => (
+              <ProposalTicket r={p} chip />
+            ))}
+          </div>
+        ) : (
+          <Empty>提案はまだありません。</Empty>
+        )}
       </div>
     </>
   )

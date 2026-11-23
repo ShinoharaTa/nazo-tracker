@@ -2,6 +2,7 @@
 // 依頼者は表示名だけを出し、記録は読まない。状態の遷移は src/requests/transitions.ts の canTransition で判定する。
 
 import { type Context, Hono } from 'hono'
+import { listProposalsOfRequest } from '../../db/proposals'
 import {
   type AdminRequest,
   type AdminRequestTab,
@@ -42,10 +43,19 @@ const detailPage = async (
   r: AdminRequest,
   opts: { saved?: boolean; values?: Form; errors?: string[] } = {},
 ) => {
-  const t = r.payload.target_id ? await workTitleOf(c.get('db'), r.payload.target_id) : null
+  const db = c.get('db')
+  const [t, proposals] = await Promise.all([
+    r.payload.target_id ? workTitleOf(db, r.payload.target_id) : null,
+    listProposalsOfRequest(db, r.id),
+  ])
   return (
     <AdminPage title="リクエスト">
-      <AdminRequestDetail r={r} target={t ? { id: t.id, title: t.title } : null} {...opts} />
+      <AdminRequestDetail
+        r={r}
+        target={t ? { id: t.id, title: t.title } : null}
+        proposals={proposals}
+        {...opts}
+      />
     </AdminPage>
   )
 }

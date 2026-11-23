@@ -1003,6 +1003,47 @@ button.gtag.on {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+/* 承認画面（/admin/proposals/:id）。値の URL は折り返す。出典の行は 3 列をまたぐ。採用されなかった項目は muted */
+.diff .o,
+.diff .n {
+  overflow-wrap: anywhere;
+}
+.diff .full {
+  grid-column: 1 / -1;
+}
+.diff details.full {
+  margin-top: -4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--surface2);
+}
+.diff label {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.diff .off {
+  color: var(--muted);
+}
+.diff .n.off {
+  font-weight: 400;
+}
+/* 名寄せ候補の 1 行（.ticket と同じ枠） */
+.cand {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 2px 2px 0 var(--surface2);
+}
+.cand label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 700;
+}
 .login {
   min-height: 80vh;
   display: flex;

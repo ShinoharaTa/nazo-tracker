@@ -3,6 +3,7 @@
 
 import { type Context, Hono } from 'hono'
 import { currentUser, requireUser } from '../auth/middleware'
+import { appliedWorkOfRequest } from '../db/proposals'
 import {
   countRecentRequests,
   createRequest,
@@ -83,13 +84,24 @@ const detailPage = async (
   r: OwnRequest,
   opts: { created?: boolean; replyValue?: string; errors?: string[] } = {},
 ) => {
-  const t = r.payload.target_id ? await workTitleOf(c.get('db'), r.payload.target_id) : null
+  const db = c.get('db')
+  const [t, workId] = await Promise.all([
+    r.payload.target_id ? workTitleOf(db, r.payload.target_id) : null,
+    r.status === 'done' ? appliedWorkOfRequest(db, r.id) : null,
+  ])
   return (
     <Layout
       title="リクエスト"
       tab="settings"
       left={await requestsList(c)}
-      right={<RequestDetail r={r} target={t ? { id: t.id, title: t.title } : null} {...opts} />}
+      right={
+        <RequestDetail
+          r={r}
+          target={t ? { id: t.id, title: t.title } : null}
+          workId={workId}
+          {...opts}
+        />
+      }
     />
   )
 }

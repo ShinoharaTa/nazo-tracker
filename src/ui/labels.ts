@@ -3,6 +3,8 @@
 import {
   attemptStatuses,
   type organizationAliasKinds,
+  type proposalKinds,
+  type proposalStatuses,
   type requestKinds,
   type requestStatuses,
   type runChannels,
@@ -20,6 +22,8 @@ export type OrganizationAliasKind = (typeof organizationAliasKinds)[number]
 export type ShopKind = (typeof shopKinds)[number]
 export type RequestKind = (typeof requestKinds)[number]
 export type RequestStatus = (typeof requestStatuses)[number]
+export type ProposalStatus = (typeof proposalStatuses)[number]
+export type ProposalKind = (typeof proposalKinds)[number]
 
 export const workKindLabels: Record<WorkKind, string> = {
   hall: '公演',
@@ -130,6 +134,83 @@ export const ownerRequestStatusLabels: Record<RequestStatus, string> = {
   open: '未選別',
   triaged: '選別済み',
 }
+
+export const proposalStatusLabels: Record<ProposalStatus, string> = {
+  pending: '承認待ち',
+  applied: '反映済み',
+  auto_applied: '自動反映',
+  rejected: '却下',
+  superseded: '置き換え済み',
+  suppressed: '抑止',
+  reverted: '取り消し',
+}
+
+export const proposalKindLabels: Record<ProposalKind, string> = {
+  create: '新規',
+  update: '修正',
+  link: '紐付け',
+  merge: '統合',
+  create_attempt_import: '記録の取り込み',
+}
+
+// 提案の対象の表（未知の値はそのまま）
+const proposalTableLabels: Record<string, string> = {
+  work: '作品',
+  run: '回',
+  organization: '団体',
+  venue: '会場',
+  shop: '販売先',
+}
+
+export const proposalTableLabel = (t: string): string =>
+  Object.hasOwn(proposalTableLabels, t) ? proposalTableLabels[t] : t
+
+// 提案の項目（<表>.<列>）の名前。admin のフォームと同じ語。未知の値はそのまま
+const proposalFieldLabels: Record<string, string> = {
+  'work.title': '題名',
+  'work.kind': '形式',
+  'work.primary_organization_id': '団体',
+  'work.official_url': '公式サイト',
+  'work.description': '説明',
+  'work.player_min': '最少人数',
+  'work.player_max': '最多人数',
+  'work.estimated_minutes': '所要時間（分）',
+  'work.time_limit_minutes': '制限時間（分）',
+  'work.first_released_on': '初演・発売日',
+  'work.merged_into_id': '統合先',
+  'run.work_id': '作品',
+  'run.channel': '種別',
+  'run.organization_id': '名義団体',
+  'run.billed_as': '名義の表記',
+  'run.venue_id': '会場',
+  'run.shop_id': '販売先',
+  'run.start_on': '開始日',
+  'run.end_on': '終了日',
+  'run.is_permanent': '常設',
+  'run.escape_id_url': 'escape.id の URL',
+  'run.ticket_url': 'チケットの URL',
+  'run.price_yen': '価格（円）',
+  'run.escape_type_raw': 'escape.id の type（生値）',
+  'organization.name': '名前',
+  'organization.site_url': '公式サイト',
+  'organization.escape_id_url': 'escape.id の URL',
+  'organization.merged_into_id': '統合先',
+  'venue.name': '名前',
+  'venue.prefecture': '都道府県',
+  'venue.address': '住所',
+  'venue.organization_id': '運営団体',
+  'venue.merged_into_id': '統合先',
+  'shop.name': '名前',
+  'shop.kind': '種類',
+  'shop.url': 'URL',
+  'shop.organization_id': '団体',
+}
+
+export const proposalFieldLabel = (field: string): string =>
+  Object.hasOwn(proposalFieldLabels, field) ? proposalFieldLabels[field] : field
+
+// 項目の並び（節の中の表示順）。表に無い項目は後ろ
+export const proposalFieldOrder = Object.keys(proposalFieldLabels)
 
 // 名寄せ候補の reason（src/db/match.ts）。未知の値はそのまま
 const matchReasonLabels: Record<string, string> = {

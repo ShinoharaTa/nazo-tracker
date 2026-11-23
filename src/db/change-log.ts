@@ -1,6 +1,6 @@
 // マスタ書き込みと agent の提案の履歴（change_log）。本体の書き込みと同じ db.batch に入れる。
 
-import { getTableColumns, getTableName } from 'drizzle-orm'
+import { getTableColumns, getTableName, type SQL } from 'drizzle-orm'
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { ulid } from '../lib/id'
 import { nowIso } from '../lib/time'
@@ -25,12 +25,13 @@ export const columnRow = (
   return out
 }
 
-// change_log の INSERT 文を返す（実行はしない）。before / after は drizzle の行
+// change_log の INSERT 文を返す（実行はしない）。before / after は drizzle の行。
+// rowId に SQL（副問い合わせ）を渡すと、それが NULL のとき NOT NULL 違反で batch ごと失敗する（承認の二重送信よけ）
 export const logChange = (
   db: Db,
   p: {
     table: SQLiteTable
-    rowId: string
+    rowId: string | SQL
     action: ChangeAction
     before: Record<string, unknown> | null
     after: Record<string, unknown> | null
