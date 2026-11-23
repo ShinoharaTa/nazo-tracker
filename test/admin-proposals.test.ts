@@ -558,3 +558,134 @@ describe('二重の処理・権限・画面', () => {
     expect(settings).toContain(`${n} 件`)
   })
 })
+
+describe('レビュー対応', () => {
+  it('既存の作品に紐付けるとき、作品からしか参照されていない団体は作らない（回から参照される団体は作る）', async () => {
+    const existing = await insertWork(env, { title: `紐付け先 ${uniq()}` })
+    const orgName = `作品だけの団体 ${uniq()}`
+    const id = await propose(
+      createWorkBody(
+        `団体付き ${uniq()}`,
+        [f('work.primary_organization_id', '@organization'), f('organization.name', orgName)],
+        { match_candidates: [{ table: 'work', id: existing, score: 0.7, reason: 'r' }] },
+      ),
+    )
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    expect(html).toContain(
+      'この団体は作品からしか参照されていないので、既存の作品に紐付けるときは作りません。',
+    )
+    expect((await approve(id, [], { link_work_id: existing })).status).toBe(302)
+    expect(await count('SELECT COUNT(*) AS n FROM organization WHERE name = ?', orgName)).toBe(0)
+    const a = JSON.parse((await proposalOf(id))?.applied_json ?? '{}')
+    expect(a.organization).toBeUndefined()
+    const acc = Object.fromEntries((await fieldsOf(id)).map((r) => [r.field, r.accepted]))
+    expect(acc['organization.name']).toBe(0)
+
+    // 回の名義団体からも参照されていれば作る
+    const orgName2 = `回の団体 ${uniq()}`
+    const id2 = await propose(
+      createWorkBody(
+        `団体付き 2 ${uniq()}`,
+        [
+          f('work.primary_organization_id', '@organization'),
+          f('run.organization_id', '@organization'),
+          f('organization.name', orgName2),
+        ],
+        { match_candidates: [{ table: 'work', id: existing, score: 0.7, reason: 'r' }] },
+      ),
+    )
+    expect((await approve(id2, [], { link_work_id: existing })).status).toBe(302)
+    const a2 = JSON.parse((await proposalOf(id2))?.applied_json ?? '{}')
+    expect(
+      await env.DB.prepare('SELECT organization_id FROM run WHERE id = ?')
+        .bind(a2.run)
+        .first('organization_id'),
+    ).toBe(a2.organization)
+    expect(await count('SELECT COUNT(*) AS n FROM organization WHERE name = ?', orgName2)).toBe(1)
+  })
+
+  it('request が processing のままでも、提案の pending が 0 件になれば done', async () => {
+    const req = await insertRequest('processing')
+    const id = await propose(createWorkBody(`processing ${uniq()}`, [], { request_id: req }))
+    expect((await approve(id)).status).toBe(302)
+    expect(
+      await env.DB.prepare('SELECT status FROM request WHERE id = ?').bind(req).first('status'),
+    ).toBe('done')
+  })
+
+  it('update の形式の Select は今の値が既定で、提案の値は「提案: 」付き。今の値のままなら採用 0 件', async () => {
+    const workId = await insertWork(env, { title: `形式修正 ${uniq()}`, kind: 'hall' })
+    const id = await propose({
+      kind: 'update',
+      target_table: 'work',
+      target_id: workId,
+      fields: [f('work.kind', 'room')],
+    })
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    expect(html).toContain('<option value="hall" selected="">公演</option>')
+    expect(html).toContain('<option value="room">提案: ルーム</option>')
+
+    const keep = await approve(id, [], { kind: 'hall' })
+    expect(keep.status).toBe(400)
+    expect(await keep.text()).toContain('採用する項目を 1 つ以上選んでください。')
+
+    expect((await approve(id, [], { kind: 'room' })).status).toBe(302)
+    expect(
+      await env.DB.prepare('SELECT kind FROM work WHERE id = ?').bind(workId).first('kind'),
+    ).toBe('room')
+    expect((await fieldsOf(id))[0].accepted).toBe(1)
+  })
+
+  it('/admin/proposals* は Cache-Control: private, no-store', async () => {
+    const id = await propose(createWorkBody(`キャッシュ ${uniq()}`))
+    for (const path of ['/admin/proposals', `/admin/proposals/${id}`]) {
+      expect((await get(path)).headers.get('Cache-Control'), path).toBe('private, no-store')
+    }
+  })
+
+  it('同じ提案に承認を 2 回送り、1 回目が書く直前に 2 回目が通ると、1 回目は 409 で何も作らない', async () => {
+    const title = `二重送信 ${uniq()}`
+    const id = await propose(createWorkBody(title))
+    const body = await acceptAll(id)
+    let second: Response | null = null
+    // 1 回目の batch の直前に 2 回目を最後まで通す（読んでから書くまでの間に処理された状態を作る）
+    const db = new Proxy(env.DB, {
+      get(t, k) {
+        if (k === 'batch') {
+          return async (stmts: D1PreparedStatement[]) => {
+            if (!second) second = await post(`/admin/proposals/${id}/approve`, body)
+            return t.batch(stmts)
+          }
+        }
+        const v = Reflect.get(t, k)
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    })
+    const headers = {
+      Origin: ORIGIN,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: owner.cookie,
+    }
+    const first = await app.request(
+      `/admin/proposals/${id}/approve`,
+      { method: 'POST', headers, body: new URLSearchParams(body).toString() },
+      { ...env, DB: db },
+    )
+    expect((second as Response | null)?.status).toBe(302)
+    expect(first.status).toBe(409)
+    expect(await first.text()).toContain('この提案はもう処理されています。')
+    expect(await count('SELECT COUNT(*) AS n FROM work WHERE title = ?', title)).toBe(1)
+  })
+
+  it('提案がすべて却下で終わった request は、依頼者に「確認しましたが、反映はありませんでした」', async () => {
+    const req = await insertRequest('processing')
+    const id = await propose(createWorkBody(`全部却下 ${uniq()}`, [], { request_id: req }))
+    expect(
+      (await post(`/admin/proposals/${id}/reject`, { reason: 'x', remember: '1' })).status,
+    ).toBe(302)
+    const own = await (await get(`/requests/${req}`, member.cookie)).text()
+    // 詳細の見出し（左の一覧にはほかのリクエストも並ぶ）
+    expect(own).toContain('<span class="title xl">確認しましたが、反映はありませんでした</span>')
+    expect(own).not.toContain('作品を見る ›')
+  })
+})

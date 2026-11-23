@@ -12,7 +12,7 @@ import type {
 import { workKinds } from '../db/schema'
 import { isoToJstDate } from '../lib/time'
 import type { ApprovalChoice, RejectionChoice, StaleField } from '../pipeline/apply'
-import { nameColumn, type ProposalTable, placeholderOf } from '../pipeline/fields'
+import { nameColumn, type ProposalTable, placeholderOf, workOnlySections } from '../pipeline/fields'
 import {
   Checkbox,
   Empty,
@@ -202,6 +202,8 @@ const DiffSection = (props: {
   checked: (f: AdminProposalField) => boolean
   // 回から参照されていない会場・販売先など（create の束で、対象の表でない節）
   unused: boolean
+  // 作品からしか参照されていない節で、既存の作品に紐付けられるとき（紐付けると作らない）
+  workOnly: boolean
 }) => (
   <div class="sect">
     <h2>{proposalTableLabel(props.table)}</h2>
@@ -209,6 +211,12 @@ const DiffSection = (props: {
       <p class="note">
         この{proposalTableLabel(props.table)}
         はほかの項目から参照されていません。採用すると単独で作ります（いらなければ項目を全部外してください）。
+      </p>
+    ) : null}
+    {props.workOnly ? (
+      <p class="note">
+        この{proposalTableLabel(props.table)}
+        は作品からしか参照されていないので、既存の作品に紐付けるときは作りません。
       </p>
     ) : null}
     <div class="diff">
@@ -338,6 +346,8 @@ export type ProposalDetailProps = {
   sameEscapeUrl: string[]
   kindSelectable: boolean
   linkable: boolean
+  // update の対象の今の形式（形式の Select の既定。create は提案の値）
+  currentKind?: string | null
   applied?: boolean
   nextId?: string | null
   // 承認フォームの再描画（400 / 409）
@@ -354,7 +364,17 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
   const pending = p.status === 'pending'
   const choice = props.choice
   const kindField = fields.find((f) => f.field === 'work.kind')
-  const kindValue = choice ? choice.kind : (kindField?.newValue ?? '')
+  const kindValue = choice
+    ? choice.kind
+    : p.kind === 'update'
+      ? (props.currentKind ?? '')
+      : (kindField?.newValue ?? '')
+  // 提案の値は選択肢に「提案: 〇〇」と出す
+  const proposedKind = kindField ? (kindField.newValue ?? '') : null
+  const kindOptionLabel = (k: string, label: string) =>
+    proposedKind === k ? `提案: ${label}` : label
+  const radio = pending && props.linkable && props.candidates.some((c) => c.table === 'work')
+  const workOnly = radio ? workOnlySections(fields) : new Set<ProposalTable>()
   const checked = (f: AdminProposalField) => (choice ? choice.accepted.has(f.id) : true)
   // 束の中で参照されていない節（create で、対象の表でないもの）
   const referenced = new Set(
@@ -390,12 +410,13 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
             s.table !== 'run' &&
             !referenced.has(s.table)
           }
+          workOnly={workOnly.has(s.table)}
         />
       ))}
       {props.candidates.length ? (
         <Candidates
           candidates={props.candidates}
-          radio={pending && props.linkable && props.candidates.some((c) => c.table === 'work')}
+          radio={radio}
           linkWorkId={choice?.linkWorkId ?? ''}
         />
       ) : null}
@@ -483,9 +504,12 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
                 <Select
                   label="形式"
                   name="kind"
-                  options={workKinds.map((k) => ({ value: k, label: workKindLabels[k] }))}
+                  options={workKinds.map((k) => ({
+                    value: k,
+                    label: kindOptionLabel(k, workKindLabels[k]),
+                  }))}
                   value={kindValue}
-                  blank="（未設定）"
+                  blank={kindOptionLabel('', '（未設定）')}
                 />
                 <p class="note">
                   ルーム・公演にすると、記録で選べるステータスは {visitStatusText}{' '}

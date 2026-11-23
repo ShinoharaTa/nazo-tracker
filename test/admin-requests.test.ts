@@ -79,6 +79,7 @@ describe('canTransition（§1.5 の表を全組み合わせ）', () => {
     'agent:processing>needs_info',
     'agent:processing>triaged',
     'worker:proposed>done',
+    'worker:processing>done',
   ])
   const actors: RequestActor[] = ['requester', 'owner', 'agent', 'worker']
   for (const by of actors) {

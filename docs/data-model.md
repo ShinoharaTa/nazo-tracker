@@ -268,7 +268,7 @@ INDEX(user_id, status), INDEX(user_id, finished_on), INDEX(user_id, work_id), **
     | オーナー | `processing` → `triaged` | CLI が途中で止まったときの戻し |
     | agent | `open` / `triaged` → `processing` | — |
     | agent | `processing` → `proposed` / `needs_info` / `triaged` | needs_info は `question` 必須。`note` は `agent_note` に |
-    | Worker | `proposed` → `done` | 紐付く提案が 1 件以上あり、`pending` が 0 件になった時点 |
+    | Worker | `proposed` / `processing` → `done` | 紐付く提案が 1 件以上あり、`pending` が 0 件になった時点（承認・却下の batch の中。agent が proposed にする前に処理し終えたときも） |
   - INDEX(status), INDEX(requester_user_id, created_at)
 - `source(id, url, domain, method(escape_mcp / webfetch / manual / pds), fetched_at, content_hash, excerpt, robots_checked)`
 - `proposal(id, request_id NULL, kind, target_table, target_id NULL, confidence REAL, status(pending / applied / auto_applied / rejected / superseded / suppressed / reverted), fingerprint（部分 UNIQUE: `WHERE status = 'pending'`）, created_by_token_id, created_at, reviewed_at, reviewer_user_id, review_note, revert_until, applied_json NULL, reverted_at NULL, reverted_by_user_id NULL FK user, follow_up_of_id NULL FK proposal)`

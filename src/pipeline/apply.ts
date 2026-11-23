@@ -49,6 +49,7 @@ import {
   type ProposalTable,
   placeholderOf,
   validateBundle,
+  workOnlySections,
 } from './fields'
 
 type Stmt = BatchItem<'sqlite'>
@@ -132,7 +133,8 @@ const proposalLog = (db: Db, p: ProposalRow, after: ProposalRow, ctx: WriteCtx):
     ...ctx,
   })
 
-// リクエストの自動 done（proposed で、紐付く提案の pending が 0 件）。この提案を pending でなくした文より後に置く
+// リクエストの自動 done（proposed か processing で、紐付く提案の pending が 0 件。この提案が紐付いているので 1 件以上はある）。
+// この提案を pending でなくした文より後に置く
 const requestDoneStmt = (db: Db, requestId: string | null, now: string): Stmt[] =>
   requestId
     ? [
@@ -142,7 +144,7 @@ const requestDoneStmt = (db: Db, requestId: string | null, now: string): Stmt[] 
           .where(
             and(
               eq(request.id, requestId),
-              eq(request.status, 'proposed'),
+              inArray(request.status, ['proposed', 'processing']),
               notExists(
                 db
                   .select({ id: proposal.id })
@@ -200,14 +202,19 @@ export const buildApproval = async (
     if (!raw || !target || target.merged_into_id) return conflict([TARGET_GONE])
   }
 
-  // 採否。work.kind は Select の値が提案と同じなら採用。紐付けるときは work.* を使わない
+  // 採否。work.kind は Select の値が提案と同じなら採用。紐付けるときは work.* と、
+  // 作品からしか参照されていない節（採用した項目で判定）を使わない
   const usesKind = selectable && !linking
-  const acceptedOf = (f: AdminProposalField) => {
+  const checkedOf = (f: AdminProposalField) => {
     if (linking && f.table === 'work') return false
     if (f.field === 'work.kind' && usesKind) return (kind ?? null) === f.newValue
     return choice.accepted.has(f.id)
   }
-  const accepted = fields.filter(acceptedOf)
+  const checked = fields.filter(checkedOf)
+  const dropped = linking
+    ? workOnlySections(fields.filter((f) => f.table === 'work' || checked.includes(f)))
+    : new Set<ProposalTable>()
+  const accepted = checked.filter((f) => !dropped.has(f.table))
   const currentKind = (target?.kind as string | null | undefined) ?? null
   const kindChanges = usesKind && kind !== currentKind
   // 紐付けるときは回の項目が要る（work.* は使わないので、採用 0 件より先に見る）

@@ -62,6 +62,20 @@ export const placeholderOf = (
   return ref && i.newValue === `@${ref}` ? ref : null
 }
 
+// 作品の項目からしか参照されていない束の節（work.primary_organization_id の @organization だけが指す団体など）。
+// 既存の作品に紐付けるときは作品を作らないので、この節も作らない（回・会場・販売先から参照されていれば残す）
+export const workOnlySections = (
+  fields: readonly Pick<ProposalItem, 'field' | 'table' | 'newValue'>[],
+): Set<ProposalTable> => {
+  const fromWork = new Set<ProposalTable>()
+  const fromOthers = new Set<ProposalTable>()
+  for (const f of fields) {
+    const ref = placeholderOf(f)
+    if (ref) (f.table === 'work' ? fromWork : fromOthers).add(ref)
+  }
+  return new Set([...fromWork].filter((t) => !fromOthers.has(t)))
+}
+
 // 主名（fingerprint で target_id の代わりに使う。承認画面の見出しにも使う）
 export const nameColumn: Record<ProposalTable, string | null> = {
   work: 'title',

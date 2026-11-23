@@ -128,6 +128,9 @@ export const requestStatusLabels: Record<RequestStatus, string> = {
   needs_info: '質問があります',
 }
 
+// done で、提案がすべて却下で終わったときの依頼者向けの表示
+export const REQUEST_DONE_WITHOUT_CHANGE = '確認しましたが、反映はありませんでした'
+
 // オーナー画面の状態。open / triaged だけ依頼者向けと違う
 export const ownerRequestStatusLabels: Record<RequestStatus, string> = {
   ...requestStatusLabels,

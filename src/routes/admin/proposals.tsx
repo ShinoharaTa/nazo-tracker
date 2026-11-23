@@ -10,6 +10,7 @@ import {
   adminProposalTabs,
   countPendingProposals,
   getAdminProposal,
+  getTargetRow,
   listAdminProposals,
   namesOf,
   nextPendingId,
@@ -39,6 +40,12 @@ import {
 import { toPage } from '../ui'
 
 const proposals = new Hono<AppEnv>({ strict: false })
+
+// 提案の中身（出典の抜粋・依頼元）を含むので共有キャッシュに載せない（/proposals 自体も含む）
+proposals.use('/proposals/*', async (c, next) => {
+  await next()
+  c.res.headers.set('Cache-Control', 'private, no-store')
+})
 
 const toTab = (v: string | undefined): AdminProposalTab =>
   (adminProposalTabs as readonly string[]).includes(v ?? '') ? (v as AdminProposalTab) : 'pending'
@@ -85,7 +92,12 @@ const load = async (db: Db, id: string) => {
         escapeUrl ? otherPendingWithEscapeUrl(db, p, escapeUrl) : [],
       ])
     : [[], []]
-  return { p, fields, names, candidates, sameTarget, sameEscapeUrl }
+  // update の形式の Select の既定（今の値）
+  const currentKind =
+    p.kind === 'update' && table === 'work' && p.targetId
+      ? (((await getTargetRow(db, 'work', p.targetId))?.kind as string | null | undefined) ?? null)
+      : null
+  return { p, fields, names, candidates, sameTarget, sameEscapeUrl, currentKind }
 }
 
 const detailPage = (d: Loaded, opts: Partial<ProposalDetailProps> = {}) => (

@@ -1,7 +1,7 @@
 // 出典（source）・提案（proposal / proposal_field）・却下記憶（rejection_memory）の読み書き（docs/agent-pipeline.md §4・§5）。
 // マスタは読むだけ（承認での反映の文は src/pipeline/apply.ts）。記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, asc, desc, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
 import { nowIso } from '../lib/time'
 import { nameColumn, type ProposalDraft, type ProposalTable } from '../pipeline/fields'
@@ -674,6 +674,27 @@ export const resolveCandidates = async (db: Db, json: string | null): Promise<Ca
     })
   }
   return [...out.values()]
+}
+
+// 提案がすべて却下で終わったリクエスト（却下が 1 件以上あり、反映が 0 件）。依頼者の画面で「対応しました」と言わないため
+export const rejectedOnlyRequests = async (
+  db: Db,
+  requestIds: readonly string[],
+): Promise<Set<string>> => {
+  const ids = [...new Set(requestIds)]
+  if (ids.length === 0) return new Set()
+  const rows = await db
+    .select({
+      requestId: proposal.requestId,
+      applied: sql<number>`SUM(CASE WHEN ${proposal.status} IN ('applied', 'auto_applied') THEN 1 ELSE 0 END)`,
+      rejected: sql<number>`SUM(CASE WHEN ${proposal.status} = 'rejected' THEN 1 ELSE 0 END)`,
+    })
+    .from(proposal)
+    .where(inArray(proposal.requestId, ids))
+    .groupBy(proposal.requestId)
+  return new Set(
+    rows.flatMap((r) => (r.requestId && r.rejected > 0 && r.applied === 0 ? [r.requestId] : [])),
+  )
 }
 
 // リクエストから反映された作品（done の依頼者画面の「作品を見る ›」）。新しい反映から順に、作品か回の作品を返す
