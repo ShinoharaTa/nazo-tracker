@@ -48,3 +48,24 @@ export const currentAgent = (c: Context<AppEnv>): ActiveToken => {
   if (!t) throw new Error('requireAgent を通していないルートで currentAgent が呼ばれた')
   return t
 }
+
+// トークンの scopes_json（JSON の文字列配列）に name が無ければ 403。NULL・壊れた JSON・配列でないものは全部拒否。
+// requireAgent の後ろに置く
+const hasScope = (json: string | null, name: string): boolean => {
+  if (json === null) return false
+  let v: unknown
+  try {
+    v = JSON.parse(json)
+  } catch {
+    return false
+  }
+  return Array.isArray(v) && v.includes(name)
+}
+
+export const requireScope = (name: string) =>
+  createMiddleware<AppEnv>(async (c, next) => {
+    if (!hasScope(currentAgent(c).scopesJson, name)) {
+      return c.json({ error: 'insufficient_scope', required: name }, 403)
+    }
+    await next()
+  })
