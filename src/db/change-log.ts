@@ -1,4 +1,4 @@
-// マスタ書き込みの履歴（change_log）。本体の書き込みと同じ db.batch に入れる。
+// マスタ書き込みと agent の提案の履歴（change_log）。本体の書き込みと同じ db.batch に入れる。
 
 import { getTableColumns, getTableName } from 'drizzle-orm'
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
