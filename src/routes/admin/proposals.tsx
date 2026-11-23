@@ -17,6 +17,7 @@ import {
   nextPendingId,
   otherPendingForTarget,
   otherPendingWithEscapeUrl,
+  proposalStatusOf,
   resolveCandidates,
 } from '../../db/proposals'
 import { getAutoApply, setAutoApply } from '../../db/settings'
@@ -106,7 +107,8 @@ const load = async (db: Db, id: string) => {
     p.kind === 'update' && table === 'work' && p.targetId
       ? (((await getTargetRow(db, 'work', p.targetId))?.kind as string | null | undefined) ?? null)
       : null
-  return { p, fields, names, candidates, sameTarget, sameEscapeUrl, currentKind }
+  const parentStatus = p.followUpOfId ? await proposalStatusOf(db, p.followUpOfId) : null
+  return { p, fields, names, candidates, sameTarget, sameEscapeUrl, currentKind, parentStatus }
 }
 
 const detailPage = (d: Loaded, opts: Partial<ProposalDetailProps> = {}) => (

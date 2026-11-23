@@ -63,14 +63,14 @@ A-3 自動反映ルール（Worker 側、`src/pipeline/auto.ts`。`/admin/propos
 4. 全項目に source があり、全 source の method = `escape_mcp`
 5. `run.escape_id_url` がある
 6. `work.kind` / `run.is_permanent` 以外の confidence がすべて ≥ 0.9
-7. Worker の完全一致候補（`worker:`）が 0 件、かつ agent の候補に score ≥ 0.8 が無い
+7. Worker の完全一致候補（`worker:`）が 0 件、かつ agent の候補に score ≥ 0.8 が無い。同じ `run.escape_id_url` で回を作る承認待ちも無い（`pending_same_url`。どちらを採るかは人が決める）
 8. リクエストがあるなら kind = `new_work`
 
 `update` / `merge` / `link` / 参加記録インポートは常に pending。
 
-反映は `POST /api/agent/proposals` の 1 batch: 提案（`auto_applied`・`revert_until`・`applied_json`、項目の `accepted` は入れた項目 1 / 入れなかった kind・is_permanent 0）→ 作品 → 回（change_log は actor = トークン、`proposal_id`）→ follow-up → リクエストの自動 done。応答は 201 `{"status":"auto_applied","revert_until":ISO,"follow_ups":[id…]}`。
+反映は `POST /api/agent/proposals` の 1 batch: 提案（`auto_applied`・`revert_until`・`applied_json`、項目の `accepted` は入れた項目 1 / 入れなかった kind・is_permanent 0）→ 作品 → 回（change_log は actor = トークン、`proposal_id`）→ follow-up → リクエストの自動 done。応答は 201 `{"status":"auto_applied","revert_until":ISO,"follow_ups":[id…]}`。書き込みの UNIQUE 違反は 409（同じ fingerprint の pending → `duplicate_pending`、同じ escape.id URL の回 → `duplicate_escape_id_url`、ほか → `conflict`）。一覧の期限は JST の「M/D HH:mm まで」。
 
-取り消し（`GET/POST /admin/proposals/:id/revert`、退会と同じ確認の checkbox）: `auto_applied` で `revert_until` が未来のときだけ（それ以外 409）。1 batch で 回 → 作品を**物理 DELETE**（change_log `delete`、actor = オーナー）、提案を `reverted`、follow-up の pending を `superseded`。あとから記録・マイリスト・別名・別の回・統合が付いた行は D1 の FK 違反で batch ごと巻き戻るので、409「取り消せません。統合を使ってください」と作品の統合画面へのリンクを出す（何が付いたかは読まない）。統合された作品・別の作品に付け替えられた回は書く前に同じ 409 にする。取り消した fingerprint は却下記憶に入れない（同じ URL を出し直せる）。
+取り消し（`GET/POST /admin/proposals/:id/revert`、退会と同じ確認の checkbox）: `auto_applied` で `revert_until` が未来のときだけ（それ以外 409）。1 batch で 回 → 作品を**物理 DELETE**（change_log `delete`、actor = オーナー）、提案を `reverted`、follow-up と、取り消す作品・回を対象にした承認待ち（update / link / merge）を `superseded`（change_log は「まだ pending なら」の INSERT … SELECT で、書いた行と揃える。承認済みの follow-up はそのまま残し、詳細に「元の作品は取り消されました」と出す）。あとから記録・マイリスト・別名・別の回・統合が付いた行は D1 の FK 違反で batch ごと巻き戻るので、409「取り消せません。統合を使ってください」と作品の統合画面へのリンクを出す（何が付いたかは読まない）。統合された作品・別の作品に付け替えられた回は書く前に同じ 409 にする。取り消した fingerprint は却下記憶に入れない（同じ URL を出し直せる）。
 
 差分表示: フィールドごとに `old → new`、出典ドメイン、取得日時、確信度。候補があれば「既存 X に紐付ける」ボタン。
 

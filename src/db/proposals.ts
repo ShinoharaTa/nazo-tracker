@@ -570,13 +570,52 @@ export const getAdminProposal = async (
   return { row, fields }
 }
 
-// 自動反映から作った follow-up（kind / is_permanent）のうち、まだ承認待ちのもの
-export const pendingFollowUps = (db: Db, id: string): Promise<ProposalRow[]> =>
+// 自動反映を取り消すときに superseded にする承認待ち: follow-up（kind / is_permanent）と、
+// 取り消す作品・回を対象にした update / link / merge
+export const pendingForRevert = (
+  db: Db,
+  id: string,
+  applied: { work?: string; run?: string },
+): Promise<ProposalRow[]> =>
   db
     .select()
     .from(proposal)
-    .where(and(eq(proposal.followUpOfId, id), eq(proposal.status, 'pending')))
+    .where(
+      and(
+        eq(proposal.status, 'pending'),
+        or(
+          eq(proposal.followUpOfId, id),
+          applied.work
+            ? and(eq(proposal.targetTable, 'work'), eq(proposal.targetId, applied.work))
+            : undefined,
+          applied.run
+            ? and(eq(proposal.targetTable, 'run'), eq(proposal.targetId, applied.run))
+            : undefined,
+        ),
+      ),
+    )
     .orderBy(asc(proposal.createdAt), asc(proposal.id))
+
+// 提案の状態だけ（follow-up の元の提案が取り消されたかを出すため）
+export const proposalStatusOf = async (db: Db, id: string): Promise<ProposalRow['status'] | null> =>
+  (await db.select({ status: proposal.status }).from(proposal).where(eq(proposal.id, id)).get())
+    ?.status ?? null
+
+// 同じ run.escape_id_url で回を作ろうとしている承認待ちがあるか（自動反映の判定。どちらを採るかは人が決める）
+export const hasPendingWithEscapeUrl = async (db: Db, url: string): Promise<boolean> =>
+  !!(await db
+    .select({ id: proposal.id })
+    .from(proposalField)
+    .innerJoin(proposal, eq(proposal.id, proposalField.proposalId))
+    .where(
+      and(
+        eq(proposalField.field, 'run.escape_id_url'),
+        eq(proposalField.newValue, url),
+        eq(proposal.status, 'pending'),
+        eq(proposal.kind, 'create'),
+      ),
+    )
+    .get())
 
 // 同じ対象（update / link / merge）の、ほかの承認待ち
 export const otherPendingForTarget = async (db: Db, p: ProposalRow): Promise<string[]> => {

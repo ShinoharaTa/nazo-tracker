@@ -24,6 +24,8 @@ export type AutoApplyInput = {
   agentScores: readonly number[]
   // 紐付くリクエストの種類（無ければ null）
   requestKind: string | null
+  // 同じ run.escape_id_url で回を作る承認待ちがほかにある
+  pendingSameUrl: boolean
 }
 
 export type AutoApplyDecision = {
@@ -38,6 +40,7 @@ export type AutoApplyDecision = {
     | 'no_escape_url'
     | 'low_confidence'
     | 'candidates'
+    | 'pending_same_url'
     | 'request_kind'
   // 入れずに反映し、follow-up の承認待ちにする項目（反映するときだけ。値が空の項目は入れても既定と同じなので含めない）
   deferred: string[]
@@ -72,6 +75,8 @@ export const autoApplyDecision = (input: AutoApplyInput): AutoApplyDecision => {
   if (input.workerCandidates > 0 || input.agentScores.some((s) => s >= AUTO_CANDIDATE_SCORE_MAX)) {
     return no('candidates')
   }
+  // 同じ公演の承認待ちがあれば、どちらを採るかは人が決める
+  if (input.pendingSameUrl) return no('pending_same_url')
   if (input.requestKind !== null && input.requestKind !== 'new_work') return no('request_kind')
   return {
     apply: true,

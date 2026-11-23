@@ -1,13 +1,17 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createDb } from '../src/db/client'
-import { appliedWorkOfRequest } from '../src/db/proposals'
+import { runStmts } from '../src/db/master-write'
+import { appliedWorkOfRequest, getAdminProposal } from '../src/db/proposals'
 import { createToken } from '../src/db/tokens'
 import app from '../src/index'
 import { ulid } from '../src/lib/id'
+import { buildRevert } from '../src/pipeline/apply'
 import { type AutoApplyInput, autoApplyDecision } from '../src/pipeline/auto'
+import { writeConflictOf } from '../src/routes/api-agent'
+import { revertUntilText } from '../src/ui/proposals'
 import { loginAs, ORIGIN } from './helpers/auth'
-import { insertWork, insertWorkAlias } from './helpers/master'
+import { insertRun, insertWork, insertWorkAlias } from './helpers/master'
 import { insertAttempt } from './helpers/records'
 
 let token = ''
@@ -193,6 +197,7 @@ describe('autoApplyDecision', () => {
     workerCandidates: 0,
     agentScores: [0.5],
     requestKind: null,
+    pendingSameUrl: false,
   })
 
   it('全部満たすと apply=true、deferred は空', () => {
@@ -235,6 +240,7 @@ describe('autoApplyDecision', () => {
       ['6 確信度 0.89', { ...b, items: [...b.items, item('work.description', '説明', 0.89)] }],
       ['7 Worker の候補', { ...b, workerCandidates: 1 }],
       ['7 agent の候補 0.8', { ...b, agentScores: [0.8] }],
+      ['7 同じ escape_id_url の承認待ち', { ...b, pendingSameUrl: true }],
       ['8 リクエストが new_work 以外', { ...b, requestKind: 'fix_work' }],
     ]
     for (const [name, input] of cases) {
@@ -481,6 +487,54 @@ describe('自動反映', () => {
     ).toBe(18)
   })
 
+  it('同じ escape_id_url で回を作る承認待ちがあれば自動反映せず pending', async () => {
+    const url = `https://escape.id/foo-org/e-same-${uniq()}/`
+    const body = (title: string) => {
+      const b = createWorkBody(title)
+      return {
+        ...b,
+        fields: b.fields.map((x) =>
+          x.field === 'run.escape_id_url' ? { ...x, new_value: url } : x,
+        ),
+      }
+    }
+    const first = await propose(body(`同じ URL 1 ${uniq()}`))
+    expect(first.body.status).toBe('pending')
+    await setAuto(true)
+    const second = await propose(body(`同じ URL 2 ${uniq()}`))
+    expect(second.status).toBe(201)
+    expect(second.body.status).toBe('pending')
+  })
+
+  it('書き込みの UNIQUE 違反: 同じ escape_id_url の回ができていれば duplicate_escape_id_url、ほかは conflict', async () => {
+    const db = createDb(env.DB)
+    const url = `https://escape.id/foo-org/e-race-${uniq()}/`
+    const workId = await insertWork(env, { title: `競合 ${uniq()}` })
+    const runId = await insertRun(env, { workId, channel: 'performance', escapeIdUrl: url })
+    // 確かめた後に同じ URL の回ができた状態で、自動反映の回の INSERT が落ちたときと同じエラー
+    let err: unknown
+    try {
+      await env.DB.prepare(
+        "INSERT INTO run (id, work_id, channel, escape_id_url, created_at, updated_at) VALUES (?, ?, 'performance', ?, 'x', 'x')",
+      )
+        .bind(ulid(), workId, url)
+        .run()
+    } catch (e) {
+      err = e
+    }
+    expect(String(err)).toContain('UNIQUE constraint failed')
+    const w = { fingerprint: 'none', escapeUrl: url, autoApplied: true }
+    expect(await writeConflictOf(db, err, w)).toEqual({
+      error: 'duplicate_escape_id_url',
+      run_id: runId,
+      work_id: workId,
+    })
+    expect(await writeConflictOf(db, err, { ...w, escapeUrl: null })).toEqual({ error: 'conflict' })
+    // 承認待ちで作るとき（自動反映でない）は fingerprint の重複だけを 409 にする
+    expect(await writeConflictOf(db, err, { ...w, autoApplied: false })).toBeNull()
+    expect(await writeConflictOf(db, new Error('other'), w)).toBeNull()
+  })
+
   it('appliedWorkOfRequest は承認（reviewed_at）と自動反映（created_at）を新しい順に並べる', async () => {
     const req = await insertRequest('processing')
     // 1 件目は OFF で pending → 承認（request は done になる）
@@ -526,12 +580,12 @@ describe('設定と一覧', () => {
     expect(await page()).not.toContain('checked')
   })
 
-  it('自動反映タブに期限内の行と「取り消せるのは M/D まで」、期限切れは済みタブ', async () => {
+  it('自動反映タブに期限内の行と「取り消せるのは M/D HH:mm まで」（JST）、期限切れは済みタブ', async () => {
     const r = await autoApplied()
     const id = r.body.id as string
     const html = await (await get('/admin/proposals?tab=auto')).text()
     expect(html).toContain(`/admin/proposals/${id}`)
-    expect(html).toMatch(/取り消せるのは \d{1,2}\/\d{1,2} まで/)
+    expect(html).toMatch(/取り消せるのは \d{1,2}\/\d{1,2} \d{2}:\d{2} まで/)
     const detail = await (await get(`/admin/proposals/${id}`)).text()
     expect(detail).toContain(`/admin/proposals/${id}/revert`)
 
@@ -678,5 +732,111 @@ describe('取り消し', () => {
     await setAuto(false)
     const p = await propose(createWorkBody(`承認待ち ${uniq()}`))
     expect((await revert(p.body.id as string)).status).toBe(409)
+  })
+})
+
+describe('取り消し（ほかの提案・統合・付け替え）', () => {
+  it('取り消す作品を対象にした update の承認待ちも superseded（change_log 付き）。戻しても対象が無いので承認は 409', async () => {
+    const r = await autoApplied()
+    const id = r.body.id as string
+    const applied = await appliedOf(id)
+    const up = await propose({
+      kind: 'update',
+      target_table: 'work',
+      target_id: applied.work,
+      fields: [f('work.description', '直した説明')],
+    })
+    expect(up.status).toBe(201)
+    const upId = up.body.id as string
+    expect((await revert(id)).status).toBe(302)
+    expect((await proposalOf(upId))?.status).toBe('superseded')
+    expect(
+      await count(
+        "SELECT COUNT(*) AS n FROM change_log WHERE table_name = 'proposal' AND row_id = ? AND proposal_id = ? AND actor_user_id = ?",
+        upId,
+        id,
+        owner.userId,
+      ),
+    ).toBe(1)
+    // superseded の承認は 409
+    const fields = (
+      await env.DB.prepare('SELECT id FROM proposal_field WHERE proposal_id = ?')
+        .bind(upId)
+        .all<{ id: string }>()
+    ).results
+    const body = Object.fromEntries(fields.map((x) => [`accept_${x.id}`, '1']))
+    expect((await post(`/admin/proposals/${upId}/approve`, body)).status).toBe(409)
+    // pending に戻しても、対象が消えているので 409
+    await env.DB.prepare("UPDATE proposal SET status = 'pending' WHERE id = ?").bind(upId).run()
+    const res = await post(`/admin/proposals/${upId}/approve`, body)
+    expect(res.status).toBe(409)
+    expect(await res.text()).toContain('対象が統合されたか、見つかりません。')
+  })
+
+  it('承認済みの follow-up は残り、詳細に「元の作品は取り消されました」', async () => {
+    const r = await autoApplied([f('work.kind', 'room', 0.7)])
+    const id = r.body.id as string
+    const [fu] = r.body.follow_ups as string[]
+    expect((await post(`/admin/proposals/${fu}/approve`, { kind: 'room' })).status).toBe(302)
+    expect((await revert(id)).status).toBe(302)
+    expect((await proposalOf(fu))?.status).toBe('applied')
+    expect(await (await get(`/admin/proposals/${fu}`)).text()).toContain(
+      '元の作品は取り消されました',
+    )
+  })
+
+  it('取り消しの文を組んだ後に follow-up が承認されたら、follow-up は applied のまま superseded の履歴も残らない', async () => {
+    const db = createDb(env.DB)
+    const r = await autoApplied([f('work.kind', 'room', 0.7)])
+    const id = r.body.id as string
+    const [fu] = r.body.follow_ups as string[]
+    const p = await getAdminProposal(db, id)
+    const built = await buildRevert(db, p?.row ?? (null as never), owner.userId)
+    if (!built.ok) throw new Error(built.error)
+    expect((await post(`/admin/proposals/${fu}/approve`, { kind: 'room' })).status).toBe(302)
+    await runStmts(db, built.stmts)
+    expect((await proposalOf(id))?.status).toBe('reverted')
+    expect((await proposalOf(fu))?.status).toBe('applied')
+    expect(
+      await count(
+        "SELECT COUNT(*) AS n FROM change_log WHERE table_name = 'proposal' AND row_id = ? AND after_json LIKE '%superseded%'",
+        fu,
+      ),
+    ).toBe(0)
+  })
+
+  it('統合された作品は 409 で、作品・回が残る', async () => {
+    const r = await autoApplied()
+    const id = r.body.id as string
+    const applied = await appliedOf(id)
+    const into = await insertWork(env, { title: `統合先 ${uniq()}` })
+    await env.DB.prepare('UPDATE run SET work_id = ? WHERE id = ?').bind(into, applied.run).run()
+    await env.DB.prepare('UPDATE work SET merged_into_id = ? WHERE id = ?')
+      .bind(into, applied.work)
+      .run()
+    const res = await revert(id)
+    expect(res.status).toBe(409)
+    expect(await res.text()).toContain('取り消せません')
+    expect(await count('SELECT COUNT(*) AS n FROM work WHERE id = ?', applied.work)).toBe(1)
+    expect(await count('SELECT COUNT(*) AS n FROM run WHERE id = ?', applied.run)).toBe(1)
+    expect((await proposalOf(id))?.status).toBe('auto_applied')
+  })
+
+  it('別の作品に付け替えられた回は 409 で、作品・回が残る（FK 違反にならないので書く前に止める）', async () => {
+    const r = await autoApplied()
+    const id = r.body.id as string
+    const applied = await appliedOf(id)
+    const other = await insertWork(env, { title: `付け替え先 ${uniq()}` })
+    await env.DB.prepare('UPDATE run SET work_id = ? WHERE id = ?').bind(other, applied.run).run()
+    const res = await revert(id)
+    expect(res.status).toBe(409)
+    expect(await count('SELECT COUNT(*) AS n FROM work WHERE id = ?', applied.work)).toBe(1)
+    expect(await count('SELECT COUNT(*) AS n FROM run WHERE id = ?', applied.run)).toBe(1)
+    expect((await proposalOf(id))?.status).toBe('auto_applied')
+  })
+
+  it('期限の表示は JST の M/D HH:mm', () => {
+    expect(revertUntilText('2026-11-18T15:04:00.000Z')).toBe('11/19 00:04')
+    expect(revertUntilText(null)).toBe('')
   })
 })

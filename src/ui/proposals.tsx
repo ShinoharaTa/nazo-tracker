@@ -64,12 +64,12 @@ const NOT_FOUND = '（見つかりません）'
 
 const confidenceText = (n: number | null): string => (n === null ? '—' : n.toFixed(2))
 
-// 取り消しの期限（JST の M/D）
-const revertUntilText = (iso: string | null): string => {
-  const d = iso ? isoToJstDate(iso) : null
-  if (!d) return ''
-  const [, m, day] = d.split('-')
-  return `${Number(m)}/${Number(day)}`
+// 取り消しの期限（JST の M/D HH:mm）
+export const revertUntilText = (iso: string | null): string => {
+  const t = iso ? Date.parse(iso) : Number.NaN
+  if (Number.isNaN(t)) return ''
+  const j = new Date(t + 9 * 3_600_000).toISOString()
+  return `${Number(j.slice(5, 7))}/${Number(j.slice(8, 10))} ${j.slice(11, 16)}`
 }
 
 const kindLabelOf = (p: Pick<AdminProposalRow, 'kind' | 'targetTable'>) =>
@@ -394,6 +394,8 @@ export type ProposalDetailProps = {
   linkable: boolean
   // 自動反映で、取り消せる期間内
   revertable?: boolean
+  // follow-up のとき、元の提案の状態（reverted なら「元の作品は取り消されました」）
+  parentStatus?: ProposalRow['status'] | null
   // update の対象の今の形式（形式の Select の既定。create は提案の値）
   currentKind?: string | null
   applied?: boolean
@@ -508,6 +510,11 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
           {p.followUpOfId ? (
             <Kv label="元の提案">
               <a href={`/admin/proposals/${p.followUpOfId}`}>自動反映した提案を見る</a>
+              {props.parentStatus === 'reverted' ? (
+                <span class="note" style="display:block">
+                  元の作品は取り消されました。
+                </span>
+              ) : null}
             </Kv>
           ) : null}
           {p.reviewedAt ? (

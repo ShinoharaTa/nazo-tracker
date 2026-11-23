@@ -12,7 +12,7 @@ import {
   type VenueInput,
   type WorkInput,
 } from '../admin/validate'
-import { logChange, type WriteCtx } from '../db/change-log'
+import { logChange, logChangeIf, type WriteCtx } from '../db/change-log'
 import type { Db } from '../db/client'
 import type { OrgRow, RunDbRow, ShopRow, VenueRow, WorkRow } from '../db/master'
 import {
@@ -38,7 +38,7 @@ import {
   isLiveRow,
   type NewProposal,
   type ProposalRow,
-  pendingFollowUps,
+  pendingForRevert,
 } from '../db/proposals'
 import {
   proposal,
@@ -590,7 +590,7 @@ export const appliedIdsOf = (json: string | null): AppliedIds => {
 }
 
 // 取り消し: applied_json の行を run → work の順に物理 DELETE（change_log delete、actor = オーナー）、
-// 提案を reverted、follow-up の承認待ちを superseded。あとから記録・別名・別の回などが付いた行は
+// 提案を reverted、follow-up と、取り消す作品・回を対象にした承認待ちを superseded。あとから記録・別名・別の回などが付いた行は
 // FK 違反で batch ごと失敗する（呼び出し側が REVERT_BLOCKED にする）。統合された作品・付け替えられた回は先に止める
 export const buildRevert = async (
   db: Db,
@@ -638,7 +638,11 @@ export const buildRevert = async (
     )
   }
   const set = { status: 'reverted' as const, revertedAt: now, revertedByUserId: userId }
-  const followUps = await pendingFollowUps(db, p.id)
+  // follow-up と、取り消す作品・回を対象にした承認待ち（対象が消えるので承認できなくなる）
+  const followUps = await pendingForRevert(db, p.id, {
+    work: workRow?.id,
+    run: runRow?.id,
+  })
   return {
     ok: true,
     stmts: [
@@ -655,19 +659,24 @@ export const buildRevert = async (
         .update(proposal)
         .set(set)
         .where(and(eq(proposal.id, p.id), eq(proposal.status, 'auto_applied'))),
+      // 読んでから書くまでの間に承認・却下された提案は変えず、履歴も残さない（履歴を UPDATE の前に同じ条件で入れる）
       ...followUps.flatMap((f) => [
+        logChangeIf(
+          db,
+          {
+            table: proposal,
+            rowId: f.id,
+            action: 'update',
+            before: f,
+            after: { ...f, status: 'superseded' },
+            ...ctx,
+          },
+          sql`EXISTS (SELECT 1 FROM ${proposal} WHERE ${proposal.id} = ${f.id} AND ${proposal.status} = 'pending')`,
+        ),
         db
           .update(proposal)
           .set({ status: 'superseded' })
           .where(and(eq(proposal.id, f.id), eq(proposal.status, 'pending'))),
-        logChange(db, {
-          table: proposal,
-          rowId: f.id,
-          action: 'update',
-          before: f,
-          after: { ...f, status: 'superseded' },
-          ...ctx,
-        }),
       ]),
     ],
   }
