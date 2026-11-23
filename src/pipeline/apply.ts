@@ -1,8 +1,8 @@
-// 提案の承認・却下の statement 組み立て（docs/agent-pipeline.md §4）。実行は呼び出し側が db.batch の 1 回で（runStmts）。
+// 提案の承認・却下・自動反映・取り消しの statement 組み立て（docs/agent-pipeline.md §4）。実行は呼び出し側が db.batch の 1 回で（runStmts）。
 // 承認はマスタの書き込み（src/db/master-write.ts / merge.ts の Stmts）と、提案・項目・リクエストの更新を同じ batch に入れる。
-// change_log の actor はオーナー（{ userId }）、proposal_id はこの提案。記録系テーブルはここから import しない。
+// change_log の actor はオーナー（{ userId }。自動反映はトークン）、proposal_id はこの提案。記録系テーブルはここから import しない。
 
-import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
+import { and, eq, inArray, notExists, type SQL, sql } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
 import {
   type OrgInput,
@@ -32,17 +32,30 @@ import { mergeOrganizationStmts, mergeVenueStmts, mergeWorkStmts } from '../db/m
 import {
   type AdminProposalField,
   type CandidateView,
+  createProposalStmts,
   getRawRow,
   getTargetRow,
   isLiveRow,
+  type NewProposal,
   type ProposalRow,
+  pendingFollowUps,
 } from '../db/proposals'
-import { proposal, proposalField, rejectionMemory, request, workKinds } from '../db/schema'
+import {
+  proposal,
+  proposalField,
+  rejectionMemory,
+  request,
+  run,
+  work,
+  workKinds,
+} from '../db/schema'
 import { field } from '../lib/form'
-import { nowIso } from '../lib/time'
+import { ulid } from '../lib/id'
+import { addDays, nowIso } from '../lib/time'
 import { proposalFieldLabel, proposalTableLabel, type WorkKind } from '../ui/labels'
 import {
   camel,
+  fingerprintOf,
   formValueOf,
   type ProposalDraft,
   type ProposalItem,
@@ -121,12 +134,18 @@ const conflict = (errors: string[], stale?: StaleField[]): ApprovalResult => ({
   ...(stale ? { stale } : {}),
 })
 
-// 提案自身の change_log。row_id を「まだ pending なら提案の id」の副問い合わせにして、batch の先頭に置く。
+// 提案自身の change_log。row_id を「まだ pending なら（guard を満たすなら）提案の id」の副問い合わせにして、batch の先頭に置く。
 // 読んでから書くまでの間に処理された（二重送信・同時の承認）なら NOT NULL 違反で batch ごと失敗する
-const proposalLog = (db: Db, p: ProposalRow, after: ProposalRow, ctx: WriteCtx): Stmt =>
+const proposalLog = (
+  db: Db,
+  p: ProposalRow,
+  after: ProposalRow,
+  ctx: WriteCtx,
+  guard: SQL = sql`${proposal.status} = 'pending'`,
+): Stmt =>
   logChange(db, {
     table: proposal,
-    rowId: sql`(SELECT ${proposal.id} FROM ${proposal} WHERE ${proposal.id} = ${p.id} AND ${proposal.status} = 'pending')`,
+    rowId: sql`(SELECT ${proposal.id} FROM ${proposal} WHERE ${proposal.id} = ${p.id} AND ${guard})`,
     action: 'update',
     before: p,
     after,
@@ -170,6 +189,53 @@ const toItem = (f: AdminProposalField): ProposalItem => ({
   sourceId: f.sourceId,
   confidence: f.confidence ?? 0,
 })
+
+// 作った / 変えた行の id（proposal.applied_json）
+export type AppliedIds = Partial<Record<ProposalTable, string>>
+
+// create の束を書く文（作る順に、プレースホルダを先に作った行の id に置き換える）。inputs は validateBundle の検証後の値
+const createBundleStmts = (
+  db: Db,
+  draft: ProposalDraft,
+  inputs: Partial<Record<ProposalTable, Record<string, unknown>>>,
+  ctx: WriteCtx,
+): { stmts: Stmt[]; applied: AppliedIds } => {
+  const stmts: Stmt[] = []
+  const ids: AppliedIds = {}
+  // 検証後の値に、プレースホルダの列だけ先に作った行の id を入れる
+  const inputOf = (t: ProposalTable): Record<string, unknown> => {
+    const input = { ...inputs[t] }
+    for (const i of draft.items) {
+      const ref = i.table === t ? placeholderOf(i) : null
+      if (ref) input[camel(i.column)] = ids[ref] ?? null
+    }
+    return input
+  }
+  for (const t of createOrder) {
+    if (!inputs[t]) continue
+    const input = inputOf(t)
+    const s =
+      t === 'organization'
+        ? createOrgStmts(db, input as OrgInput, ctx)
+        : t === 'venue'
+          ? createVenueStmts(db, input as VenueInput, ctx)
+          : t === 'shop'
+            ? createShopStmts(db, input as ShopInput, ctx)
+            : t === 'work'
+              ? createWorkStmts(db, input as WorkInput, ctx)
+              : createRunStmts(
+                  db,
+                  (draft.targetTable === 'run'
+                    ? draft.items.find((i) => i.field === 'run.work_id')?.newValue
+                    : ids.work) ?? '',
+                  input as RunInput,
+                  ctx,
+                )
+    ids[t] = s.id
+    stmts.push(...s.stmts)
+  }
+  return { stmts, applied: ids }
+}
 
 // 承認の検証と文の組み立て。p は pending であることを呼び出し側で確かめてから渡す（batch の先頭でも確かめる）
 export const buildApproval = async (
@@ -299,42 +365,11 @@ export const buildApproval = async (
 
   // マスタの書き込み
   const master: Stmt[] = []
-  const applied: Partial<Record<ProposalTable, string>> = {}
+  const applied: AppliedIds = {}
   if (draft.kind === 'create') {
-    const ids: Partial<Record<ProposalTable, string>> = {}
-    // 検証後の値に、プレースホルダの列だけ先に作った行の id を入れる
-    const inputOf = (t: ProposalTable): Record<string, unknown> => {
-      const input = { ...v.inputs[t] }
-      for (const i of draft.items) {
-        const ref = i.table === t ? placeholderOf(i) : null
-        if (ref) input[camel(i.column)] = ids[ref] ?? null
-      }
-      return input
-    }
-    for (const t of createOrder) {
-      if (!v.inputs[t]) continue
-      const input = inputOf(t)
-      const s =
-        t === 'organization'
-          ? createOrgStmts(db, input as OrgInput, ctx)
-          : t === 'venue'
-            ? createVenueStmts(db, input as VenueInput, ctx)
-            : t === 'shop'
-              ? createShopStmts(db, input as ShopInput, ctx)
-              : t === 'work'
-                ? createWorkStmts(db, input as WorkInput, ctx)
-                : createRunStmts(
-                    db,
-                    (draft.targetTable === 'run'
-                      ? draft.items.find((i) => i.field === 'run.work_id')?.newValue
-                      : ids.work) ?? '',
-                    input as RunInput,
-                    ctx,
-                  )
-      ids[t] = s.id
-      applied[t] = s.id
-      master.push(...s.stmts)
-    }
+    const s = createBundleStmts(db, draft, v.inputs, ctx)
+    Object.assign(applied, s.applied)
+    master.push(...s.stmts)
   } else if (draft.kind === 'update') {
     const input = v.inputs[table] ?? {}
     const s =
@@ -445,6 +480,195 @@ export const buildRejection = (
           ]
         : []),
       ...requestDoneStmt(db, p.requestId, now),
+    ],
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 自動反映・取り消し（docs/agent-pipeline.md §4 A-3）
+// ---------------------------------------------------------------------------
+
+// 自動反映を取り消せる日数
+export const REVERT_DAYS = 7
+
+export type AutoApplyInput = Omit<
+  NewProposal,
+  'id' | 'status' | 'revertUntil' | 'appliedJson' | 'followUpOfId' | 'acceptedOf'
+> & {
+  // validateBundle の検証後の値（draft は正規化後の項目）
+  inputs: Partial<Record<ProposalTable, Record<string, unknown>>>
+  // 入れずに反映し、follow-up の承認待ちにする項目（work.kind / run.is_permanent）
+  deferred: readonly string[]
+}
+
+// 提案を auto_applied で作り、同じ batch で束を書く（actor = トークン）。deferred の項目は既定値（kind NULL /
+// is_permanent 0）で作り、同じ値の update 提案（pending、follow_up_of_id = この提案）を作る。
+// 呼び出し側は fingerprint・却下記憶・重複の検査を済ませてから渡す
+export const buildAutoApply = async (
+  db: Db,
+  a: AutoApplyInput,
+): Promise<{ id: string; stmts: Stmt[]; revertUntil: string; followUps: string[] }> => {
+  const id = ulid()
+  const ctx: WriteCtx = { actor: { tokenId: a.tokenId }, proposalId: id }
+  const deferred = new Set(a.deferred)
+  const inputs = { ...a.inputs }
+  if (deferred.has('work.kind') && inputs.work) inputs.work = { ...inputs.work, kind: null }
+  if (deferred.has('run.is_permanent') && inputs.run) {
+    inputs.run = { ...inputs.run, isPermanent: 0 }
+  }
+  const master = createBundleStmts(db, a.draft, inputs, ctx)
+  const now = nowIso()
+  const revertUntil = addDays(now, REVERT_DAYS)
+  // change_log の proposal_id がこの提案を指すので、提案の INSERT を先に置く
+  const created = await createProposalStmts(db, {
+    draft: a.draft,
+    oldValues: a.oldValues,
+    fingerprint: a.fingerprint,
+    candidatesJson: a.candidatesJson,
+    tokenId: a.tokenId,
+    id,
+    status: 'auto_applied',
+    revertUntil,
+    appliedJson: JSON.stringify(master.applied),
+    acceptedOf: (i) => (deferred.has(i.field) ? 0 : 1),
+  })
+  const followUps: Stmt[] = []
+  const followUpIds: string[] = []
+  for (const item of a.draft.items) {
+    if (!deferred.has(item.field)) continue
+    const targetId = master.applied[item.table]
+    if (!targetId) continue
+    // 依頼元のリクエストは付けない（作品・回はもう反映したので、リクエストは自動 done にする）
+    const draft: ProposalDraft = {
+      kind: 'update',
+      targetTable: item.table,
+      targetId,
+      requestId: null,
+      items: [item],
+      candidates: [],
+    }
+    const f = await createProposalStmts(db, {
+      draft,
+      // 作ったばかりの行は既定値（kind NULL / is_permanent 0 → どちらも空）
+      oldValues: [null],
+      fingerprint: await fingerprintOf(draft),
+      candidatesJson: '[]',
+      tokenId: a.tokenId,
+      followUpOfId: id,
+    })
+    followUps.push(...f.stmts)
+    followUpIds.push(f.id)
+  }
+  return {
+    id,
+    stmts: [
+      ...created.stmts,
+      ...master.stmts,
+      ...followUps,
+      ...requestDoneStmt(db, a.draft.requestId, now),
+    ],
+    revertUntil,
+    followUps: followUpIds,
+  }
+}
+
+export const REVERT_EXPIRED = '取り消せる期間を過ぎたか、取り消せない提案です。'
+export const REVERT_BLOCKED =
+  'この作品・回にはあとから記録や別名などが付いたため、取り消せません。直すときは作品の統合を使ってください。'
+
+// 取り消せる提案か（自動反映で、期限内）
+export const revertable = (p: Pick<ProposalRow, 'status' | 'revertUntil'>, now = nowIso()) =>
+  p.status === 'auto_applied' && !!p.revertUntil && p.revertUntil > now
+
+export const appliedIdsOf = (json: string | null): AppliedIds => {
+  try {
+    const a: unknown = JSON.parse(json ?? '{}')
+    return a && typeof a === 'object' ? (a as AppliedIds) : {}
+  } catch {
+    return {}
+  }
+}
+
+// 取り消し: applied_json の行を run → work の順に物理 DELETE（change_log delete、actor = オーナー）、
+// 提案を reverted、follow-up の承認待ちを superseded。あとから記録・別名・別の回などが付いた行は
+// FK 違反で batch ごと失敗する（呼び出し側が REVERT_BLOCKED にする）。統合された作品・付け替えられた回は先に止める
+export const buildRevert = async (
+  db: Db,
+  p: ProposalRow,
+  userId: string,
+): Promise<{ ok: true; stmts: Stmt[] } | { ok: false; error: string }> => {
+  const now = nowIso()
+  if (!revertable(p, now)) return { ok: false, error: REVERT_EXPIRED }
+  const ctx: WriteCtx = { actor: { userId }, proposalId: p.id }
+  const applied = appliedIdsOf(p.appliedJson)
+  const runRow = applied.run ? ((await getRawRow(db, 'run', applied.run)) as RunDbRow | null) : null
+  const workRow = applied.work
+    ? ((await getRawRow(db, 'work', applied.work)) as WorkRow | null)
+    : null
+  if (applied.run && !runRow) return { ok: false, error: REVERT_BLOCKED }
+  if (applied.work && (!workRow || workRow.mergedIntoId))
+    return { ok: false, error: REVERT_BLOCKED }
+  if (runRow && workRow && runRow.workId !== workRow.id) return { ok: false, error: REVERT_BLOCKED }
+
+  const deletes: Stmt[] = []
+  if (runRow) {
+    deletes.push(
+      db.delete(run).where(eq(run.id, runRow.id)),
+      logChange(db, {
+        table: run,
+        rowId: runRow.id,
+        action: 'delete',
+        before: runRow,
+        after: null,
+        ...ctx,
+      }),
+    )
+  }
+  if (workRow) {
+    deletes.push(
+      db.delete(work).where(eq(work.id, workRow.id)),
+      logChange(db, {
+        table: work,
+        rowId: workRow.id,
+        action: 'delete',
+        before: workRow,
+        after: null,
+        ...ctx,
+      }),
+    )
+  }
+  const set = { status: 'reverted' as const, revertedAt: now, revertedByUserId: userId }
+  const followUps = await pendingFollowUps(db, p.id)
+  return {
+    ok: true,
+    stmts: [
+      // 読んでから書くまでの間に取り消された・期限を過ぎたなら NOT NULL 違反で batch ごと失敗する
+      proposalLog(
+        db,
+        p,
+        { ...p, ...set },
+        ctx,
+        sql`${proposal.status} = 'auto_applied' AND ${proposal.revertUntil} > ${now}`,
+      ),
+      ...deletes,
+      db
+        .update(proposal)
+        .set(set)
+        .where(and(eq(proposal.id, p.id), eq(proposal.status, 'auto_applied'))),
+      ...followUps.flatMap((f) => [
+        db
+          .update(proposal)
+          .set({ status: 'superseded' })
+          .where(and(eq(proposal.id, f.id), eq(proposal.status, 'pending'))),
+        logChange(db, {
+          table: proposal,
+          rowId: f.id,
+          action: 'update',
+          before: f,
+          after: { ...f, status: 'superseded' },
+          ...ctx,
+        }),
+      ]),
     ],
   }
 }

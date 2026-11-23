@@ -302,7 +302,7 @@ flowchart LR
 | P1 | OAuth（Google・Discord）、セッション、user / identity、表示名、`scopedTo` ヘルパ | P0 |
 | P2 | マスタ CRUD（オーナー）、作品/団体/会場/回の閲覧 UI | P1 |
 | P3 | attempt / session の CRUD（難易度・物量・ジャンル・ネタバレメモ含む）、マイリスト、本人の一覧・統計ページ、作品一覧/ページの匿名人数（オプトアウト）。進行ログの編集は P7、写真は P9、フレンド n 人は P8 | P2 |
-| P4 | リクエスト投稿・一覧、agent トークン、proposal API、承認 UI（差分・却下記憶・自動反映ルール） | P3 |
+| P4 | リクエスト投稿・一覧、agent トークン、proposal API、承認 UI（差分・部分承認・却下記憶）、自動反映ルール（既定 OFF・7 日間の取り消し）。済み（#5） | P3 |
 | P5 | `nazo-admin` CLI、`/process-queue`、escape MCP 手順、trailcast インポート | P4 |
 | P6 | Bluesky（AT Proto OAuth）、複数プロバイダ紐付け、復旧コード | P1 |
 | P7 | 出店（market/edition/booth）、gamemarket.jp 取り込み手順、本人向け統計の拡充（得意傾向）・自分のデータのエクスポート | P3 |
@@ -330,6 +330,14 @@ flowchart LR
 - 実行はオーナー指示（E-1: Claude Code セッションで `/process-queue` + `nazo-admin` CLI）。定期バッチにしない。
 - Claude の権限は「提案を書く」まで（W-1: REST API + agent トークン）。自動反映の判定はサーバー側。
 - escape.id 由来の新規 work / run は自動反映、7 日間取り消し可。update / merge / link / インポートは常に pending。
+- 自動反映の既定は OFF（`app_setting('auto_apply')`、P5 の CLI が安定してからオーナーが `/admin/proposals` で ON にする。deploy なしで切り替えられる）。
+- 自動反映で kind / is_permanent の確信度が低い（< 0.9）新規作品は、kind 未設定・常設なしで作品と回を反映し、kind と is_permanent だけ別の承認待ち（follow-up の update 提案）にする。
+- 新しい団体・会場・販売先を含む提案は自動反映しない（表記ゆれを人が見る）。
+- 取り消しは物理削除。あとから記録・別名などが付いていたら FK で失敗させて取り消し不可（作品の統合で直す）。記録の有無は読まない。
+- 提案は「束」（1 提案で団体・会場・販売先・作品・回をまとめて作れる。項目名は `<表>.<列>`、値はフォーム文字列で既存の validators を再利用）。`old_value` と fingerprint は Worker が計算する。
+- `suppressed` は行を作らず 409 だけ返す。`superseded` は同じリクエスト・同じ kind・同じ対象の update / link / merge だけ。
+- agent トークンは `/api/agent/*` 以外の全ルートで 403、`/api/agent` の未定義パスも 403。scopes は v1 では固定、期限は 30 / 90 / 180 日。
+- 承認画面で値の書き換えはしない（採用 / 不採用と kind・紐付け先だけ。直したい値は承認後に `/admin/*` で編集）。
 - `work.kind` と `is_permanent` は Claude が推定して提案し、オーナーが承認時に確定。ラベル→kind の自動変換表は持たない。
 
 **データモデル**

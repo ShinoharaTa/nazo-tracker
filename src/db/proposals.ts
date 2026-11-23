@@ -1,7 +1,7 @@
 // 出典（source）・提案（proposal / proposal_field）・却下記憶（rejection_memory）の読み書き（docs/agent-pipeline.md §4・§5）。
 // マスタは読むだけ（承認での反映の文は src/pipeline/apply.ts）。記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
 import { nowIso } from '../lib/time'
 import { nameColumn, type ProposalDraft, type ProposalTable } from '../pipeline/fields'
@@ -33,11 +33,14 @@ export const createSource = async (db: Db, input: SourceInput): Promise<string> 
   return id
 }
 
-// ids のうち存在する source の id
-export const existingSourceIds = async (db: Db, ids: string[]): Promise<Set<string>> => {
-  if (ids.length === 0) return new Set()
-  const rows = await db.select({ id: source.id }).from(source).where(inArray(source.id, ids))
-  return new Set(rows.map((r) => r.id))
+// ids のうち存在する source の id → method（自動反映の判定に使う）
+export const existingSources = async (db: Db, ids: string[]): Promise<Map<string, string>> => {
+  if (ids.length === 0) return new Map()
+  const rows = await db
+    .select({ id: source.id, method: source.method })
+    .from(source)
+    .where(inArray(source.id, ids))
+  return new Map(rows.map((r) => [r.id, r.method]))
 }
 
 // ---------------------------------------------------------------------------
@@ -117,9 +120,17 @@ export type NewProposal = {
   fingerprint: string
   candidatesJson: string
   tokenId: string
+  // 以下は自動反映のときだけ（src/pipeline/apply.ts の buildAutoApply）。id は反映の change_log と揃えるため先に振る
+  id?: string
+  status?: 'pending' | 'auto_applied'
+  revertUntil?: string
+  appliedJson?: string
+  followUpOfId?: string
+  // 項目の accepted（自動反映で入れた項目は 1、入れずに follow-up にした項目は 0）。省略は NULL
+  acceptedOf?: (i: ProposalDraft['items'][number]) => 0 | 1
 }
 
-// proposal_field の INSERT 1 文あたりの行数。D1 は 1 文の変数が 100 個まで（1 行 7〜8 個）
+// proposal_field の INSERT 1 文あたりの行数。D1 は 1 文の変数が 100 個まで（1 行 7〜8 個。accepted を入れると 8 個）
 const FIELD_ROWS_PER_INSERT = 12
 
 // 提案 1 件の文: 同じリクエスト・同じ kind・同じ対象の pending を superseded（update / link / merge のとき）
@@ -127,7 +138,7 @@ const FIELD_ROWS_PER_INSERT = 12
 // proposal の作成と置き換えは change_log にも残す（actor = トークン、proposal_id = 新しい提案）
 export const createProposalStmts = async (db: Db, p: NewProposal): Promise<Stmts> => {
   const { draft: d } = p
-  const id = ulid()
+  const id = p.id ?? ulid()
   const ctx: WriteCtx = { actor: { tokenId: p.tokenId }, proposalId: id }
   const now = nowIso()
   const stmts: Stmts['stmts'] = []
@@ -174,11 +185,14 @@ export const createProposalStmts = async (db: Db, p: NewProposal): Promise<Stmts
     targetTable: d.targetTable,
     targetId: d.targetId,
     confidence: Math.min(...d.items.map((i) => i.confidence)),
-    status: 'pending',
+    status: p.status ?? 'pending',
     fingerprint: p.fingerprint,
     matchCandidatesJson: p.candidatesJson,
     createdByTokenId: p.tokenId,
     createdAt: now,
+    revertUntil: p.revertUntil ?? null,
+    appliedJson: p.appliedJson ?? null,
+    followUpOfId: p.followUpOfId ?? null,
   }
   const fieldRows = d.items.map((i, n) => ({
     id: ulid(),
@@ -188,6 +202,7 @@ export const createProposalStmts = async (db: Db, p: NewProposal): Promise<Stmts
     newValue: i.newValue,
     sourceId: i.sourceId,
     confidence: i.confidence,
+    ...(p.acceptedOf ? { accepted: p.acceptedOf(i) } : {}),
   }))
   const fieldInserts: Stmts['stmts'] = []
   for (let n = 0; n < fieldRows.length; n += FIELD_ROWS_PER_INSERT) {
@@ -299,10 +314,17 @@ export type ProposalRow = typeof proposal.$inferSelect
 export const adminProposalTabs = ['pending', 'auto', 'done'] as const
 export type AdminProposalTab = (typeof adminProposalTabs)[number]
 
-const tabStatuses: Record<AdminProposalTab, ProposalRow['status'][]> = {
-  pending: ['pending'],
-  auto: ['auto_applied'],
-  done: ['applied', 'rejected', 'superseded', 'reverted'],
+// タブの条件。自動反映は取り消せる期間内だけで、期間を過ぎたら済みに出す
+const tabWhere = (tab: AdminProposalTab, now: string) => {
+  if (tab === 'pending') return eq(proposal.status, 'pending')
+  if (tab === 'auto') return and(eq(proposal.status, 'auto_applied'), gt(proposal.revertUntil, now))
+  return or(
+    inArray(proposal.status, ['applied', 'rejected', 'superseded', 'reverted']),
+    and(
+      eq(proposal.status, 'auto_applied'),
+      or(isNull(proposal.revertUntil), lte(proposal.revertUntil, now)),
+    ),
+  )
 }
 
 // id → 表示名（run は作品の題名）。無い id は入らない
@@ -339,6 +361,8 @@ export type AdminProposalRow = {
   status: ProposalRow['status']
   confidence: number | null
   createdAt: string
+  // 自動反映を取り消せる期限
+  revertUntil: string | null
   // 作る行の名前（create）か、対象の今の名前
   headline: string
   // 出典のドメイン（重複なし）
@@ -349,7 +373,7 @@ const NOT_FOUND_NAME = '（見つかりません）'
 
 type ListCols = Pick<
   ProposalRow,
-  'id' | 'kind' | 'targetTable' | 'targetId' | 'status' | 'confidence' | 'createdAt'
+  'id' | 'kind' | 'targetTable' | 'targetId' | 'status' | 'confidence' | 'createdAt' | 'revertUntil'
 >
 
 // 一覧の行に見出しと出典のドメインを付ける
@@ -429,6 +453,7 @@ const decorate = async (db: Db, rows: ListCols[]): Promise<AdminProposalRow[]> =
       status: r.status,
       confidence: r.confidence,
       createdAt: r.createdAt,
+      revertUntil: r.revertUntil,
       headline: headline ?? NOT_FOUND_NAME,
       domains: domainRows.flatMap((d) => (d.proposalId === r.id && d.domain ? [d.domain] : [])),
     }
@@ -443,6 +468,7 @@ const rowCols = {
   status: proposal.status,
   confidence: proposal.confidence,
   createdAt: proposal.createdAt,
+  revertUntil: proposal.revertUntil,
 }
 
 // 承認待ちは古い順、それ以外は新しい順。50 件ずつ
@@ -457,7 +483,7 @@ export const listAdminProposals = async (
   const rows = await db
     .select(rowCols)
     .from(proposal)
-    .where(inArray(proposal.status, tabStatuses[tab]))
+    .where(tabWhere(tab, nowIso()))
     .orderBy(...order)
     .limit(PAGE_SIZE + 1)
     .offset((page - 1) * PAGE_SIZE)
@@ -543,6 +569,14 @@ export const getAdminProposal = async (
   })
   return { row, fields }
 }
+
+// 自動反映から作った follow-up（kind / is_permanent）のうち、まだ承認待ちのもの
+export const pendingFollowUps = (db: Db, id: string): Promise<ProposalRow[]> =>
+  db
+    .select()
+    .from(proposal)
+    .where(and(eq(proposal.followUpOfId, id), eq(proposal.status, 'pending')))
+    .orderBy(asc(proposal.createdAt), asc(proposal.id))
 
 // 同じ対象（update / link / merge）の、ほかの承認待ち
 export const otherPendingForTarget = async (db: Db, p: ProposalRow): Promise<string[]> => {
@@ -697,7 +731,8 @@ export const rejectedOnlyRequests = async (
   )
 }
 
-// リクエストから反映された作品（done の依頼者画面の「作品を見る ›」）。新しい反映から順に、作品か回の作品を返す
+// リクエストから反映された作品（done の依頼者画面の「作品を見る ›」）。新しい反映から順に、作品か回の作品を返す。
+// 反映の日時は承認なら reviewed_at、自動反映なら（reviewed_at が NULL で）提案と同時なので created_at
 export const appliedWorkOfRequest = async (db: Db, requestId: string): Promise<string | null> => {
   const rows = await db
     .select({ appliedJson: proposal.appliedJson })
@@ -705,7 +740,7 @@ export const appliedWorkOfRequest = async (db: Db, requestId: string): Promise<s
     .where(
       and(eq(proposal.requestId, requestId), inArray(proposal.status, ['applied', 'auto_applied'])),
     )
-    .orderBy(desc(proposal.reviewedAt), desc(proposal.id))
+    .orderBy(desc(sql`COALESCE(${proposal.reviewedAt}, ${proposal.createdAt})`), desc(proposal.id))
     .limit(PAGE_SIZE)
   for (const r of rows) {
     let a: unknown

@@ -21,6 +21,7 @@ import {
   Pager,
   Select,
   StubDate,
+  Switch,
   Tabs,
   Ticket,
   TopBar,
@@ -62,6 +63,14 @@ export type RefNames = Record<ProposalTable, Map<string, string>>
 const NOT_FOUND = '（見つかりません）'
 
 const confidenceText = (n: number | null): string => (n === null ? '—' : n.toFixed(2))
+
+// 取り消しの期限（JST の M/D）
+const revertUntilText = (iso: string | null): string => {
+  const d = iso ? isoToJstDate(iso) : null
+  if (!d) return ''
+  const [, m, day] = d.split('-')
+  return `${Number(m)}/${Number(day)}`
+}
 
 const kindLabelOf = (p: Pick<AdminProposalRow, 'kind' | 'targetTable'>) =>
   `${proposalKindLabels[p.kind]} · ${proposalTableLabel(p.targetTable)}`
@@ -107,8 +116,16 @@ const emptyText: Record<AdminProposalTab, string> = {
 const tabHref = (tab: AdminProposalTab) =>
   tab === 'pending' ? '/admin/proposals' : `/admin/proposals?tab=${tab}`
 
-// 一覧の 1 行。meta = 種類 · 対象 · 出典ドメイン · 確信度の最小
-export const ProposalTicket = ({ r, chip }: { r: AdminProposalRow; chip?: boolean }) => (
+// 一覧の 1 行。meta = 種類 · 対象 · 出典ドメイン · 確信度の最小（自動反映タブは取り消しの期限も）
+export const ProposalTicket = ({
+  r,
+  chip,
+  revertUntil,
+}: {
+  r: AdminProposalRow
+  chip?: boolean
+  revertUntil?: boolean
+}) => (
   <Ticket
     href={`/admin/proposals/${r.id}`}
     stub={<StubDate date={isoToJstDate(r.createdAt)} />}
@@ -116,11 +133,35 @@ export const ProposalTicket = ({ r, chip }: { r: AdminProposalRow; chip?: boolea
       <>
         {[kindLabelOf(r), ...r.domains].join(' · ')} ·{' '}
         <span class="mono">{confidenceText(r.confidence)}</span>
+        {revertUntil && r.revertUntil ? (
+          <>
+            {' '}
+            · <span class="mono">取り消せるのは {revertUntilText(r.revertUntil)} まで</span>
+          </>
+        ) : null}
       </>
     }
     title={r.headline}
     chip={chip ? <span class="chip">{proposalStatusLabels[r.status]}</span> : undefined}
   />
+)
+
+// 自動反映の ON / OFF（既定 OFF）。Switch は on のときだけ auto_apply=on が届く
+const AutoApplyForm = ({ on, saved }: { on: boolean; saved?: boolean }) => (
+  <form method="post" action="/admin/proposals/settings" class="sect list">
+    {saved ? (
+      <p class="note" role="status">
+        保存しました
+      </p>
+    ) : null}
+    <Switch label="escape.id 由来の新しい作品・回を自動で反映する" name="auto_apply" checked={on} />
+    <p class="note">
+      自動で反映した作品・回は 7 日間取り消せます。新しい団体・会場を含む提案は承認待ちになります。
+    </p>
+    <button type="submit" class="btn">
+      保存
+    </button>
+  </form>
 )
 
 export const ProposalsList = (props: {
@@ -129,9 +170,12 @@ export const ProposalsList = (props: {
   items: AdminProposalRow[]
   page: number
   hasNext: boolean
+  autoApply: boolean
+  saved?: boolean
 }) => (
   <>
     <TopBar back="/settings" label="提案" />
+    <AutoApplyForm on={props.autoApply} saved={props.saved} />
     <Tabs
       items={(['pending', 'auto', 'done'] as const).map((t) => ({
         key: t,
@@ -143,7 +187,9 @@ export const ProposalsList = (props: {
     />
     <div class="list">
       {props.items.length ? (
-        props.items.map((r) => <ProposalTicket r={r} chip={props.tab !== 'pending'} />)
+        props.items.map((r) => (
+          <ProposalTicket r={r} chip={props.tab !== 'pending'} revertUntil={props.tab === 'auto'} />
+        ))
       ) : (
         <Empty>{emptyText[props.tab]}</Empty>
       )}
@@ -346,6 +392,8 @@ export type ProposalDetailProps = {
   sameEscapeUrl: string[]
   kindSelectable: boolean
   linkable: boolean
+  // 自動反映で、取り消せる期間内
+  revertable?: boolean
   // update の対象の今の形式（形式の Select の既定。create は提案の値）
   currentKind?: string | null
   applied?: boolean
@@ -457,9 +505,19 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
               <a href={`/admin/requests/${p.requestId}`}>リクエストを見る</a>
             </Kv>
           ) : null}
+          {p.followUpOfId ? (
+            <Kv label="元の提案">
+              <a href={`/admin/proposals/${p.followUpOfId}`}>自動反映した提案を見る</a>
+            </Kv>
+          ) : null}
           {p.reviewedAt ? (
             <Kv label="処理日">
               <span class="mono">{isoToJstDate(p.reviewedAt) ?? ''}</span>
+            </Kv>
+          ) : null}
+          {p.revertedAt ? (
+            <Kv label="取り消し日">
+              <span class="mono">{isoToJstDate(p.revertedAt) ?? ''}</span>
             </Kv>
           ) : null}
           {p.reviewNote ? (
@@ -547,9 +605,67 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
               <FormErrors errors={props.errors} />
             </div>
           ) : null}
+          {props.revertable ? (
+            <div class="sect">
+              <p class="note">
+                取り消すと、この提案で作った作品・回を削除します。取り消せるのは{' '}
+                <span class="mono">{revertUntilText(p.revertUntil)}</span> までです。
+              </p>
+              <a class="btn danger" href={`/admin/proposals/${p.id}/revert`}>
+                取り消す
+              </a>
+            </div>
+          ) : null}
           {body}
         </>
       )}
     </>
   )
 }
+
+// 取り消しの確認（退会と同じ checkbox 形式）。error は 400 / 409 の文言、mergeHref は統合画面（取り消せないとき）
+export const RevertConfirm = (props: {
+  p: ProposalRow
+  headline: string
+  canRevert: boolean
+  error?: string
+  mergeHref?: string | null
+}) => (
+  <>
+    <TopBar back={`/admin/proposals/${props.p.id}`} label="自動反映の取り消し" />
+    <div class="sect" style="margin-top:4px">
+      <span class="title xl">{props.headline}</span>
+      <h2>取り消すと消えるもの</h2>
+      <ul>
+        <li>この提案で作った作品・回（削除します）</li>
+        <li>形式・常設の承認待ちの提案（置き換え済みにします）</li>
+        <li>この操作は元に戻せません。</li>
+      </ul>
+      <p class="note">
+        あとから記録・マイリスト・別名・別の回などが付いた作品・回は取り消せません。そのときは作品の統合で直してください。
+      </p>
+    </div>
+    {props.error ? (
+      <div class="sect">
+        <p class="note" role="alert">
+          {props.error}
+        </p>
+        {props.mergeHref ? (
+          <p class="note">
+            <a href={props.mergeHref}>作品の統合へ ›</a>
+          </p>
+        ) : null}
+      </div>
+    ) : null}
+    {props.canRevert ? (
+      <form method="post" action={`/admin/proposals/${props.p.id}/revert`} class="sect">
+        <label>
+          <input type="checkbox" name="confirm" value="yes" /> 上の内容を確認しました
+        </label>
+        <button type="submit" class="btn danger">
+          取り消す
+        </button>
+      </form>
+    ) : null}
+  </>
+)
