@@ -9,8 +9,10 @@ routes = [{ pattern = "nazo.shino3.net", custom_domain = true }]
 [[d1_databases]]
 binding = "DB"
 database_name = "nazo-tracker"
-# 本番 D1 作成後に `wrangler d1 create nazo-tracker` が出力する ID に置き換える
-database_id = "00000000-0000-0000-0000-000000000000"
+# 本番 D1（APAC）。2026-11-26 に `wrangler d1 create nazo-tracker` で作成
+database_id = "3251e285-2215-4035-a29d-bd15ce49abaa"
+# ローカル（wrangler dev・--local）はこちらの ID で .wrangler/state の DB を引く。本番 ID に切り替えてもローカルの中身を保つため旧 ID のまま
+preview_database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 [assets]
