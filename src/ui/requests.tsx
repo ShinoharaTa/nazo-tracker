@@ -2,6 +2,7 @@
 // triage_note / agent_note / 提案の中身は出さない（docs/agent-pipeline.md §2）。
 
 import type { Child } from 'hono/jsx'
+import type { AdminProposalRow } from '../db/proposals'
 import {
   type AdminRequest,
   type AdminRequestRow,
@@ -25,7 +26,13 @@ import {
   Ticket,
   TopBar,
 } from './components'
-import { ownerRequestStatusLabels, requestKindLabels, requestStatusLabels } from './labels'
+import {
+  ownerRequestStatusLabels,
+  REQUEST_DONE_WITHOUT_CHANGE,
+  requestKindLabels,
+  requestStatusLabels,
+} from './labels'
+import { ProposalTicket } from './proposals'
 
 const KvRow = ({ label, children }: { label: string; children?: Child }) => (
   <>
@@ -75,7 +82,17 @@ const PayloadRows = ({
 }
 
 // 自分のリクエスト一覧（左ページ）
-export const RequestsList = (props: { items: OwnRequest[]; page: number; hasNext: boolean }) => (
+// 依頼者に見せる状態。done で提案がすべて却下なら「反映はありませんでした」
+const ownStatusLabel = (r: Pick<OwnRequest, 'status'>, rejectedOnly: boolean) =>
+  r.status === 'done' && rejectedOnly ? REQUEST_DONE_WITHOUT_CHANGE : requestStatusLabels[r.status]
+
+// rejectedOnly は提案がすべて却下で終わったリクエストの id
+export const RequestsList = (props: {
+  items: OwnRequest[]
+  page: number
+  hasNext: boolean
+  rejectedOnly?: Set<string>
+}) => (
   <>
     <TopBar
       title="リクエスト"
@@ -94,7 +111,9 @@ export const RequestsList = (props: { items: OwnRequest[]; page: number; hasNext
             meta={requestKindLabels[r.kind]}
             title={headline(r)}
             // needs_info も普通の chip（赤ペン・蛍光ペンは使わない）
-            chip={<span class="chip">{requestStatusLabels[r.status]}</span>}
+            chip={
+              <span class="chip">{ownStatusLabel(r, props.rejectedOnly?.has(r.id) ?? false)}</span>
+            }
           />
         ))
       ) : (
@@ -148,10 +167,14 @@ export const NewRequestForm = (props: {
   )
 }
 
-// 詳細（右ページ）。target は fix_work の対象作品の題名（消えていれば null）
+// 詳細（右ページ）。target は fix_work の対象作品の題名（消えていれば null）。
+// workId は done のとき、このリクエストの提案で反映された作品
 export const RequestDetail = (props: {
   r: OwnRequest
   target: { id: string; title: string } | null
+  workId?: string | null
+  // 提案がすべて却下で終わった
+  rejectedOnly?: boolean
   created?: boolean
   replyValue?: string
   errors?: readonly string[]
@@ -167,7 +190,10 @@ export const RequestDetail = (props: {
         </p>
       ) : null}
       <div class="card">
-        <span class="title xl">{requestStatusLabels[r.status]}</span>
+        <span class="title xl">{ownStatusLabel(r, props.rejectedOnly ?? false)}</span>
+        {r.status === 'done' && props.workId ? (
+          <a href={`/works/${props.workId}`}>作品を見る ›</a>
+        ) : null}
       </div>
       <div class="sect">
         <dl class="kv">
@@ -291,6 +317,7 @@ const StatusForm = (props: {
 export const AdminRequestDetail = (props: {
   r: AdminRequest
   target: { id: string; title: string } | null
+  proposals: AdminProposalRow[]
   saved?: boolean
   values?: Form
   errors?: readonly string[]
@@ -382,7 +409,15 @@ export const AdminRequestDetail = (props: {
       ) : null}
       <div class="sect">
         <h2>提案</h2>
-        <Empty>提案はまだありません。</Empty>
+        {props.proposals.length ? (
+          <div class="list">
+            {props.proposals.map((p) => (
+              <ProposalTicket r={p} chip />
+            ))}
+          </div>
+        ) : (
+          <Empty>提案はまだありません。</Empty>
+        )}
       </div>
     </>
   )

@@ -29,7 +29,8 @@ export const canTransition = (
       if ((from === 'open' || from === 'triaged') && to === 'processing') return true
       return from === 'processing' && (to === 'proposed' || to === 'needs_info' || to === 'triaged')
     case 'worker':
-      // 紐付く提案の pending が 0 件になった時点（承認・却下・自動反映の batch の中）
-      return from === 'proposed' && to === 'done'
+      // 紐付く提案の pending が 0 件になった時点（承認・却下・自動反映の batch の中）。
+      // agent が proposed にする前（processing のまま）に提案が処理し終わったときも done にする
+      return (from === 'proposed' || from === 'processing') && to === 'done'
   }
 }

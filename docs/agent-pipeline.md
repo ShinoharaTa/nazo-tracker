@@ -60,6 +60,17 @@ A-3 自動反映ルール（Worker 側、設定で ON/OFF）:
 `update` / `merge` / `link` / 参加記録インポートは常に pending。
 
 差分表示: フィールドごとに `old → new`、出典ドメイン、取得日時、確信度。候補があれば「既存 X に紐付ける」ボタン。
+
+承認 UI（`/admin/proposals*`、`src/routes/admin/proposals.tsx` / `src/pipeline/apply.ts`）:
+- 項目ごとに採否（`accept_<proposal_field.id>`）。`work.kind` は Checkbox ではなく形式の Select で選び直す（提案と同じ値なら採用）。create work は候補の作品に紐付けられる（`link_work_id`。作品は作らず回だけを作り、work.* と、作品からしか参照されていない節（`work.primary_organization_id` の `@organization` だけが指す団体など）は不採用）。update の形式の Select は今の値が既定（提案の値は「提案: 〇〇」）。候補は保存された `match_candidates_json` のうち、未統合で存在する行だけを出す。
+- update / link / merge は、採用した項目の今の値が `old_value` と違えば 409 で今の値を出し、`force=1` の「それでも反映する」でだけ反映。対象が無い・統合済みは 409。
+- 「現在の行（create は空）+ 採用した項目 + 形式」を提案の投稿と同じ validators に通す。節の項目を全部外すとその節（団体・会場・販売先・回）は作らない。`@<表>` の参照だけを残すと 400。
+- 書き込みは 1 batch: 提案の change_log（先頭。まだ pending でなければ NOT NULL 違反で batch ごと失敗させ、二重送信で二重に作らない）→ マスタ（団体 → 会場 → 販売先 → 作品 → 回、または update / relink / merge の Stmts。change_log は actor = オーナー、`proposal_id`）→ proposal `applied`・`applied_json`（作った / 変えた行。紐付け先の既存作品は入れない）→ proposal_field `accepted` → リクエストの自動 done。
+- 却下は理由必須（500 字）、「同じ内容の再提案を止める」（既定 on）で `rejection_memory` に UPSERT。
+- リクエストの自動 done: 承認・却下の batch の最後で、`proposed` か `processing`（agent が proposed にする前に処理し終えた）で、紐付く提案の pending が 0 件なら `done`（その後の agent の `proposed` への PATCH は 409 `invalid_transition`）。
+- 同じ対象の承認待ち、同じ `run.escape_id_url` で回を作る承認待ちがほかにあれば詳細に出す（後者はどれか 1 件を承認すると残りは「同じ escape.id URL の回があります。」で止まる）。束の中でほかの項目から参照されていない団体・会場・販売先の節には注記を出す（採用すると単独で作る）。
+- `shop.organization_id` も `@organization` で同じ束の団体を指せる。
+
 fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化した new_value 群)。
 
 ## 5. Claude → D1 書き込み経路（比較）

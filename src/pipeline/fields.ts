@@ -49,12 +49,35 @@ const placeholders: Record<string, ProposalTable> = {
   'work.primary_organization_id': 'organization',
   'run.organization_id': 'organization',
   'venue.organization_id': 'organization',
+  'shop.organization_id': 'organization',
   'run.venue_id': 'venue',
   'run.shop_id': 'shop',
 }
 
-// 主名（fingerprint で target_id の代わりに使う）
-const nameColumn: Record<ProposalTable, string | null> = {
+// 項目が束の中の行を指しているなら、その表（@<表> の値のときだけ）
+export const placeholderOf = (
+  i: Pick<ProposalItem, 'field' | 'newValue'>,
+): ProposalTable | null => {
+  const ref = placeholders[i.field]
+  return ref && i.newValue === `@${ref}` ? ref : null
+}
+
+// 作品の項目からしか参照されていない束の節（work.primary_organization_id の @organization だけが指す団体など）。
+// 既存の作品に紐付けるときは作品を作らないので、この節も作らない（回・会場・販売先から参照されていれば残す）
+export const workOnlySections = (
+  fields: readonly Pick<ProposalItem, 'field' | 'table' | 'newValue'>[],
+): Set<ProposalTable> => {
+  const fromWork = new Set<ProposalTable>()
+  const fromOthers = new Set<ProposalTable>()
+  for (const f of fields) {
+    const ref = placeholderOf(f)
+    if (ref) (f.table === 'work' ? fromWork : fromOthers).add(ref)
+  }
+  return new Set([...fromWork].filter((t) => !fromOthers.has(t)))
+}
+
+// 主名（fingerprint で target_id の代わりに使う。承認画面の見出しにも使う）
+export const nameColumn: Record<ProposalTable, string | null> = {
   work: 'title',
   run: null,
   organization: 'name',
@@ -246,7 +269,7 @@ export const formValueOf = (column: string, v: unknown): string => {
   return String(v)
 }
 
-const camel = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
+export const camel = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
 
 // 節の項目 → フォーム。base（update の現在の行。DB 列名キー）の上に提案の値を重ね、参照プレースホルダは空にする
 const formFor = (
@@ -290,6 +313,8 @@ export type BundleResult = {
   oldValues: (string | null)[]
   // 全項目が今の値と同じ
   noChange: boolean
+  // 表ごとの検証後の値（validators の Input。承認でそのまま書き込みに使う）。参照プレースホルダの列は null
+  inputs: Partial<Record<ProposalTable, Record<string, unknown>>>
 }
 
 // 検証後の値（camelCase キーの Input）→ 項目の文字列。null・空・is_permanent=0 は null
@@ -335,6 +360,7 @@ export const validateBundle = async (
       items: d.items,
       oldValues,
       noChange: errors.length === 0 && oldValues[0] === i.newValue,
+      inputs: {},
     }
   }
 
@@ -352,13 +378,19 @@ export const validateBundle = async (
             : t === 'venue'
               ? await validateVenue(db, f)
               : await validateShop(db, f, selfId)
-    if (!r.ok) return { errors: r.errors, items: d.items, oldValues, noChange: false }
+    if (!r.ok) return { errors: r.errors, items: d.items, oldValues, noChange: false, inputs: {} }
     // 検証後の値（正規化済み）が全項目で今の値と同じなら変更なし
     const input = r.value as Record<string, unknown>
     const noChange = d.items.every(
       (i) => (input[camel(i.column)] ?? null) === (target?.[i.column] ?? null),
     )
-    return { errors, items: normalize(d.items, { [t]: input }), oldValues, noChange }
+    return {
+      errors,
+      items: normalize(d.items, { [t]: input }),
+      oldValues,
+      noChange,
+      inputs: { [t]: input },
+    }
   }
 
   // create: 作る節を順に検証する（団体 → 会場 → 販売先 → 作品 → 回）
@@ -384,7 +416,8 @@ export const validateBundle = async (
     if (r.ok) inputs.run = r.value as Record<string, unknown>
     else if (runErrors.length === 0) {
       // 販売先を @shop で指したときだけ（空にした shop_id で「販売先を選んで」が出る）。
-      // 正規化した値を取るため、channel の制約を外したフォームで通し直す（channel・参照の列は送られた値のまま使う）
+      // 正規化した値を取るため、channel の制約を外したフォームで通し直す（channel は送られた値のまま、
+      // 会場は空、販売先はプレースホルダ）
       const relaxed = await validateRun(db, {
         ...f,
         channel: 'performance',
@@ -392,8 +425,12 @@ export const validateBundle = async (
         shop_id: '',
       })
       if (relaxed.ok) {
-        const { channel: _, venueId: __, shopId: ___, ...rest } = relaxed.value
-        inputs.run = rest
+        inputs.run = {
+          ...relaxed.value,
+          channel: f.channel,
+          venueId: null,
+          shopId: null,
+        }
       }
     }
     if (d.targetTable === 'run') {
@@ -409,6 +446,7 @@ export const validateBundle = async (
     items: errors.length ? d.items : normalize(d.items, inputs),
     oldValues,
     noChange: false,
+    inputs: errors.length ? {} : inputs,
   }
 }
 

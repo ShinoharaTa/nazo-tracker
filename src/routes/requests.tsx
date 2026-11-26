@@ -3,6 +3,7 @@
 
 import { type Context, Hono } from 'hono'
 import { currentUser, requireUser } from '../auth/middleware'
+import { appliedWorkOfRequest, rejectedOnlyRequests } from '../db/proposals'
 import {
   countRecentRequests,
   createRequest,
@@ -42,8 +43,13 @@ requests.use('*', async (c, next) => {
 })
 
 const requestsList = async (c: Context<AppEnv>, page = 1) => {
-  const { items, hasNext } = await listOwnRequests(c.get('db'), currentUser(c).id, page)
-  return <RequestsList items={items} page={page} hasNext={hasNext} />
+  const db = c.get('db')
+  const { items, hasNext } = await listOwnRequests(db, currentUser(c).id, page)
+  const rejectedOnly = await rejectedOnlyRequests(
+    db,
+    items.filter((r) => r.status === 'done').map((r) => r.id),
+  )
+  return <RequestsList items={items} page={page} hasNext={hasNext} rejectedOnly={rejectedOnly} />
 }
 
 const notFoundPage = async (c: Context<AppEnv>) =>
@@ -83,13 +89,27 @@ const detailPage = async (
   r: OwnRequest,
   opts: { created?: boolean; replyValue?: string; errors?: string[] } = {},
 ) => {
-  const t = r.payload.target_id ? await workTitleOf(c.get('db'), r.payload.target_id) : null
+  const db = c.get('db')
+  const done = r.status === 'done'
+  const [t, workId, rejectedOnly] = await Promise.all([
+    r.payload.target_id ? workTitleOf(db, r.payload.target_id) : null,
+    done ? appliedWorkOfRequest(db, r.id) : null,
+    done ? rejectedOnlyRequests(db, [r.id]) : new Set<string>(),
+  ])
   return (
     <Layout
       title="リクエスト"
       tab="settings"
       left={await requestsList(c)}
-      right={<RequestDetail r={r} target={t ? { id: t.id, title: t.title } : null} {...opts} />}
+      right={
+        <RequestDetail
+          r={r}
+          target={t ? { id: t.id, title: t.title } : null}
+          workId={workId}
+          rejectedOnly={rejectedOnly.has(r.id)}
+          {...opts}
+        />
+      }
     />
   )
 }
