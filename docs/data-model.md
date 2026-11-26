@@ -110,7 +110,7 @@ erDiagram
 
 CHECK: `channel='sale' → shop_id NOT NULL`、`channel = 'performance' OR venue_id IS NULL`、`channel = 'sale' OR shop_id IS NULL`（venue_id は performance のみ、shop_id は sale のみ）。
 
-run は削除しない（P2 は作成・編集のみ。`attempt.run_id` から参照されるため）。
+run は削除しない（P2 は作成・編集のみ。`attempt.run_id` から参照されるため）。例外は自動反映の 7 日以内の取り消し（`POST /admin/proposals/:id/revert`）だけで、作った run・work を物理削除する。あとから記録・別名・別の回などが付いていれば FK 違反で batch ごと失敗し、取り消せない（統合で直す）。
 
 **ルーム型・常設**: `work.kind='room'` + `run(channel='performance', venue_id=店舗, start_on NULL 可, end_on NULL, is_permanent=1)`。一覧ビュー `v_room_by_venue`: venue(prefecture, name) ⋈ run(is_permanent=1 AND (end_on IS NULL OR end_on >= date('now'))) ⋈ work(kind='room')。都道府県 → 店舗 → 作品で並べる。
 

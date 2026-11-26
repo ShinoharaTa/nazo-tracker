@@ -14,14 +14,14 @@ sequenceDiagram
   C->>W: GET /api/agent/requests?status=triaged,open
   C->>C: escape MCP get_event / WebFetch / match API
   C->>W: POST /api/agent/sources, POST /api/agent/proposals
-  W->>W: 自動反映ルール判定 (A-3) → applied or pending
+  W->>W: 自動反映ルール判定 (A-3、既定 OFF) → auto_applied or pending
   O->>W: 承認 UI: 差分・出典・候補を見て 承認 / 却下 / 紐付け先変更
   W->>W: 反映 + change_log、request を done
 ```
 
 ## 2. リクエスト
 
-- 誰でも（ログイン済み）投稿。kind と `payload_json`（`url`, `title`, `organization`, `note`, `target_id`）。1 日 20 件/人。
+- 誰でも（ログイン済み）投稿。kind と `payload_json`（`url`, `title`, `organization`, `note`, `target_id`）。直近 24 時間で 20 件/人まで（オーナーは対象外）。
 - 一覧はオーナーのみ。依頼者の表示名は見える（記録は見えない）。
 - `needs_info` でオーナー/Claude から依頼者に質問（依頼者は自分のリクエストの状態と質問だけ見える）。
 
@@ -42,22 +42,35 @@ sequenceDiagram
 
 Claude が**触らないもの**: 画像（取得・アップロードとも）、ユーザーの記録（attempt / session / image）、フレンド関係、ジャンルの付与。評価項目は手入力のみ。
 
-`work.kind` / `is_permanent` の確定: 提案の `proposal_field` に `kind`（推定値 + 根拠の source）を含め、承認 UI でオーナーが選び直せるセレクトにする。A-3 自動反映の対象でも、kind の confidence < 0.9 なら work は pending に落とし、run だけ自動反映しない（work と run は同じ提案で扱い、片方だけ反映しない）。
+`work.kind` / `is_permanent` の確定: 提案の `proposal_field` に `kind`（推定値 + 根拠の source）を含め、承認 UI でオーナーが選び直せるセレクトにする。A-3 自動反映の対象で `work.kind` / `run.is_permanent` の confidence < 0.9 なら、その項目だけ**入れずに**作品・回を反映し（kind = NULL、is_permanent = 0）、同じ値の `update` 提案（pending、`follow_up_of_id` = 元の提案、リクエストは付けない）を同じ batch で作る。記録はすぐ付けられ、kind が決まるまでステータスは 5 択のまま。
 
 ## 4. 承認モデル
 
 | 状態 | 誰が | 内容 |
 |---|---|---|
 | pending | — | 既定。オーナー承認待ち |
-| auto_applied | Worker | A-3 ルール該当。`revert_until = now+7d`。承認 UI の「最近の自動反映」に出て 1 タップで取り消し |
+| auto_applied | Worker | A-3 ルール該当。`revert_until = now+7d`。承認 UI の「自動反映」タブ（期限内だけ。過ぎたら「済み」）に出て、確認ページから取り消し |
 | applied | オーナー | 承認。フィールド単位で採否を選べる（部分承認） |
 | rejected | オーナー | 理由を書く。`rejection_memory(fingerprint)` に保存 |
 | suppressed | Worker | fingerprint が rejection_memory に一致。**行は作らず** Claude に 409 `suppressed` を返して再提案を止める（この status の行はできない。enum には残す） |
-| superseded | Worker | update / link / merge で、同じ request_id（どちらも無しを含む）・同じ kind・同じ (target_table, target_id) の新しい提案が来た（新しい行の INSERT と同じ batch）。別のリクエストや別の kind（update で merge / link）は置き換えない |
+| reverted | オーナー | 自動反映の取り消し（`reverted_at` / `reverted_by_user_id`）。作った行は物理削除 |
+| superseded | Worker | 自動反映を取り消したときの follow-up の pending も superseded にする。update / link / merge で、同じ request_id（どちらも無しを含む）・同じ kind・同じ (target_table, target_id) の新しい提案が来た（新しい行の INSERT と同じ batch）。別のリクエストや別の kind（update で merge / link）は置き換えない |
 
-A-3 自動反映ルール（Worker 側、設定で ON/OFF）:
-`kind=create AND target_table IN (run, work) AND 全フィールドの source.method = escape_mcp AND confidence ≥ 0.9 AND match_candidates に score ≥ 0.8 が無い`。
+A-3 自動反映ルール（Worker 側、`src/pipeline/auto.ts`。`/admin/proposals` 上部の Switch で ON/OFF、`app_setting('auto_apply')`。**既定 OFF**＝行が無ければ OFF）。全部満たすときだけ反映:
+1. 設定が ON
+2. `kind=create` かつ `target_table IN (work, run)`
+3. 束に団体・会場・販売先の節が無い（新しい団体・会場を含む提案は表記ゆれを人が見るので承認待ち）
+4. 全項目に source があり、全 source の method = `escape_mcp`
+5. `run.escape_id_url` がある
+6. `work.kind` / `run.is_permanent` 以外の confidence がすべて ≥ 0.9
+7. Worker の完全一致候補（`worker:`）が 0 件、かつ agent の候補に score ≥ 0.8 が無い。同じ `run.escape_id_url` で回を作る承認待ちも無い（`pending_same_url`。どちらを採るかは人が決める）
+8. リクエストがあるなら kind = `new_work`
+
 `update` / `merge` / `link` / 参加記録インポートは常に pending。
+
+反映は `POST /api/agent/proposals` の 1 batch: 提案（`auto_applied`・`revert_until`・`applied_json`、項目の `accepted` は入れた項目 1 / 入れなかった kind・is_permanent 0）→ 作品 → 回（change_log は actor = トークン、`proposal_id`）→ follow-up → リクエストの自動 done。応答は 201 `{"status":"auto_applied","revert_until":ISO,"follow_ups":[id…]}`。書き込みの UNIQUE 違反は 409（同じ fingerprint の pending → `duplicate_pending`、同じ escape.id URL の回 → `duplicate_escape_id_url`、ほか → `conflict`）。一覧の期限は JST の「M/D HH:mm まで」。
+
+取り消し（`GET/POST /admin/proposals/:id/revert`、退会と同じ確認の checkbox）: `auto_applied` で `revert_until` が未来のときだけ（それ以外 409）。1 batch で 回 → 作品を**物理 DELETE**（change_log `delete`、actor = オーナー）、提案を `reverted`、follow-up と、取り消す作品・回を対象にした承認待ち（update / link / merge）を `superseded`（change_log は「まだ pending なら」の INSERT … SELECT で、書いた行と揃える。承認済みの follow-up はそのまま残し、詳細に「元の作品は取り消されました」と出す）。あとから記録・マイリスト・別名・別の回・統合が付いた行は D1 の FK 違反で batch ごと巻き戻るので、409「取り消せません。統合を使ってください」と作品の統合画面へのリンクを出す（何が付いたかは読まない）。統合された作品・別の作品に付け替えられた回は書く前に同じ 409 にする。取り消した fingerprint は却下記憶に入れない（同じ URL を出し直せる）。
 
 差分表示: フィールドごとに `old → new`、出典ドメイン、取得日時、確信度。候補があれば「既存 X に紐付ける」ボタン。
 
@@ -67,7 +80,7 @@ A-3 自動反映ルール（Worker 側、設定で ON/OFF）:
 - 「現在の行（create は空）+ 採用した項目 + 形式」を提案の投稿と同じ validators に通す。節の項目を全部外すとその節（団体・会場・販売先・回）は作らない。`@<表>` の参照だけを残すと 400。
 - 書き込みは 1 batch: 提案の change_log（先頭。まだ pending でなければ NOT NULL 違反で batch ごと失敗させ、二重送信で二重に作らない）→ マスタ（団体 → 会場 → 販売先 → 作品 → 回、または update / relink / merge の Stmts。change_log は actor = オーナー、`proposal_id`）→ proposal `applied`・`applied_json`（作った / 変えた行。紐付け先の既存作品は入れない）→ proposal_field `accepted` → リクエストの自動 done。
 - 却下は理由必須（500 字）、「同じ内容の再提案を止める」（既定 on）で `rejection_memory` に UPSERT。
-- リクエストの自動 done: 承認・却下の batch の最後で、`proposed` か `processing`（agent が proposed にする前に処理し終えた）で、紐付く提案の pending が 0 件なら `done`（その後の agent の `proposed` への PATCH は 409 `invalid_transition`）。
+- リクエストの自動 done: 承認・却下・自動反映の batch の最後で、`proposed` か `processing`（agent が proposed にする前に処理し終えた）で、紐付く提案の pending が 0 件なら `done`（その後の agent の `proposed` への PATCH は 409 `invalid_transition`）。
 - 同じ対象の承認待ち、同じ `run.escape_id_url` で回を作る承認待ちがほかにあれば詳細に出す（後者はどれか 1 件を承認すると残りは「同じ escape.id URL の回があります。」で止まる）。束の中でほかの項目から参照されていない団体・会場・販売先の節には注記を出す（採用すると単独で作る）。
 - `shop.organization_id` も `@organization` で同じ束の団体を指せる。
 
@@ -96,7 +109,7 @@ fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化し�
   - `GET /api/agent/index/:table?part=name|alias&after=&limit=1000`: table ∈ work / organization / venue（venue は name のみ、不正 400 `invalid_part`）。未統合だけ（alias は未統合の作品・団体の別名）、id 昇順、limit は 1〜1000（既定 1000）。work `{id,work_id,title,title_norm,org_id}`、organization `{id,organization_id,name,name_norm}`、venue `{id,name,name_norm,prefecture}`。`{items, next}`（続きがあれば最後の id、無ければ null。次は `after=<next>`）。
 - 出典と提案（`src/routes/api-agent.ts`、形と検証は `src/pipeline/fields.ts`）。Worker は外部へ fetch しない:
   - `POST /api/agent/sources` `{url, method, fetched_at, content_hash?, excerpt?, robots_checked}` → 201 `{"id"}`。`domain` は Worker が host（小文字）から入れる。`method` は `escape_mcp` / `webfetch` / `pds`（`manual` などは 400 `invalid_method`）。禁止の取得元（escape.id / `*.escape.id` の `/me` 以下、host が `x.com` / `twitter.com` / `t.co` そのものかそのサブドメイン）は 400 `forbidden_source`。`escape_mcp` は host `escape.id` のみ（400 `method_host_mismatch`）、`webfetch` は `robots_checked` = 1 必須（400 `robots_not_checked`）。`url` 不正・userinfo（`user:pass@`）付き 400 `invalid_url`、`robots_checked` は 0 / 1 / true / false（400 `invalid_robots_checked`）、`fetched_at` はタイムゾーン付き ISO 8601（400 `invalid_fetched_at`、UTC の toISOString の形で保存）、`content_hash` は 64 桁 hex（400 `invalid_content_hash`）、`excerpt` ≤ 500 字（400 `excerpt_too_long`）。
-  - `POST /api/agent/proposals` `{kind, target_table, target_id?, request_id?, fields:[{field, new_value, source_id, confidence}], match_candidates?}` → 201 `{"id","status":"pending","fingerprint","revert_until":null,"follow_ups":[]}`。この段階では常に `pending`（自動反映は後の PR）。
+  - `POST /api/agent/proposals` `{kind, target_table, target_id?, request_id?, fields:[{field, new_value, source_id, confidence}], match_candidates?}` → 201 `{"id","status":"pending"|"auto_applied","fingerprint","revert_until":null|ISO,"follow_ups":[id…]}`。A-3（§4）に合えば `auto_applied`、それ以外は `pending`。
     - 項目は `<表>.<列>`（列はフォーム名）、値はフォームと同じ文字列（前後の空白を落とし、空は null）で、承認時と同じ validators に通す（エラーは 400 `{"error":"invalid_fields","details":[…]}`）。書ける列・kind ごとの節は `src/pipeline/fields.ts` の表（それ以外・`note`・画像は 400 `unknown_field`）。create は work / run の束に新しい団体・会場・販売先を入れられ、`@organization` / `@venue` / `@shop` で同じ束の行を指す（節が無ければ 400 `invalid_placeholder`）。
     - kind 不正 400 `invalid_kind`、`create_attempt_import` 400 `kind_not_supported`、target_table 不正 400 `invalid_target_table`、create に target_id 400 `target_id_not_allowed`、それ以外で無し 400 `target_id_required`、同じ field 2 回 400 `duplicate_field`、confidence が 0〜1 でない 400 `invalid_confidence`、候補（最大 20 件 `{table: work|organization|venue, id, score 0〜1, reason ≤ 40 字}`。id は 64 字まで、存在は確かめない）不正 400 `invalid_candidates`、無い source_id 400 `{"error":"source_not_found","field"}`。
     - `request_id` は任意。無い 404 `request_not_found`、`processing` でない 409 `request_not_processing`。target が無い 404 `target_not_found`、統合済み 409 `target_merged`。create で既存の回の `run.escape_id_url` 409 `{"error":"duplicate_escape_id_url","run_id","work_id"}`。update で全項目が今の値と同じ・link で同じ作品 400 `no_change`。

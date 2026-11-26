@@ -4,6 +4,7 @@
 import { type Context, Hono } from 'hono'
 import { escapeRunUrl } from '../admin/validate'
 import { currentAgent, requireAgent, requireScope } from '../auth/agent'
+import type { Db } from '../db/client'
 import {
   type AgentIndexPart,
   type AgentIndexTable,
@@ -19,10 +20,11 @@ import {
   countPendingForRequest,
   createProposalStmts,
   createSource,
-  existingSourceIds,
+  existingSources,
   getProposalWithFields,
   getRejection,
   getTargetRow,
+  hasPendingWithEscapeUrl,
   isLiveRow,
   listProposalsByRequest,
   pendingIdByFingerprint,
@@ -35,10 +37,13 @@ import {
   setRequestStatus,
 } from '../db/requests'
 import { requestStatuses } from '../db/schema'
+import { getAutoApply } from '../db/settings'
 import type { AppEnv } from '../env'
 import { url as urlParser } from '../lib/form'
 import { hasUserinfo } from '../lib/match'
 import { isEscapeIdMyPage } from '../lib/url'
+import { buildAutoApply } from '../pipeline/apply'
+import { autoApplyDecision } from '../pipeline/auto'
 import { fingerprintOf, matchInputOf, parseProposal, validateBundle } from '../pipeline/fields'
 import { canTransition } from '../requests/transitions'
 import type { RequestStatus } from '../ui/labels'
@@ -277,10 +282,26 @@ apiAgent.post('/sources', requireScope('source:write'), async (c) => {
   return c.json({ id }, 201)
 })
 
-// ---- 提案（proposal）。この段階では常に pending（自動反映は PR-10）
+// ---- 提案（proposal）。自動反映ルール（src/pipeline/auto.ts）に合えば auto_applied、それ以外は pending
 
 const isUniqueViolation = (e: unknown) =>
   String((e as { cause?: unknown })?.cause ?? e).includes('UNIQUE constraint failed')
+
+// 提案の書き込みが UNIQUE 違反で落ちたときの 409 の本文。確かめてから書くまでの間に、同じ fingerprint の pending か、
+// （自動反映なら）同じ escape.id URL の回ができた。自動反映でほかの UNIQUE に当たったら conflict。どれでもなければ null
+export const writeConflictOf = async (
+  db: Db,
+  e: unknown,
+  w: { fingerprint: string; escapeUrl: string | null; autoApplied: boolean },
+): Promise<Record<string, unknown> | null> => {
+  if (!isUniqueViolation(e)) return null
+  const id = await pendingIdByFingerprint(db, w.fingerprint)
+  if (id) return { error: 'duplicate_pending', proposal_id: id }
+  if (!w.autoApplied) return null
+  const dup = w.escapeUrl ? await runByEscapeIdUrl(db, w.escapeUrl) : undefined
+  if (dup) return { error: 'duplicate_escape_id_url', run_id: dup.id, work_id: dup.workId }
+  return { error: 'conflict' }
+}
 
 apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   const parsed = parseProposal(await c.req.json())
@@ -288,10 +309,12 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   const d = parsed.value
   const db = c.get('db')
 
+  let requestKind: string | null = null
   if (d.requestId) {
     const r = await getAgentRequest(db, d.requestId)
     if (!r) return c.json({ error: 'request_not_found' }, 404)
     if (r.status !== 'processing') return c.json({ error: 'request_not_processing' }, 409)
+    requestKind = r.kind
   }
 
   let target: Record<string, unknown> | null = null
@@ -302,7 +325,7 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   }
 
   const sourceIds = [...new Set(d.items.flatMap((i) => (i.sourceId ? [i.sourceId] : [])))]
-  const found = await existingSourceIds(db, sourceIds)
+  const found = await existingSources(db, sourceIds)
   const missing = d.items.find((i) => i.sourceId && !found.has(i.sourceId))
   if (missing) return c.json({ error: 'source_not_found', field: missing.field }, 400)
 
@@ -347,24 +370,48 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
     })),
   ].filter((x) => !(x.table === d.targetTable && x.id === d.targetId))
 
-  const s = await createProposalStmts(db, {
+  const proposalInput = {
     draft: nd,
     oldValues: v.oldValues,
     fingerprint,
     candidatesJson: JSON.stringify([...nd.candidates, ...workerCandidates]),
     tokenId: currentAgent(c).id,
+  }
+  const normEscapeUrl = nd.items.find((i) => i.field === 'run.escape_id_url')?.newValue ?? null
+  const decision = autoApplyDecision({
+    enabled: await getAutoApply(db),
+    kind: nd.kind,
+    targetTable: nd.targetTable,
+    items: nd.items,
+    sourceMethods: found,
+    workerCandidates: workerCandidates.length,
+    agentScores: nd.candidates.map((x) => x.score),
+    requestKind,
+    pendingSameUrl:
+      nd.kind === 'create' && !!normEscapeUrl && (await hasPendingWithEscapeUrl(db, normEscapeUrl)),
   })
+  const s = decision.apply
+    ? await buildAutoApply(db, { ...proposalInput, inputs: v.inputs, deferred: decision.deferred })
+    : { ...(await createProposalStmts(db, proposalInput)), revertUntil: null, followUps: [] }
   try {
     await runStmts(db, s.stmts)
   } catch (e) {
-    // 確かめてから書くまでの間に同じ fingerprint の pending ができた
-    if (!isUniqueViolation(e)) throw e
-    const id = await pendingIdByFingerprint(db, fingerprint)
-    if (!id) throw e
-    return c.json({ error: 'duplicate_pending', proposal_id: id }, 409)
+    const conflict = await writeConflictOf(db, e, {
+      fingerprint,
+      escapeUrl: normEscapeUrl,
+      autoApplied: decision.apply,
+    })
+    if (!conflict) throw e
+    return c.json(conflict, 409)
   }
   return c.json(
-    { id: s.id, status: 'pending', fingerprint, revert_until: null, follow_ups: [] },
+    {
+      id: s.id,
+      status: decision.apply ? 'auto_applied' : 'pending',
+      fingerprint,
+      revert_until: s.revertUntil,
+      follow_ups: s.followUps,
+    },
     201,
   )
 })

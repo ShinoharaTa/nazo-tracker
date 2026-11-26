@@ -12,6 +12,7 @@
 | スキーマ補強 | インデックス・CHECK・UNIQUE 追加 | #22 → #23 |
 | P1 認証 | セッション（ハッシュ保存・延長・固定化対策）、仮ログイン、オーナー判定、`scopedTo`、表示名、退会、Google / Discord OAuth | #2, #17〜#21 → #24〜#28 |
 | 運用 docs | デプロイ手順・ローカル開発手順 | #31 → #32 |
+| P4 補完パイプライン | リクエスト投稿・選別、agent トークン、`/api/agent`、source / proposal API、承認 UI（部分承認・却下記憶）、自動反映（既定 OFF）・7 日間の取り消し | #5（#47, #85〜#103） |
 
 ## 進行中
 
@@ -26,7 +27,6 @@
 |---|---|---|---|
 | P2 | #3 | マスタ CRUD（オーナー）、作品 / 団体 / 会場 / 回の閲覧 UI、`GET /api/admin/match` | P1 |
 | P3 | #4 | 記録（attempt / session）、難易度・物量・ジャンル・ネタバレメモ、マイリスト、本人の一覧・統計、匿名人数（ぼかし・オプトアウト） | P2 |
-| P4 | #5 | リクエスト投稿・一覧、agent トークン、proposal API、承認 UI（差分・却下記憶・自動反映） | P3 |
 | P5 | #6 | `nazo-admin` CLI、`/process-queue`、escape MCP 手順、trailcast インポート | P4 |
 | P6 | #7 | Bluesky ログイン、複数プロバイダ紐付け（`oauth_state.mode='link'`）、復旧コード | P1 |
 | P7 | #8 | 出店（market / edition / booth）、gamemarket.jp 取り込み、得意傾向の統計、エクスポート | P3 |
@@ -38,7 +38,7 @@
 ### 各 Phase への申し送り（レビューで決まった制約）
 
 - **P3（#4）**: ネタバレ断片 `spoilerResponse` は `own()` でしか得られない型からだけ呼べるようにする。`v_attempt_enriched` から `spoiler_memo` を外し、フレンド射影は必ずそのビュー経由。匿名人数は `'none' | 'few' | number` を返す唯一の関数にし、生 COUNT をテンプレートに渡さない。
-- **P4（#5）**: 自動反映の 7 日取り消しは、attempt / wishlist が付いた work・run を FK で物理削除できない。取り消し = `merged_into_id` 付け替え か 取り消し不可 かを着手前に決め、`proposal.status` に取り消し後の値を足す。`/api/agent/*` は記録系ルートを持たない別サブアプリにする。
+- **P4（#5）**: 対応済み。取り消しは物理削除で、attempt / wishlist / 別名などが付いた work・run は FK で失敗させて取り消し不可（統合で直す）。`proposal.status` に `reverted` を足した。`/api/agent/*` は記録系ルートを持たない別サブアプリ。デプロイ後に `/api/agent/index` の CPU time をメトリクスで確かめる。
 - **P6（#7）**: `completeOAuth` は `mode !== 'login'` を failed にしている。link 用の経路を別に作る（DELETE RETURNING で行は消費される点に注意）。
 
 ## 残り（機能以外）
