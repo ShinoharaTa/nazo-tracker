@@ -427,21 +427,7 @@ const blockTarget = async (db: Db, viewerId: string, target: string): Promise<bo
   return inserted.results.length > 0 || existing.results.length > 0
 }
 
-// 届いた申請の送り主をブロックする（自分宛ての有効な pending の id）
-export const blockRequester = async (
-  db: Db,
-  viewerId: string,
-  requestId: string,
-): Promise<boolean> => {
-  const row = await db.get<{ from_user_id: string }>(
-    sql`SELECT from_user_id FROM friend_request
-      WHERE id = ${requestId} AND to_user_id = ${viewerId} AND status = 'pending'
-        AND created_at > ${addDays(nowIso(), -REQUEST_EXPIRE_DAYS)}`,
-  )
-  return row ? blockTarget(db, viewerId, row.from_user_id) : false
-}
-
-// フレンドをブロックする
+// フレンドか、自分に有効な pending を送ってきた人をブロックする（確認画面 /friends/:userId/manage から）
 export const blockFriend = (db: Db, viewerId: string, userId: string): Promise<boolean> =>
   blockTarget(db, viewerId, userId)
 

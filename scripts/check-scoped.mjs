@@ -6,6 +6,7 @@
 // フレンドの射影（vFriendAttempt）は許可リストのファイルでも src/db/scoped.ts 以外は違反。
 // `import * as` / `export *` も許可リストのファイルでは src/db/client.ts 以外は違反（`s.vFriendAttempt` で読めるので）。
 // 許可リスト外では、文字列中の生 SQL で FROM / JOIN / UPDATE / INTO の後ろに記録系の表名・ビュー名があっても違反。
+// 生 SQL の v_friend_attempt は許可リストのファイルでも src/db/scoped.ts 以外は違反。
 // 引数でルートを差し替えられる（test/check-scoped-negative.mjs が一時ディレクトリで陰性を確かめる）。
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -45,6 +46,7 @@ const rawSqlRe = new RegExp(
   `\\b(?:FROM|JOIN|UPDATE|INTO)\\s+["\`\\[]?(${forbiddenSql.join('|')})(?![\\w$])`,
   'gi',
 )
+const rawFriendSqlRe = /\b(?:FROM|JOIN|UPDATE|INTO)\s+["`[]?v_friend_attempt(?![\w$])/i
 const allowed = new Set([
   'src/db/scoped.ts',
   'src/db/counts.ts',
@@ -153,8 +155,11 @@ for (const file of walk(join(root, 'src'))) {
     if (star && rel !== 'src/db/client.ts') {
       violations.push(`${rel}: *（schema 全体。名前付きで import する）`)
     }
-    const hit = rel === 'src/db/scoped.ts' ? [] : names.filter((n) => friendOnly.has(n))
-    if (hit.length > 0) violations.push(`${rel}: ${hit.join(', ')}（asFriendOf だけが読む）`)
+    if (rel !== 'src/db/scoped.ts') {
+      const hit = names.filter((n) => friendOnly.has(n))
+      if (rawFriendSqlRe.test(src)) hit.push('生 SQL の v_friend_attempt')
+      if (hit.length > 0) violations.push(`${rel}: ${hit.join(', ')}（asFriendOf だけが読む）`)
+    }
   }
   if (!spoilerAllowed.has(rel)) {
     const { star, names } = importsOf(file, src, spoilerPath)

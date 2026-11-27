@@ -75,6 +75,11 @@ const cases = [
     { 'src/db/x.ts': 'sql`SELECT 1 FROM work JOIN attempt_genre g`' },
     1,
   ],
+  [
+    '生 SQL: FROM v_friend_attempt（許可リストの counts.ts）',
+    { 'src/db/counts.ts': 'const q = sql`SELECT COUNT(*) FROM v_friend_attempt f`' },
+    1,
+  ],
   ['生 SQL: FROM market_visit', { 'src/db/x.ts': 'sql`SELECT * FROM market_visit`' }, 1],
   // 陽性の対照: フレンド系・user の生 SQL、client.ts の star import、コメント中の SQL は通る
   [

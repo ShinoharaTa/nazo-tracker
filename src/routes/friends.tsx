@@ -8,7 +8,6 @@ import type { Db } from '../db/client'
 import {
   acceptRequest,
   blockFriend,
-  blockRequester,
   cancelRequest,
   clearFriendCode,
   declineRequest,
@@ -260,7 +259,7 @@ const friendNotFound = async (c: Context<AppEnv>) => {
   )
 }
 
-// 届いた申請の承認・断る・ブロック、送った申請の取り消し。成否は書き換えた行数で決める
+// 届いた申請の承認・断る、送った申請の取り消し。成否は書き換えた行数で決める
 // （承認は friendship があれば成功。二重承認の 2 回目も /settings/friends へ）
 const requestAction =
   (action: (db: Db, viewerId: string, requestId: string) => Promise<boolean>) =>
@@ -274,7 +273,6 @@ const requestAction =
 friends.post('/settings/friends/requests/:id/accept', requestAction(acceptRequest))
 friends.post('/settings/friends/requests/:id/decline', requestAction(declineRequest))
 friends.post('/settings/friends/requests/:id/cancel', requestAction(cancelRequest))
-friends.post('/settings/friends/requests/:id/block', requestAction(blockRequester))
 
 // ブロック解除。friendship は戻らない（もう一度リンクから申請する）
 friends.post('/settings/friends/blocks/:userId/delete', async (c) => {
@@ -376,7 +374,9 @@ friends.get('/friends/:userId/manage', async (c) => {
                 </>
               ) : null}
               <p class="note">
-                ブロックすると、相手からはあなたが見えなくなり、申請も届かなくなります。相手には知らせません。フレンドも解除されます。ブロックを解除しても元には戻りません。
+                {friend.friend
+                  ? 'ブロックすると、相手からはあなたが見えなくなり、申請も届かなくなります。相手には知らせません。フレンドも解除されます。ブロックを解除しても元には戻りません。'
+                  : 'ブロックすると、相手からはあなたが見えなくなり、申請も届かなくなります。相手には知らせません。ブロックを解除しても、届いていた申請は元には戻りません。'}
               </p>
               <form method="post" action={`/friends/${friend.userId}/block`}>
                 <button type="submit" class="btn danger">
