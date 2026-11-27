@@ -389,9 +389,9 @@ export const RateBars = (props: {
   </div>
 )
 
-// 件数の横棒。幅は最大の行を 100% とする。cls は系列のクラス
+// 件数の横棒。幅は最大の行を 100% とする。cls は系列のクラス（無ければ系列の色を付けずインクで塗る）
 export const CountBars = (props: {
-  items: readonly { label: string; count: number; cls: string }[]
+  items: readonly { label: string; count: number; cls?: string }[]
 }) => {
   const max = Math.max(1, ...props.items.map((i) => i.count))
   return (
@@ -400,7 +400,7 @@ export const CountBars = (props: {
         <div class="bar">
           <span>{label}</span>
           <div class="tr">
-            <div class={`fl ${cls}`} style={`width:${(count / max) * 100}%`} />
+            <div class={cls ? `fl ${cls}` : 'fl'} style={`width:${(count / max) * 100}%`} />
           </div>
           <span class="v">{count} 件</span>
         </div>

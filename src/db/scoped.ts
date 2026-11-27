@@ -190,7 +190,8 @@ export type OwnRepo = {
   addWish(workId: string): Promise<void>
   removeWish(workId: string): Promise<void>
   // マイリストの件数と、うちプレイ済み（cleared / failed の記録がある）作品の数
-  wishlistSummary(): Promise<{ total: number; played: number }>
+  // oldestCreatedAt はいちばん古い登録の created_at（0 件なら null）
+  wishlistSummary(): Promise<{ total: number; played: number; oldestCreatedAt: string | null }>
   // 統計（src/lib/stats.ts）の入力。created_at DESC で最大 STATS_LIMIT 件。超えたら capped
   statsRows(): Promise<{
     rows: OwnAttemptRow[]
@@ -609,11 +610,16 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .select({
         total: sql<number>`count(*)`,
         played: sql<number>`coalesce(sum(EXISTS (SELECT 1 FROM ${attempt} pa WHERE pa.user_id = ${viewerId} AND pa.work_id = ${wishlist}.work_id AND pa.status IN ('cleared', 'failed'))), 0)`,
+        oldestCreatedAt: sql<string | null>`min(${wishlist.createdAt})`,
       })
       .from(wishlist)
       .where(eq(wishlist.userId, viewerId))
       .get()
-    return { total: row?.total ?? 0, played: row?.played ?? 0 }
+    return {
+      total: row?.total ?? 0,
+      played: row?.played ?? 0,
+      oldestCreatedAt: row?.oldestCreatedAt ?? null,
+    }
   },
 
   // 1 件多く読んで上限を超えたかを判定する。attempt_genre は記録で絞らず全件（集計側で rows に無いものを捨てる）

@@ -68,6 +68,19 @@ export type DoneAverageRow = {
   volume: number | null
 }
 
+// 件数の 1 行（ふりかえりの棒）
+export type CountRow = { label: string; count: number }
+
+// ふりかえり（?view=all）の KPI。played = 来場型の cleared + failed と完了型の cleared
+export type LookbackSummary = {
+  played: number
+  // sessionDurationSec ?? durationSec の合計（値がある記録だけ）と、その記録数
+  durationSec: number
+  timedRecords: number
+  // attempt_no >= 2 の記録数（全ステータス）
+  retries: number
+}
+
 // 月別の系列。counts は 1〜12 月の 12 要素
 export type MonthSeries<K> = { key: K; counts: number[] }[]
 
@@ -100,6 +113,20 @@ export type Stats = {
     backlogOldest: BacklogRow[]
     // cleared ≥ 1 の形式だけ、byKind と同じ順
     averages: DoneAverageRow[]
+  }
+  // 来場型・完了型の両方
+  all: {
+    summary: LookbackSummary
+    // 遊んだ数が 1 件以上の年だけ、新しい年が上
+    byYear: { year: number; count: number }[]
+    // 評価 1〜5 の 5 行固定（rating NULL は除外。全ステータス）
+    byRating: CountRow[]
+    // run.venue.prefecture がある記録だけ。件数 DESC, 名前 ASC、上位 10
+    byPrefecture: CountRow[]
+    // 都道府県が分かる記録の数（上位 10 で切る前）
+    prefectureRecords: number
+    // 同行者（splitCompanions で分割）ごとの記録数（全ステータス）。並びは byPrefecture と同じ、上位 10
+    companions: CountRow[]
   }
 }
 
@@ -352,9 +379,13 @@ export const doneAverages = (rows: readonly OwnAttemptRow[]): DoneAverageRow[] =
   })
 }
 
-// 月は COALESCE(finished_on, started_on, created_at の JST 日付) の年月（1〜12）。year 外・日付が取れない行は null
+// 月別・年別の基準日 = COALESCE(finished_on, started_on, created_at の JST 日付)
+const baseDateOf = (r: OwnAttemptRow): string | null =>
+  r.finishedOn ?? r.startedOn ?? isoToJstDate(r.createdAt)
+
+// 基準日の年月（1〜12）。year 外・日付が取れない行は null
 const monthOf = (r: OwnAttemptRow, year: number): number | null => {
-  const on = r.finishedOn ?? r.startedOn ?? isoToJstDate(r.createdAt)
+  const on = baseDateOf(r)
   if (!on?.startsWith(`${year}-`)) return null
   const m = Number(on.slice(5, 7))
   return m >= 1 && m <= 12 ? m : null
@@ -397,6 +428,87 @@ export const doneMonthly = (
   return sortDoneKinds(series.keys()).map((key) => ({ key, counts: series.get(key) ?? [] }))
 }
 
+// 遊んだ = 来場型の cleared / failed、完了型の cleared
+const isPlayed = (r: OwnAttemptRow): boolean =>
+  r.status === 'cleared' || (r.status === 'failed' && isVisitKind(r.work.kind))
+
+// rows は来場型・完了型の両方
+export const summarizeLookback = (rows: readonly OwnAttemptRow[]): LookbackSummary => {
+  let durationSec = 0
+  let timedRecords = 0
+  for (const r of rows) {
+    // 進行ログがあればその合計を優先する
+    const sec = r.sessionDurationSec ?? r.durationSec
+    if (sec === null) continue
+    durationSec += sec
+    timedRecords++
+  }
+  return {
+    played: rows.filter(isPlayed).length,
+    durationSec,
+    timedRecords,
+    retries: rows.filter((r) => r.attemptNo >= 2).length,
+  }
+}
+
+// 遊んだ記録を基準日の年ごとに。基準日が取れない行は数えない
+export const playedByYear = (rows: readonly OwnAttemptRow[]): { year: number; count: number }[] => {
+  const counts = new Map<number, number>()
+  for (const r of rows) {
+    if (!isPlayed(r)) continue
+    const on = baseDateOf(r)
+    if (!on || !/^\d{4}-/.test(on)) continue
+    const y = Number(on.slice(0, 4))
+    counts.set(y, (counts.get(y) ?? 0) + 1)
+  }
+  return [...counts].map(([year, count]) => ({ year, count })).sort((a, b) => b.year - a.year)
+}
+
+export const byRating = (rows: readonly OwnAttemptRow[]): CountRow[] =>
+  [1, 2, 3, 4, 5].map((n) => ({
+    label: `★${n}`,
+    count: rows.filter((r) => r.rating === n).length,
+  }))
+
+// 件数 DESC, ラベル ASC、上位 groupLimit
+const topCounts = (counts: ReadonlyMap<string, number>): CountRow[] =>
+  [...counts]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || byLabel(a, b))
+    .slice(0, groupLimit)
+
+export const byPrefecture = (
+  rows: readonly OwnAttemptRow[],
+): { rows: CountRow[]; records: number } => {
+  const counts = new Map<string, number>()
+  let records = 0
+  for (const r of rows) {
+    const pref = r.run?.venue?.prefecture
+    if (!pref) continue
+    records++
+    counts.set(pref, (counts.get(pref) ?? 0) + 1)
+  }
+  return { rows: topCounts(counts), records }
+}
+
+export const companionCounts = (rows: readonly OwnAttemptRow[]): CountRow[] => {
+  const counts = new Map<string, number>()
+  for (const r of rows) {
+    for (const name of splitCompanions(r.companions)) counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  return topCounts(counts)
+}
+
+// マイリストのいちばん古い登録（created_at、ISO）から today（JST）までの日数。無ければ null
+export const wishlistOldestDays = (
+  oldestCreatedAt: string | null,
+  today: string,
+): number | null => {
+  if (oldestCreatedAt === null) return null
+  const on = isoToJstDate(oldestCreatedAt)
+  return on === null ? null : daysBetween(on, today)
+}
+
 // 来場型を記録しない人が空の画面に着かないよう、来場型 0 件・完了型ありなら done
 export const defaultView = (stats: Stats): 'visit' | 'done' =>
   stats.visit.summary.records === 0 && stats.done.summary.records > 0 ? 'done' : 'visit'
@@ -408,6 +520,7 @@ export const computeStats = (
   { year, today }: StatsOptions,
 ): Stats => {
   const { visit, done } = splitByVisit(rows)
+  const prefecture = byPrefecture(rows)
   return {
     visit: {
       summary: summarizeVisit(visit),
@@ -426,6 +539,14 @@ export const computeStats = (
       monthly: doneMonthly(done, year),
       backlogOldest: backlogOldest(done, today),
       averages: doneAverages(done),
+    },
+    all: {
+      summary: summarizeLookback(rows),
+      byYear: playedByYear(rows),
+      byRating: byRating(rows),
+      byPrefecture: prefecture.rows,
+      prefectureRecords: prefecture.records,
+      companions: companionCounts(rows),
     },
   }
 }

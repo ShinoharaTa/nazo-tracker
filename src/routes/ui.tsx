@@ -13,7 +13,7 @@ import { countPendingProposals } from '../db/proposals'
 import { countRequests } from '../db/requests'
 import { scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
-import { computeStats, defaultView } from '../lib/stats'
+import { computeStats, defaultView, wishlistOldestDays } from '../lib/stats'
 import { todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
@@ -302,9 +302,9 @@ ui.get('/stats', async (c) => {
     year,
     today,
   })
-  // view が visit / done 以外（無し・不正値）ならデータ次第で決める
+  // view が visit / done / all 以外（無し・不正値）ならデータ次第で決める
   const v = c.req.query('view')
-  const view = v === 'visit' || v === 'done' ? v : defaultView(stats)
+  const view = v === 'visit' || v === 'done' || v === 'all' ? v : defaultView(stats)
   c.header('Cache-Control', 'private, no-store')
   return c.html(
     <Layout
@@ -319,7 +319,11 @@ ui.get('/stats', async (c) => {
           thisYear={thisYear}
           minYear={STATS_MIN_YEAR}
           capped={capped}
-          wishlist={wishlist}
+          wishlist={{
+            total: wishlist.total,
+            played: wishlist.played,
+            oldestDays: wishlistOldestDays(wishlist.oldestCreatedAt, today),
+          }}
         />
       }
     />,
