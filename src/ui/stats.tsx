@@ -7,6 +7,8 @@ import {
   Empty,
   Kpis,
   Legend,
+  Menu,
+  MenuItem,
   MonthStack,
   RateBars,
   TopBar,
@@ -26,6 +28,10 @@ export type StatsPageProps = {
 }
 
 const pct = (r: number | null) => (r === null ? '—' : `${Math.round(r * 100)}%`)
+const avg = (n: number | null) => (n === null ? '—' : n.toFixed(1))
+// 積み謎の経過日数。0 以下（今日・未来の日付）は「今日購入」
+const backlogNote = (days: number | null) =>
+  days === null ? '日付なし' : days <= 0 ? '今日購入' : `${days} 日前に購入`
 
 // view は既定がデータ次第なので常に付ける。year は今年なら省く
 const statsHref = (p: { view: StatsView; year: number; thisYear: number }) => {
@@ -176,7 +182,7 @@ const VisitView = (p: StatsPageProps) => {
 }
 
 const DoneView = (p: StatsPageProps) => {
-  const { summary, byKind, monthly } = p.stats.done
+  const { summary, byKind, monthly, backlogOldest, averages } = p.stats.done
   return (
     <>
       <Kpis
@@ -205,6 +211,22 @@ const DoneView = (p: StatsPageProps) => {
           <Empty>まだ完了した記録がありません。</Empty>
         )}
       </div>
+      {/* 完了 0 件なら節ごと出さない（形式別の完了数と同じ空文言を並べない） */}
+      {averages.length ? (
+        <div class="sect">
+          <h2>形式別の平均</h2>
+          <dl class="kv">
+            {averages.map((a) => (
+              <>
+                <dt>{doneKindLabel(a.kind)}</dt>
+                <dd>
+                  難易度 {avg(a.difficulty)} · 物量 {avg(a.volume)}
+                </dd>
+              </>
+            ))}
+          </dl>
+        </div>
+      ) : null}
       <div class="sect">
         <MonthHead {...p} title="月別の完了数" />
         {sumSeries(monthly) ? (
@@ -219,6 +241,27 @@ const DoneView = (p: StatsPageProps) => {
           </>
         ) : (
           <Empty>{p.year} 年の記録はありません。</Empty>
+        )}
+      </div>
+      <div class="sect">
+        <h2>積み謎の古い順</h2>
+        {backlogOldest.length ? (
+          <>
+            <Menu cls="backlog">
+              {backlogOldest.map((b) => (
+                <MenuItem
+                  href={`/records/${b.attemptId}`}
+                  label={b.title}
+                  note={backlogNote(b.days)}
+                />
+              ))}
+            </Menu>
+            {summary.backlog > backlogOldest.length ? (
+              <p class="note">古い順に {backlogOldest.length} 件を表示しています。</p>
+            ) : null}
+          </>
+        ) : (
+          <Empty>買った・未着手の記録はありません。</Empty>
         )}
       </div>
       <Wishlist {...p} />

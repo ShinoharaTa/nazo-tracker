@@ -1127,6 +1127,17 @@ nav.bn a,
 .menu > a {
   text-decoration: none;
 }
+/* 統計の積み謎: 長い題名は折り返し、経過日数は折り返さず右端に残す */
+.menu.backlog > a {
+  overflow-wrap: anywhere;
+}
+.menu.backlog > a > * {
+  min-width: 0;
+}
+.menu.backlog > a > .note {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 a.btn,
 a.fab,
 a.tab,

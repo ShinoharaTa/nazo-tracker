@@ -9,7 +9,8 @@ import { isoToJstDate } from './time'
 
 type Kind = OwnAttemptRow['work']['kind']
 
-export type StatsOptions = { year: number }
+// today は今日の日付（JST、YYYY-MM-DD）。積み謎の経過日数に使う
+export type StatsOptions = { year: number; today: string }
 
 // total = 分母（成功＋失敗）、cleared = 成功
 export type RateRow = { total: number; cleared: number }
@@ -52,6 +53,21 @@ export type GenreRateRow = RateRow & { genreId: string; label: string; best: boo
 // rating は分母に入った記録（成功・失敗）のうち rating がある行の平均。1 件も無ければ null
 export type OrgRateRow = RateRow & { orgId: string; label: string; rating: number | null }
 
+// 積み謎の 1 行。days は today − purchased_on の日数（purchased_on が無い・解釈できないなら null）
+export type BacklogRow = {
+  attemptId: string
+  title: string
+  purchasedOn: string | null
+  days: number | null
+}
+
+// 平均は値がある行だけ。1 件も無ければ null
+export type DoneAverageRow = {
+  kind: DoneKind
+  difficulty: number | null
+  volume: number | null
+}
+
 // 月別の系列。counts は 1〜12 月の 12 要素
 export type MonthSeries<K> = { key: K; counts: number[] }[]
 
@@ -80,6 +96,10 @@ export type Stats = {
     byKind: { kind: DoneKind; cleared: number }[]
     // その年に 1 件以上ある形式だけ、byKind と同じ順
     monthly: MonthSeries<DoneKind>
+    // purchased のみ。purchased_on ASC（NULL は最後）、同じ日は created_at ASC、上位 10
+    backlogOldest: BacklogRow[]
+    // cleared ≥ 1 の形式だけ、byKind と同じ順
+    averages: DoneAverageRow[]
   }
 }
 
@@ -277,6 +297,61 @@ export const doneByKind = (
   return sortDoneKinds(counts.keys()).map((kind) => ({ kind, cleared: counts.get(kind) ?? 0 }))
 }
 
+const backlogLimit = 10
+
+const dayMs = 86_400_000
+
+// YYYY-MM-DD どうしの日数差（to − from）。解釈できなければ null
+const daysBetween = (from: string, to: string): number | null => {
+  const d = (Date.parse(to) - Date.parse(from)) / dayMs
+  return Number.isNaN(d) ? null : Math.round(d)
+}
+
+// rows は完了型の記録（来場型の purchased = 予約済みは呼び出し側で除く）。today は JST の今日
+export const backlogOldest = (rows: readonly OwnAttemptRow[], today: string): BacklogRow[] =>
+  rows
+    .filter((r) => r.status === 'purchased' && !isVisitKind(r.work.kind))
+    .sort((a, b) => {
+      if (a.purchasedOn !== b.purchasedOn) {
+        if (a.purchasedOn === null) return 1
+        if (b.purchasedOn === null) return -1
+        return a.purchasedOn < b.purchasedOn ? -1 : 1
+      }
+      return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0
+    })
+    .slice(0, backlogLimit)
+    .map((r) => ({
+      attemptId: r.id,
+      title: r.work.title,
+      purchasedOn: r.purchasedOn,
+      days: r.purchasedOn === null ? null : daysBetween(r.purchasedOn, today),
+    }))
+
+const avgOf = (xs: readonly (number | null)[]): number | null => {
+  const vs = xs.filter((x): x is number => x !== null)
+  return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null
+}
+
+// cleared の記録を形式ごとに。平均難易度・平均物量は値がある行だけ
+export const doneAverages = (rows: readonly OwnAttemptRow[]): DoneAverageRow[] => {
+  const grouped = new Map<DoneKind, OwnAttemptRow[]>()
+  for (const r of rows) {
+    if (r.status !== 'cleared' || isVisitKind(r.work.kind)) continue
+    const k = r.work.kind as DoneKind
+    const list = grouped.get(k) ?? []
+    list.push(r)
+    grouped.set(k, list)
+  }
+  return sortDoneKinds(grouped.keys()).map((kind) => {
+    const list = grouped.get(kind) ?? []
+    return {
+      kind,
+      difficulty: avgOf(list.map((r) => r.difficulty)),
+      volume: avgOf(list.map((r) => r.volume)),
+    }
+  })
+}
+
 // 月は COALESCE(finished_on, started_on, created_at の JST 日付) の年月（1〜12）。year 外・日付が取れない行は null
 const monthOf = (r: OwnAttemptRow, year: number): number | null => {
   const on = r.finishedOn ?? r.startedOn ?? isoToJstDate(r.createdAt)
@@ -330,7 +405,7 @@ export const computeStats = (
   rows: readonly OwnAttemptRow[],
   genres: readonly { attemptId: string; genreId: string }[],
   genreLabels: ReadonlyMap<string, string>,
-  { year }: StatsOptions,
+  { year, today }: StatsOptions,
 ): Stats => {
   const { visit, done } = splitByVisit(rows)
   return {
@@ -349,6 +424,8 @@ export const computeStats = (
       summary: summarizeDone(done),
       byKind: doneByKind(done),
       monthly: doneMonthly(done, year),
+      backlogOldest: backlogOldest(done, today),
+      averages: doneAverages(done),
     },
   }
 }
