@@ -96,12 +96,15 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 --mk-cyan:   #86d0f2;     /* Web */
 --mk-orange: #ffb257;     /* 周遊 */
 --mk-purple: #c3a6f2;     /* LINE */
+--mk-teal:   #7ad9c0;     /* カフェ */
+--mk-periwinkle: #a9b8f5; /* 箱 */
 --mk-gray:   #d3cfc4;     /* その他・形式未設定 */
 /* 模様（インク 60% の細線。色と必ず組にする） */
 --ink-pat: rgb(28 28 28 / 0.6);
 --pat-diag:  repeating-linear-gradient(45deg,  var(--ink-pat) 0 1px, transparent 1px 5px);
 --pat-back:  repeating-linear-gradient(-45deg, var(--ink-pat) 0 1px, transparent 1px 5px);
 --pat-horiz: repeating-linear-gradient(0deg,   var(--ink-pat) 0 1px, transparent 1px 4px);
+--pat-vert:  repeating-linear-gradient(90deg,  var(--ink-pat) 0 1px, transparent 1px 4px);
 --pat-dot:   radial-gradient(var(--ink-pat) 0.9px, transparent 1.3px);   /* --ps: 4px 4px と組 */
 --pat-grid:  repeating-linear-gradient(0deg, var(--ink-pat) 0 1px, transparent 1px 4px),
              repeating-linear-gradient(90deg, var(--ink-pat) 0 1px, transparent 1px 4px);
@@ -231,11 +234,13 @@ a:not([class]), a.meta, .kv a, .card a:not(.btn) {
 | `.k-line` | LINE | `--mk-purple` | `--pat-dot`（`--ps: 4px 4px`） | LINE |
 | `.k-web` | Web | `--mk-cyan` | `--pat-horiz` | Web |
 | `.k-takeaway` | 持ち帰り | `--mk-yellow` | なし（無地） | 持ち帰り |
+| `.k-cafe` | カフェ | `--mk-teal` | `--pat-vert` | カフェ |
+| `.k-box` | 箱 | `--mk-periwinkle` | `--pat-dot`（`--ps: 4px 4px`） | 箱 |
 | `.k-other` | その他 | `--mk-gray` | `--pat-back` | その他 |
 | `.k-none` | 形式未設定 | `--mk-gray` | `--pat-grid` | 形式未設定 |
 - 失敗をピンクの**無地**にするのは「成功率が低いことを赤で責めない」（§3.3）に合わせるため。赤ペンは使わない。
 - 公演・ルームに形式の色は付けない（来場型の見方では色 = 成功/失敗）。
-- 完了型の形式の並び（凡例・棒・月別の積み上げ下→上）は `workKinds` の順（stroll, line, web, takeaway, other）→ 形式未設定。
+- 完了型の形式の並び（凡例・棒・月別の積み上げ下→上）は `workKinds` の順（stroll, line, web, takeaway, cafe, box, other）→ 形式未設定。
 
 ---
 

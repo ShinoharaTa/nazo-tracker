@@ -149,6 +149,18 @@ describe('作品の作成', () => {
     expect(page).toContain(`href="/admin/works/${id}/runs/new"`)
   })
 
+  it.each(['cafe', 'box'])('kind=%s で作れる', async (kind) => {
+    const res = await post('/admin/works/new', { title: `形式 ${kind} の作品`, kind }, owner.cookie)
+    expect(res.status).toBe(302)
+    expect((await workRow(idFromLocation(res)))?.kind).toBe(kind)
+  })
+
+  it('作成フォームの形式にカフェ・箱がある', async () => {
+    const html = await (await get('/admin/works/new', owner.cookie)).text()
+    expect(html).toContain('<option value="cafe">カフェ</option>')
+    expect(html).toContain('<option value="box">箱</option>')
+  })
+
   it('kind は空（未設定）でも作れる', async () => {
     const res = await post('/admin/works/new', { title: 'カインドナシの作品' }, owner.cookie)
     expect(res.status).toBe(302)
@@ -158,7 +170,7 @@ describe('作品の作成', () => {
   it.each<[string, Record<string, string>]>([
     ['題名が空', { title: '' }],
     ['題名に改行', { title: 'エラー\n作品' }],
-    ['kind が不正', { title: 'エラー作品', kind: 'cafe' }],
+    ['kind が不正', { title: 'エラー作品', kind: 'escape' }],
     ['player_min > player_max', { title: 'エラー作品', player_min: '5', player_max: '2' }],
     ['player_max が 100', { title: 'エラー作品', player_max: '100' }],
     ['estimated_minutes が 0', { title: 'エラー作品', estimated_minutes: '0' }],

@@ -32,7 +32,17 @@ const score1to5 = (column: string): SQL => sql.raw(`"${column}" BETWEEN 1 AND 5`
 // ---------------------------------------------------------------------------
 
 export const organizationAliasKinds = ['former_name', 'alt_spelling', 'label'] as const
-export const workKinds = ['hall', 'room', 'stroll', 'line', 'web', 'takeaway', 'other'] as const
+export const workKinds = [
+  'hall',
+  'room',
+  'stroll',
+  'line',
+  'web',
+  'takeaway',
+  'cafe',
+  'box',
+  'other',
+] as const
 export const workAliasKinds = ['former_title', 'alt_spelling', 'subtitle'] as const
 export const shopKinds = ['booth', 'official_store', 'physical_store', 'other'] as const
 export const runChannels = ['performance', 'online', 'sale'] as const

@@ -63,7 +63,18 @@ const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0)
 
 describe('src/lib/stats', () => {
   it('splitByVisit: hall / room は visit、それ以外と NULL は done', () => {
-    const kinds: Kind[] = ['hall', 'room', 'stroll', 'line', 'web', 'takeaway', 'other', null]
+    const kinds: Kind[] = [
+      'hall',
+      'room',
+      'stroll',
+      'line',
+      'web',
+      'takeaway',
+      'cafe',
+      'box',
+      'other',
+      null,
+    ]
     const { visit, done } = splitByVisit(kinds.map((kind) => row({ status: 'cleared', kind })))
     expect(visit.map((r) => r.work.kind)).toEqual(['hall', 'room'])
     expect(done.map((r) => r.work.kind)).toEqual([
@@ -71,6 +82,8 @@ describe('src/lib/stats', () => {
       'line',
       'web',
       'takeaway',
+      'cafe',
+      'box',
       'other',
       null,
     ])
@@ -221,6 +234,22 @@ describe('src/lib/stats', () => {
       { kind: 'stroll', cleared: 1 },
       { kind: 'takeaway', cleared: 2 },
       { kind: null, cleared: 1 },
+    ])
+  })
+
+  it('doneByKind: カフェ・箱は持ち帰りの後、その他の前', () => {
+    const k = doneByKind([
+      row({ status: 'cleared', kind: 'other' }),
+      row({ status: 'cleared', kind: 'box' }),
+      row({ status: 'cleared', kind: 'cafe' }),
+      row({ status: 'cleared', kind: 'takeaway' }),
+      row({ status: 'failed', kind: 'cafe' }),
+    ])
+    expect(k).toEqual([
+      { kind: 'takeaway', cleared: 1 },
+      { kind: 'cafe', cleared: 1 },
+      { kind: 'box', cleared: 1 },
+      { kind: 'other', cleared: 1 },
     ])
   })
 
@@ -605,5 +634,52 @@ describe('GET /stats', () => {
     const done = await (await get('/stats?view=done', bob.cookie)).text()
     expect(done).toContain('<b><span class="hl">0</span></b><span>断念 0</span>')
     expect(done).toContain('まだ完了した記録がありません。')
+  })
+})
+
+describe('GET /stats（カフェ・箱）', () => {
+  let dave = { cookie: '', userId: '' }
+  beforeAll(async () => {
+    dave = await loginAs(env, { subject: 'stats-dave' })
+    const cafe = await insertWork(env, { title: '統計のカフェ', kind: 'cafe' })
+    const box = await insertWork(env, { title: '統計の箱', kind: 'box' })
+    const on = `${thisYear}-10-01`
+    await insertAttempt(env, {
+      userId: dave.userId,
+      workId: cafe,
+      status: 'cleared',
+      finishedOn: on,
+    })
+    await insertAttempt(env, {
+      userId: dave.userId,
+      workId: box,
+      status: 'cleared',
+      finishedOn: on,
+    })
+    await insertAttempt(env, {
+      userId: dave.userId,
+      workId: box,
+      status: 'cleared',
+      attemptNo: 2,
+      finishedOn: on,
+    })
+  })
+
+  it('完了数の側に出る（棒・凡例・月別）。来場型には入らない', async () => {
+    const done = await (await get('/stats?view=done', dave.cookie)).text()
+    expect(done).toContain('<b><span class="hl">3</span></b><span>断念 0</span>')
+    expect(done).toContain(
+      '<div class="bar"><span>カフェ</span><div class="tr"><div class="fl k-cafe" style="width:50%"></div></div><span class="v">1 件</span></div>',
+    )
+    expect(done).toContain(
+      '<div class="bar"><span>箱</span><div class="tr"><div class="fl k-box" style="width:100%"></div></div><span class="v">2 件</span></div>',
+    )
+    expect(done).toContain(
+      '<ul class="legend"><li><i class="key k-cafe"></i>カフェ</li><li><i class="key k-box"></i>箱</li></ul>',
+    )
+    expect(done).toContain('aria-label="10月 カフェ 1・箱 2"><span>3</span>')
+    const visit = await (await get('/stats?view=visit', dave.cookie)).text()
+    expect(visit).not.toContain('k-cafe')
+    expect(visit).not.toContain('k-box')
   })
 })

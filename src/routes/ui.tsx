@@ -39,6 +39,8 @@ const kindFilters: readonly { key: string; label: string }[] = [
   { key: 'room', label: 'ルーム' },
   { key: 'stroll', label: '周遊' },
   { key: 'takeaway', label: '持ち帰り' },
+  { key: 'cafe', label: 'カフェ' },
+  { key: 'box', label: '箱' },
   { key: 'online', label: 'LINE・Web' },
 ]
 

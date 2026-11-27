@@ -87,3 +87,35 @@ describe('proposal / proposal_field / app_setting（0005）', () => {
     await expect(insert.run()).rejects.toThrow(/CHECK constraint failed/)
   })
 })
+
+describe('work.kind（0006）', () => {
+  it.each(['cafe', 'box'])('kind=%s が入る', async (kind) => {
+    const res = await env.DB.prepare(
+      'INSERT INTO work (id, title, title_norm, kind, created_at, updated_at) VALUES (?1, ?2, ?2, ?3, ?4, ?4)',
+    )
+      .bind(`w_${kind}`, `W ${kind}`, kind, now)
+      .run()
+    expect(res.success).toBe(true)
+  })
+
+  it('不正な kind は CHECK で失敗する', async () => {
+    const insert = env.DB.prepare(
+      "INSERT INTO work (id, title, title_norm, kind, created_at, updated_at) VALUES ('w_bad', 'X', 'x', 'escape', ?1, ?1)",
+    ).bind(now)
+    await expect(insert.run()).rejects.toThrow(/CHECK constraint failed/)
+  })
+
+  it('作り直した work を子表の FK がまだ参照している', async () => {
+    const insert = env.DB.prepare(
+      "INSERT INTO attempt (id, user_id, work_id, status, created_at, updated_at) VALUES ('a_nowork', 'u_a', 'w_nope', 'cleared', ?1, ?1)",
+    ).bind(now)
+    await expect(insert.run()).rejects.toThrow(/FOREIGN KEY constraint failed/)
+  })
+
+  it('v_attempt_enriched が作り直されている', async () => {
+    const row = await env.DB.prepare(
+      "SELECT work_title, work_kind FROM v_attempt_enriched WHERE id = 'a_1'",
+    ).first()
+    expect(row).toEqual({ work_title: 'W', work_kind: null })
+  })
+})

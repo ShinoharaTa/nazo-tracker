@@ -219,6 +219,8 @@ const markers = [
   { name: 'cyan', label: '水色（Web）' },
   { name: 'orange', label: '橙（周遊）' },
   { name: 'purple', label: '紫（LINE）' },
+  { name: 'teal', label: '青緑（カフェ）' },
+  { name: 'periwinkle', label: '藤色（箱）' },
   { name: 'gray', label: '灰（その他・形式未設定）' },
 ] as const
 
@@ -228,6 +230,8 @@ const doneSeries: { key: DoneKind; label: string; counts: number[] }[] = [
   { key: 'line', label: workKindLabels.line, counts: [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] },
   { key: 'web', label: workKindLabels.web, counts: [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0] },
   { key: 'takeaway', label: workKindLabels.takeaway, counts: [1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 0, 0] },
+  { key: 'cafe', label: workKindLabels.cafe, counts: [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0] },
+  { key: 'box', label: workKindLabels.box, counts: [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0] },
   { key: 'other', label: workKindLabels.other, counts: [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] },
   { key: null, label: '形式未設定', counts: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0] },
 ]

@@ -23,12 +23,15 @@
   --mk-cyan: #86d0f2; /* Web */
   --mk-orange: #ffb257; /* 周遊 */
   --mk-purple: #c3a6f2; /* LINE */
+  --mk-teal: #7ad9c0; /* カフェ */
+  --mk-periwinkle: #a9b8f5; /* 箱 */
   --mk-gray: #d3cfc4; /* その他・形式未設定 */
   /* 模様（インク 60% の細線。色と必ず組にする） */
   --ink-pat: rgb(28 28 28 / 0.6);
   --pat-diag: repeating-linear-gradient(45deg, var(--ink-pat) 0 1px, transparent 1px 5px);
   --pat-back: repeating-linear-gradient(-45deg, var(--ink-pat) 0 1px, transparent 1px 5px);
   --pat-horiz: repeating-linear-gradient(0deg, var(--ink-pat) 0 1px, transparent 1px 4px);
+  --pat-vert: repeating-linear-gradient(90deg, var(--ink-pat) 0 1px, transparent 1px 4px);
   /* --ps: 4px 4px と組 */
   --pat-dot: radial-gradient(var(--ink-pat) 0.9px, transparent 1.3px);
   --pat-grid:
@@ -829,6 +832,15 @@ button.gtag.on {
 .k-takeaway {
   --c: var(--mk-yellow);
   --p: none;
+}
+.k-cafe {
+  --c: var(--mk-teal);
+  --p: var(--pat-vert);
+}
+.k-box {
+  --c: var(--mk-periwinkle);
+  --p: var(--pat-dot);
+  --ps: 4px 4px;
 }
 .k-other {
   --c: var(--mk-gray);
