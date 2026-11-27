@@ -12,10 +12,11 @@ import { friendCounts } from '../db/friends'
 import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
 import { countPendingProposals } from '../db/proposals'
 import { countRequests } from '../db/requests'
-import { scopedTo } from '../db/scoped'
+import { EXPORT_PART, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
+import { buildExportJson, exportFilename, parsePart, partsOf } from '../lib/export'
 import { computeStats, defaultView } from '../lib/stats'
-import { todayJst } from '../lib/time'
+import { nowIso, todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
 import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
@@ -415,7 +416,7 @@ export const SettingsList = ({
           note={excludeFromCounts ? '含めない' : '含める'}
           href="/settings/counts"
         />
-        <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
+        <MenuItem label="自分のデータをエクスポート" href="/settings/export" />
       </Menu>
     </div>
     <div class="sect">
@@ -587,6 +588,101 @@ ui.post('/settings/counts', async (c) => {
     .own()
     .setExcludeFromCounts(body.include !== 'on')
   return c.redirect('/settings', 302)
+})
+
+// 自分のデータのエクスポート（右ページ）。ネタバレメモは GET フォームで spoiler=1 を付けて出し直し、リンクに引き継ぐ
+const ExportForm = (props: {
+  counts: { attempts: number; sessions: number; wishlist: number }
+  parts: number
+  spoiler: boolean
+}) => {
+  const q = props.spoiler ? '&spoiler=1' : ''
+  const parts = Array.from({ length: props.parts }, (_, i) => i + 1)
+  return (
+    <>
+      <TopBar back="/settings" label="エクスポート" />
+      <div class="sect" style="margin-top:4px">
+        <h2>件数</h2>
+        <Menu>
+          <MenuItem label="記録" note={`${props.counts.attempts} 件`} />
+          <MenuItem label="進行ログ" note={`${props.counts.sessions} 件`} />
+          <MenuItem label="マイリスト" note={`${props.counts.wishlist} 件`} />
+        </Menu>
+      </div>
+      <form method="get" action="/settings/export" class="sect">
+        <h2>ネタバレメモ</h2>
+        <label>
+          <input type="checkbox" name="spoiler" value="1" checked={props.spoiler} />{' '}
+          ネタバレメモを含める
+        </label>
+        <p class="note">人に渡すファイルには入れないでください。</p>
+        <button type="submit" class="btn">
+          反映
+        </button>
+      </form>
+      <div class="sect">
+        <h2>JSON</h2>
+        <Menu>
+          {parts.map((p) => (
+            <MenuItem
+              label={`JSON ${p}/${props.parts}`}
+              note={props.spoiler ? 'ネタバレメモあり' : undefined}
+              href={`/settings/export/data.json?part=${p}${q}`}
+            />
+          ))}
+        </Menu>
+        <p class="note">
+          1 ファイルに記録 {EXPORT_PART} 件ずつ入ります。マイリストは 1 つ目のファイルに入ります。
+        </p>
+      </div>
+    </>
+  )
+}
+
+ui.get('/settings/export', async (c) => {
+  const user = currentUser(c)
+  const db = c.get('db')
+  const spoiler = c.req.query('spoiler') === '1'
+  const [state, counts] = await Promise.all([
+    settingsState(db, user),
+    scopedTo(db, user.id).own().exportCounts(),
+  ])
+  return c.html(
+    <Layout
+      title="エクスポート"
+      tab="settings"
+      left={<SettingsList user={user} state={state} />}
+      right={
+        <ExportForm
+          counts={counts}
+          parts={partsOf(counts.attempts, EXPORT_PART)}
+          spoiler={spoiler}
+        />
+      }
+    />,
+  )
+})
+
+// part は 1 始まり。整数でない・範囲外は 404。wishlist は part 1 だけ
+ui.get('/settings/export/data.json', async (c) => {
+  const user = currentUser(c)
+  const own = scopedTo(c.get('db'), user.id).own()
+  const spoiler = c.req.query('spoiler') === '1'
+  const counts = await own.exportCounts()
+  const parts = partsOf(counts.attempts, EXPORT_PART)
+  const part = parsePart(c.req.query('part'), parts)
+  if (part === null) return c.notFound()
+  const [attempts, wishlist] = await Promise.all([
+    own.exportPart(part, { spoiler }),
+    part === 1 ? own.exportWishlist() : null,
+  ])
+  const body = buildExportJson({ exportedAt: nowIso(), part, parts, spoiler, attempts, wishlist })
+  return c.body(body, 200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'private, no-store',
+    'X-Robots-Tag': 'noindex',
+    'Content-Disposition': `attachment; filename="${exportFilename('data', todayJst(), part, 'json')}"`,
+  })
 })
 
 // 退会の確認（右ページ）。オーナーは退会できない（ロックアウト防止）

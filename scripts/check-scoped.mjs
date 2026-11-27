@@ -3,6 +3,7 @@
 // `import * as` と `export *` は全テーブルを持ち出せるので、許可リスト外なら名前に関係なく違反。
 // ネタバレ部品（src/ui/spoiler.tsx の SpoilerFragment / SpoilerPage / spoilerHeaders）の import と、
 // `as OwnAttempt` / `<OwnAttempt>` のキャスト（src/db/scoped.ts 以外）も違反。
+// エクスポートの型（OwnExportAttempt / OwnExportWish。ネタバレメモを持ち得る）を src/ui/** から import するのも違反。
 // フレンドの射影（vFriendAttempt）は許可リストのファイルでも src/db/scoped.ts 以外は違反。
 // `import * as` / `export *` も許可リストのファイルでは src/db/client.ts 以外は違反（`s.vFriendAttempt` で読めるので）。
 // 許可リスト外では、文字列中の生 SQL で FROM / JOIN / UPDATE / INTO の後ろに記録系の表名・ビュー名があっても違反。
@@ -108,6 +109,12 @@ const spoilerAllowed = new Set([
   'src/routes/gallery.tsx',
 ])
 
+const scopedPath = join(root, 'src/db/scoped')
+
+// エクスポートの型は src/lib/export.ts で直列化する。UI 部品に渡させない（#66）
+const exportTypes = new Set(['OwnExportAttempt', 'OwnExportWish'])
+const isUi = (rel) => rel.startsWith('src/ui/')
+
 // OwnAttempt は own() だけが作る。キャストで作れないようにする
 const ownCastRe = /\bas\s+OwnAttempt\b|<\s*OwnAttempt\s*>/
 
@@ -166,6 +173,13 @@ for (const file of walk(join(root, 'src'))) {
     if (star) violations.push(`${rel}: *（ネタバレ部品）`)
     const hit = names.filter((n) => spoilerParts.has(n))
     if (hit.length > 0) violations.push(`${rel}: ${hit.join(', ')}（spoilerResponse を使う）`)
+  }
+  if (isUi(rel)) {
+    const { star, names } = importsOf(file, src, scopedPath)
+    if (star) violations.push(`${rel}: *（scoped 全体。エクスポートの型を持ち出せる）`)
+    const hit = names.filter((n) => exportTypes.has(n))
+    if (hit.length > 0)
+      violations.push(`${rel}: ${hit.join(', ')}（src/lib/export.ts で直列化する）`)
   }
   if (rel !== 'src/db/scoped.ts' && ownCastRe.test(src)) {
     violations.push(`${rel}: OwnAttempt へのキャスト（own().getAttempt() から得る）`)
