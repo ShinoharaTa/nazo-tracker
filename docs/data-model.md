@@ -458,7 +458,7 @@ GROUP BY w.work_id;
 - 全ての統計ビューは `user_id` 列を持ち、クエリ側が必ず `WHERE user_id = ?` を付ける（`scopedTo(viewer).own()` 経由でしか呼べない）。
 - INDEX(user_id, status) / (user_id, finished_on) / (user_id, work_id) / attempt_genre(user_id, genre_id) で 1 ユーザー数千件までは D1 の無料枠で十分。
 - `change_log` で全マスタ変更の履歴を持ち、提案由来か手編集かを追える。
-- エクスポート: 本人が `GET /settings/export`（cookie 認証。`/api/me` は作らない）から自分の attempt / session / genre / マイリストを取得。`/settings/export/data.json?part=N` は記録を `attempt.id ASC` で 500 件ずつ（`EXPORT_PART`）に分け、マイリストは part 1 だけに入れる。ネタバレメモは `spoiler=1` のときだけ含める（既定は含めない）。読むのは `own().exportCounts / exportPart / exportWishlist`、直列化は `src/lib/export.ts`。CSV は P7-E2。画像一覧（画像本体は ZIP で別途）は P9 で足す。
+- エクスポート: 本人が `GET /settings/export`（cookie 認証。`/api/me` は作らない）から自分の attempt / session / genre / マイリストを取得。`/settings/export/data.json?part=N` は記録を `attempt.id ASC` で 500 件ずつ（`EXPORT_PART`）に分け、マイリストは part 1 だけに入れる。ネタバレメモは `spoiler=1` のときだけ含める（既定は含めない）。読むのは `own().exportCounts / exportPart / exportWishlist`、直列化は `src/lib/export.ts`。CSV は `attempts.csv?part=N[&spoiler=1]` / `sessions.csv?part=N`（同じ part の記録に属する進行ログ）/ `wishlist.csv`（全件）。UTF-8（BOM 付き）・CRLF・RFC 4180 の引用、文字列セルが `=` `+` `-` `@` タブ CR で始まるときは先頭に `'` を足す（数値・日付・id 列には足さない）。genres は ` | ` 区切り。画像一覧（画像本体は ZIP で別途）は P9 で足す。
   - 記録の `work.organization` は「回の主催 → 作品の主団体」（`v_attempt_enriched` と同じ）、マイリストの `work.organization` は作品の主団体。マイリストが上限（`EXPORT_WISHLIST_LIMIT` = 5000）で切れたときは `wishlist_truncated: true`。`wrangler d1 export` は障害時のバックアップ専用（design.md §6.4）。
 - 運用監視の総数（決定）: `COUNT(*)` だけのビュー `v_ops_totals`（users, attempts, images, image_bytes, wishlists）。ユーザー別の内訳を持たない。オーナー画面にこの値だけ出す。
 - 復旧: D1 Time Travel（30 日）。

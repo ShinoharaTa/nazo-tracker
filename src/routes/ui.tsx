@@ -11,9 +11,17 @@ import { countsFor, type WorkCounts } from '../db/counts'
 import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
 import { countPendingProposals } from '../db/proposals'
 import { countRequests } from '../db/requests'
-import { EXPORT_PART, scopedTo } from '../db/scoped'
+import { EXPORT_PART, type OwnRepo, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
-import { buildExportJson, exportFilename, parsePart, partsOf } from '../lib/export'
+import {
+  attemptsCsv,
+  buildExportJson,
+  exportFilename,
+  parsePart,
+  partsOf,
+  sessionsCsv,
+  wishlistCsv,
+} from '../lib/export'
 import { computeStats, defaultView } from '../lib/stats'
 import { nowIso, todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
@@ -615,6 +623,26 @@ const ExportForm = (props: {
           1 ファイルに記録 {EXPORT_PART} 件ずつ入ります。マイリストは 1 つ目のファイルに入ります。
         </p>
       </div>
+      <div class="sect">
+        <h2>CSV</h2>
+        <Menu>
+          {parts.map((p) => (
+            <MenuItem
+              label={`記録 ${p}/${props.parts}`}
+              note={props.spoiler ? 'ネタバレメモあり' : undefined}
+              href={`/settings/export/attempts.csv?part=${p}${q}`}
+            />
+          ))}
+          {parts.map((p) => (
+            <MenuItem
+              label={`進行ログ ${p}/${props.parts}`}
+              href={`/settings/export/sessions.csv?part=${p}`}
+            />
+          ))}
+          <MenuItem label="マイリスト" href="/settings/export/wishlist.csv" />
+        </Menu>
+        <p class="note">進行ログは、同じ番号の記録のファイルに入っている記録の分です。</p>
+      </div>
     </>
   )
 }
@@ -643,26 +671,83 @@ ui.get('/settings/export', async (c) => {
   )
 })
 
-// part は 1 始まり。整数でない・範囲外は 404。wishlist は part 1 だけ
+// ?part=N を記録の件数で検査する。part は 1 始まり。整数でない・範囲外は null（呼び出し側が 404）
+const exportPartOf = async (c: Context<AppEnv>, own: OwnRepo) => {
+  const counts = await own.exportCounts()
+  const parts = partsOf(counts.attempts, EXPORT_PART)
+  const part = parsePart(c.req.query('part'), parts)
+  return part === null ? null : { part, parts }
+}
+
+const exportHeaders = (contentType: string, filename: string) => ({
+  'Content-Type': contentType,
+  'Cache-Control': 'private, no-store',
+  'X-Robots-Tag': 'noindex',
+  'Content-Disposition': `attachment; filename="${filename}"`,
+})
+
+const CSV_TYPE = 'text/csv; charset=utf-8'
+
+// wishlist は part 1 だけ
 ui.get('/settings/export/data.json', async (c) => {
   const user = currentUser(c)
   const own = scopedTo(c.get('db'), user.id).own()
   const spoiler = c.req.query('spoiler') === '1'
-  const counts = await own.exportCounts()
-  const parts = partsOf(counts.attempts, EXPORT_PART)
-  const part = parsePart(c.req.query('part'), parts)
-  if (part === null) return c.notFound()
+  const p = await exportPartOf(c, own)
+  if (p === null) return c.notFound()
+  const { part, parts } = p
   const [attempts, wishlist] = await Promise.all([
     own.exportPart(part, { spoiler }),
     part === 1 ? own.exportWishlist() : null,
   ])
   const body = buildExportJson({ exportedAt: nowIso(), part, parts, spoiler, attempts, wishlist })
-  return c.body(body, 200, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'private, no-store',
-    'X-Robots-Tag': 'noindex',
-    'Content-Disposition': `attachment; filename="${exportFilename('data', todayJst(), part, 'json')}"`,
-  })
+  return c.body(
+    body,
+    200,
+    exportHeaders(
+      'application/json; charset=utf-8',
+      exportFilename('data', todayJst(), part, 'json'),
+    ),
+  )
+})
+
+ui.get('/settings/export/attempts.csv', async (c) => {
+  const user = currentUser(c)
+  const own = scopedTo(c.get('db'), user.id).own()
+  const spoiler = c.req.query('spoiler') === '1'
+  const p = await exportPartOf(c, own)
+  if (p === null) return c.notFound()
+  const attempts = await own.exportPart(p.part, { spoiler })
+  return c.body(
+    attemptsCsv(attempts, spoiler),
+    200,
+    exportHeaders(CSV_TYPE, exportFilename('attempts', todayJst(), p.part, 'csv')),
+  )
+})
+
+// part N の記録に属する進行ログ（attempts.csv と同じ区切り）。ネタバレは持たないので spoiler は見ない
+ui.get('/settings/export/sessions.csv', async (c) => {
+  const user = currentUser(c)
+  const own = scopedTo(c.get('db'), user.id).own()
+  const p = await exportPartOf(c, own)
+  if (p === null) return c.notFound()
+  const attempts = await own.exportPart(p.part, { spoiler: false })
+  return c.body(
+    sessionsCsv(attempts),
+    200,
+    exportHeaders(CSV_TYPE, exportFilename('sessions', todayJst(), p.part, 'csv')),
+  )
+})
+
+// マイリスト全件（EXPORT_WISHLIST_LIMIT まで）。part は無いのでファイル名は p1
+ui.get('/settings/export/wishlist.csv', async (c) => {
+  const user = currentUser(c)
+  const { items } = await scopedTo(c.get('db'), user.id).own().exportWishlist()
+  return c.body(
+    wishlistCsv(items),
+    200,
+    exportHeaders(CSV_TYPE, exportFilename('wishlist', todayJst(), 1, 'csv')),
+  )
 })
 
 // 退会の確認（右ページ）。オーナーは退会できない（ロックアウト防止）
