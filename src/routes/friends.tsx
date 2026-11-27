@@ -1,22 +1,33 @@
-// フレンド（/settings/friends*）と招待リンク（/f/:code）。DB 操作は src/db/friends.ts（全関数が viewerId で絞る）。
+// フレンド（/settings/friends*・/friends/:userId/*）と招待リンク（/f/:code）。DB 操作は src/db/friends.ts（全関数が viewerId で絞る）。
 // src/index.ts で ui より前に登録するので、ui の /settings/* の middleware はここには掛からない。
 
 import { type Context, Hono } from 'hono'
 import { rememberInvitePath } from '../auth/login'
 import { currentUser, requireUser } from '../auth/middleware'
+import type { Db } from '../db/client'
 import {
   acceptRequest,
+  cancelRequest,
   clearFriendCode,
+  declineRequest,
+  type FriendPerson,
+  findFriend,
   findInviter,
   type InviterState,
+  listFriends,
+  listIncoming,
+  listOutgoing,
+  type RequestRow,
+  removeFriend,
   sendRequest,
   setFriendCode,
 } from '../db/friends'
 import type { AppEnv } from '../env'
 import { FRIEND_CODE_RE } from '../lib/random'
-import { Empty, TopBar } from '../ui/components'
+import { isoToJstDate } from '../lib/time'
+import { Empty, Menu, MenuItem, TopBar } from '../ui/components'
 import { Layout } from '../ui/Layout'
-import { SettingsList, settingsState } from './ui'
+import { NotFound, SettingsList, settingsState } from './ui'
 
 const friends = new Hono<AppEnv>({ strict: false })
 
@@ -30,6 +41,14 @@ friends.use('/settings/friends/*', async (c, next) => {
 
 // /settings/friends 自体も含む
 friends.use('/settings/friends/*', requireUser)
+
+// フレンドごとの画面（解除の確認など）。設定 → フレンドと同じ扱い
+friends.use('/friends/*', async (c, next) => {
+  await next()
+  c.res.headers.set('Cache-Control', 'private, no-store')
+  c.res.headers.set('X-Robots-Tag', 'noindex')
+})
+friends.use('/friends/*', requireUser)
 
 // 招待リンク。加えてリンク（コード入りの URL）を Referer で外へ出さない。未ログインでも付ける
 friends.use('/f/*', async (c, next) => {
@@ -82,9 +101,76 @@ const InviteLink = ({ url }: { url: string | null }) => (
   </div>
 )
 
+const requestDate = (r: RequestRow) => isoToJstDate(r.createdAt) ?? r.createdAt
+
+// 届いた申請（承認・断る）
+const IncomingList = ({ rows }: { rows: RequestRow[] }) => (
+  <div class="sect">
+    <h2>届いた申請（{rows.length}）</h2>
+    <div class="list">
+      {rows.map((r) => (
+        <div class="card">
+          <p>{r.displayName}</p>
+          <p class="note">申請日 {requestDate(r)}</p>
+          <div class="btns">
+            <form method="post" action={`/settings/friends/requests/${r.requestId}/accept`}>
+              <button type="submit" class="btn pri">
+                承認
+              </button>
+            </form>
+            <form method="post" action={`/settings/friends/requests/${r.requestId}/decline`}>
+              <button type="submit" class="btn ghost">
+                断る
+              </button>
+            </form>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
+// フレンド一覧。/friends/:userId はまだ無いので表示名はリンクにしない
+const FriendList = ({ rows }: { rows: FriendPerson[] }) => (
+  <div class="sect">
+    <h2>フレンド（{rows.length}）</h2>
+    <Menu>
+      {rows.map((f) => (
+        <MenuItem label={f.displayName} />
+      ))}
+    </Menu>
+  </div>
+)
+
+// 送った申請（断られた分も「申請中」としてここに出す）
+const OutgoingList = ({ rows }: { rows: RequestRow[] }) => (
+  <div class="sect">
+    <h2>送った申請（{rows.length}）</h2>
+    <div class="list">
+      {rows.map((r) => (
+        <div class="card">
+          <p>{r.displayName}</p>
+          <p class="note">申請日 {requestDate(r)}</p>
+          <form method="post" action={`/settings/friends/requests/${r.requestId}/cancel`}>
+            <button type="submit" class="btn ghost">
+              取り消す
+            </button>
+          </form>
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
 friends.get('/settings/friends', async (c) => {
   const user = currentUser(c)
-  const state = await settingsState(c.get('db'), user)
+  const db = c.get('db')
+  const [state, incoming, list, outgoing] = await Promise.all([
+    settingsState(db, user),
+    listIncoming(db, user.id),
+    listFriends(db, user.id),
+    listOutgoing(db, user.id),
+  ])
   const url = state.friendCode ? `${c.env.APP_ORIGIN}/f/${state.friendCode}` : null
   return c.html(
     <Layout
@@ -95,6 +181,9 @@ friends.get('/settings/friends', async (c) => {
         <>
           <TopBar back="/settings" label="フレンド" />
           <InviteLink url={url} />
+          {incoming.length ? <IncomingList rows={incoming} /> : null}
+          {list.length ? <FriendList rows={list} /> : null}
+          {outgoing.length ? <OutgoingList rows={outgoing} /> : null}
           <div class="sect">
             <p class="note">
               フレンドに見えるのは、作品名・ステータス・日付だけです。メモやネタバレは見えません。
@@ -114,6 +203,74 @@ friends.post('/settings/friends/code', async (c) => {
 
 friends.post('/settings/friends/code/delete', async (c) => {
   await clearFriendCode(c.get('db'), currentUser(c).id)
+  return c.redirect('/settings/friends', 302)
+})
+
+// 申請 id・ユーザー id が不正、他人のもの、条件を満たさないものは全部この 404
+const friendNotFound = async (c: Context<AppEnv>) => {
+  const user = currentUser(c)
+  const state = await settingsState(c.get('db'), user)
+  return c.html(
+    <Layout
+      title="見つかりませんでした"
+      tab="settings"
+      left={<SettingsList user={user} state={state} />}
+      right={<NotFound back="/settings/friends" />}
+    />,
+    404,
+  )
+}
+
+// 届いた申請の承認・断る、送った申請の取り消し。成否は書き換えた行数で決める
+const requestAction =
+  (action: (db: Db, viewerId: string, requestId: string) => Promise<boolean>) =>
+  async (c: Context<AppEnv>) => {
+    if (!(await action(c.get('db'), currentUser(c).id, c.req.param('id') ?? ''))) {
+      return friendNotFound(c)
+    }
+    return c.redirect('/settings/friends', 302)
+  }
+
+friends.post('/settings/friends/requests/:id/accept', requestAction(acceptRequest))
+friends.post('/settings/friends/requests/:id/decline', requestAction(declineRequest))
+friends.post('/settings/friends/requests/:id/cancel', requestAction(cancelRequest))
+
+// 解除の確認画面（この PR では解除ボタンだけ）
+friends.get('/friends/:userId/manage', async (c) => {
+  const user = currentUser(c)
+  const db = c.get('db')
+  const friend = await findFriend(db, user.id, c.req.param('userId'))
+  if (!friend) return friendNotFound(c)
+  const state = await settingsState(db, user)
+  return c.html(
+    <Layout
+      title={friend.displayName}
+      tab="settings"
+      left={<SettingsList user={user} state={state} />}
+      right={
+        <>
+          <TopBar back="/settings/friends" label={friend.displayName} />
+          <div class="sect" style="margin-top:4px">
+            <div class="list">
+              <p>{friend.displayName}さんとのフレンドを解除しますか？</p>
+              <p class="note">相手には知らせません。</p>
+              <form method="post" action={`/friends/${friend.userId}/remove`}>
+                <button type="submit" class="btn danger">
+                  フレンドを解除する
+                </button>
+              </form>
+            </div>
+          </div>
+        </>
+      }
+    />,
+  )
+})
+
+friends.post('/friends/:userId/remove', async (c) => {
+  if (!(await removeFriend(c.get('db'), currentUser(c).id, c.req.param('userId')))) {
+    return friendNotFound(c)
+  }
   return c.redirect('/settings/friends', 302)
 })
 
@@ -168,9 +325,36 @@ const InviteBody = ({
   error?: string
 }) => {
   if (state.kind === 'outgoing') {
-    return <p>{state.displayName}さんに申請を送ってあります。承認されるとフレンドになります。</p>
+    return (
+      <div class="list">
+        <p>{state.displayName}さんに申請を送ってあります。承認されるとフレンドになります。</p>
+        <form method="post" action={`/settings/friends/requests/${state.requestId}/cancel`}>
+          <button type="submit" class="btn ghost">
+            取り消す
+          </button>
+        </form>
+      </div>
+    )
   }
-  if (state.kind === 'incoming') return <p>{state.displayName}さんから申請が届いています。</p>
+  if (state.kind === 'incoming') {
+    return (
+      <div class="list">
+        <p>{state.displayName}さんから申請が届いています。</p>
+        <div class="btns">
+          <form method="post" action={`/settings/friends/requests/${state.requestId}/accept`}>
+            <button type="submit" class="btn pri">
+              承認
+            </button>
+          </form>
+          <form method="post" action={`/settings/friends/requests/${state.requestId}/decline`}>
+            <button type="submit" class="btn ghost">
+              断る
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
   return (
     <div class="list">
       {error ? (
