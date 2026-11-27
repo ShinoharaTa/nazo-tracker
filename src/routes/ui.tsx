@@ -289,7 +289,8 @@ const toStatsYear = (v: string | undefined, thisYear: number): number => {
 ui.get('/stats', async (c) => {
   const db = c.get('db')
   const own = scopedTo(db, currentUser(c).id).own()
-  const thisYear = Number(todayJst().slice(0, 4))
+  const today = todayJst()
+  const thisYear = Number(today.slice(0, 4))
   const year = toStatsYear(c.req.query('year'), thisYear)
   const [{ rows, genres, capped }, wishlist] = await Promise.all([
     own.statsRows(),
@@ -299,6 +300,7 @@ ui.get('/stats', async (c) => {
   const genreRows = await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
   const stats = computeStats(rows, genres, new Map(genreRows.map((g) => [g.id, g.label])), {
     year,
+    today,
   })
   // view が visit / done 以外（無し・不正値）ならデータ次第で決める
   const v = c.req.query('view')

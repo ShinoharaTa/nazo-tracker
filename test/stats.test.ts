@@ -4,6 +4,7 @@ import type { OwnAttemptRow } from '../src/db/scoped'
 import app from '../src/index'
 import { splitCompanions } from '../src/lib/companions'
 import {
+  backlogOldest,
   byCompanion,
   byDifficulty,
   byGenre,
@@ -11,6 +12,7 @@ import {
   byVolume,
   computeStats,
   defaultView,
+  doneAverages,
   doneByKind,
   doneMonthly,
   splitByVisit,
@@ -312,7 +314,7 @@ describe('src/lib/stats', () => {
 
   it('defaultView: 来場型 0 件・完了型ありなら done、それ以外は visit', () => {
     const view = (rows: OwnAttemptRow[]) =>
-      defaultView(computeStats(rows, [], new Map(), { year: 2026 }))
+      defaultView(computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }))
     expect(view([row({ status: 'cleared', kind: 'takeaway' })])).toBe('done')
     expect(view([])).toBe('visit')
     expect(view([row({ status: 'purchased', kind: 'hall' })])).toBe('visit')
@@ -323,7 +325,7 @@ describe('src/lib/stats', () => {
 
   it('capped なら「直近 5000 件だけを集計しています」を出す', async () => {
     const props = {
-      stats: computeStats([], [], new Map(), { year: 2026 }),
+      stats: computeStats([], [], new Map(), { year: 2026, today: '2026-11-27' }),
       view: 'visit' as const,
       year: 2026,
       thisYear: 2026,
@@ -339,7 +341,7 @@ describe('src/lib/stats', () => {
   it('記録 0 件の visit は KPI を — / 0 で出し、グラフは Empty（凡例なし）', async () => {
     const html = String(
       await StatsPage({
-        stats: computeStats([], [], new Map(), { year: 2026 }),
+        stats: computeStats([], [], new Map(), { year: 2026, today: '2026-11-27' }),
         view: 'visit',
         year: 2026,
         thisYear: 2026,
@@ -360,7 +362,7 @@ describe('src/lib/stats', () => {
     const done = async (rows: OwnAttemptRow[]) =>
       String(
         await StatsPage({
-          stats: computeStats(rows, [], new Map(), { year: 2026 }),
+          stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }),
           view: 'done',
           year: 2026,
           thisYear: 2026,
@@ -571,11 +573,129 @@ describe('src/lib/stats（得意傾向）', () => {
       })
       return { ...r, work: { ...r.work, org } }
     })
-    const v = computeStats(done, [], new Map(), { year: 2026 }).visit
+    const v = computeStats(done, [], new Map(), { year: 2026, today: '2026-11-27' }).visit
     expect(v.byVolume.every((x) => x.total === 0)).toBe(true)
     expect(v.byOrg).toEqual([])
     expect(v.byCompanion).toEqual([])
     expect(v.summary.retries).toBe(0)
+  })
+})
+
+describe('src/lib/stats（完了側の傾向）', () => {
+  it('backlogOldest: purchased だけを purchased_on の古い順、NULL は最後、同じ日は created_at 順、上位 10', () => {
+    const rows = [
+      row({
+        id: 'none',
+        status: 'purchased',
+        kind: 'takeaway',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }),
+      row({ id: 'new', status: 'purchased', kind: 'web', purchasedOn: '2026-11-20' }),
+      row({
+        id: 'old2',
+        status: 'purchased',
+        kind: 'line',
+        purchasedOn: '2025-05-01',
+        createdAt: '2026-02-02T00:00:00.000Z',
+      }),
+      row({
+        id: 'old1',
+        status: 'purchased',
+        kind: null,
+        purchasedOn: '2025-05-01',
+        createdAt: '2026-02-01T00:00:00.000Z',
+      }),
+      row({ id: 'cl', status: 'cleared', kind: 'web', purchasedOn: '2024-01-01' }),
+      row({ id: 'ip', status: 'in_progress', kind: 'web', purchasedOn: '2024-01-01' }),
+      // 来場型の purchased は予約済みなので出さない
+      row({ id: 'room', status: 'purchased', kind: 'room', purchasedOn: '2024-01-01' }),
+    ]
+    const b = backlogOldest(rows, '2026-11-27')
+    expect(b.map((x) => [x.attemptId, x.days])).toEqual([
+      ['old1', 575],
+      ['old2', 575],
+      ['new', 7],
+      ['none', null],
+    ])
+    const many = Array.from({ length: 12 }, (_, i) =>
+      row({
+        id: `m${i}`,
+        status: 'purchased',
+        kind: 'takeaway',
+        purchasedOn: `2026-01-${String(12 - i).padStart(2, '0')}`,
+      }),
+    )
+    const top = backlogOldest(many, '2026-11-27')
+    expect(top).toHaveLength(10)
+    expect(top[0].attemptId).toBe('m11')
+    expect(top[0].purchasedOn).toBe('2026-01-01')
+  })
+
+  it('computeStats: 来場型の予約済みは積み謎の古い順に出ない', () => {
+    const d = computeStats(
+      [
+        row({ status: 'purchased', kind: 'hall', purchasedOn: '2020-01-01' }),
+        row({ status: 'purchased', kind: 'room' }),
+        row({ id: 'tk', status: 'purchased', kind: 'takeaway' }),
+      ],
+      [],
+      new Map(),
+      { year: 2026, today: '2026-11-27' },
+    ).done
+    expect(d.backlogOldest.map((x) => x.attemptId)).toEqual(['tk'])
+  })
+
+  it('doneAverages: cleared だけを形式ごと、値がある行だけで平均。無ければ null。順は doneKindOrder', () => {
+    const a = doneAverages([
+      row({ status: 'cleared', kind: null, difficulty: 2 }),
+      row({ status: 'cleared', kind: 'takeaway', difficulty: 3, volume: 2 }),
+      row({ status: 'cleared', kind: 'takeaway', difficulty: 4 }),
+      row({ status: 'cleared', kind: 'takeaway' }),
+      row({ status: 'dropped', kind: 'takeaway', difficulty: 1, volume: 1 }),
+      row({ status: 'purchased', kind: 'line', difficulty: 5 }),
+      row({ status: 'cleared', kind: 'stroll' }),
+      row({ status: 'cleared', kind: 'room', difficulty: 5, volume: 5 }),
+    ])
+    expect(a).toEqual([
+      { kind: 'stroll', difficulty: null, volume: null },
+      { kind: 'takeaway', difficulty: 3.5, volume: 2 },
+      { kind: null, difficulty: 2, volume: null },
+    ])
+  })
+
+  const donePage = async (rows: OwnAttemptRow[]) =>
+    String(
+      await StatsPage({
+        stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }),
+        view: 'done',
+        year: 2026,
+        thisYear: 2026,
+        minYear: 2000,
+        capped: false,
+        wishlist: { total: 0, played: 0 },
+      }),
+    )
+
+  it('done の画面: 形式別の平均は小数 1 桁・無ければ「—」、積み謎は記録へのリンクと経過日数', async () => {
+    const html = await donePage([
+      row({ status: 'cleared', kind: 'takeaway', difficulty: 3, volume: 4 }),
+      row({ status: 'cleared', kind: 'takeaway', difficulty: 4 }),
+      row({ status: 'cleared', kind: 'web' }),
+      row({ id: 'p1', status: 'purchased', kind: 'line', purchasedOn: '2026-11-24' }),
+      row({ id: 'p2', status: 'purchased', kind: 'line' }),
+    ])
+    expect(html).toContain(
+      '<dl class="kv"><dt>Web</dt><dd>難易度 — · 物量 —</dd><dt>持ち帰り</dt><dd>難易度 3.5 · 物量 4.0</dd></dl>',
+    )
+    expect(html).toContain(
+      '<a href="/records/p1"><span>t</span><span class="note">3 日前に購入</span></a><a href="/records/p2"><span>t</span><span class="note">日付なし</span></a>',
+    )
+  })
+
+  it('done の画面: 0 件なら形式別の平均・積み謎の古い順は Empty', async () => {
+    const html = await donePage([])
+    expect(html.match(/まだ完了した記録がありません。/g)).toHaveLength(2)
+    expect(html).toContain('買った・未着手の記録はありません。')
   })
 })
 
@@ -987,7 +1107,7 @@ describe('GET /stats（得意傾向）', () => {
     )
     const html = String(
       await StatsPage({
-        stats: computeStats(rows, [], new Map(), { year: 2026 }),
+        stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }),
         view: 'visit',
         year: 2026,
         thisYear: 2026,
@@ -1007,5 +1127,49 @@ describe('GET /stats（得意傾向）', () => {
     expect(html).not.toContain('再挑戦')
     expect(html.match(/まだデータがありません。/g)).toHaveLength(3)
     expect(html).not.toContain('3 件以上の')
+  })
+})
+
+describe('GET /stats（完了側の傾向）', () => {
+  let frank = { cookie: '', userId: '' }
+  // 今日（JST）から n 日前の YYYY-MM-DD
+  const daysAgo = (n: number) =>
+    new Date(Date.parse(todayJst()) - n * 86_400_000).toISOString().slice(0, 10)
+  beforeAll(async () => {
+    frank = await loginAs(env, { subject: 'stats-frank' })
+    const take = await insertWork(env, { title: '傾向の積み持ち帰り', kind: 'takeaway' })
+    const web = await insertWork(env, { title: '傾向の積みWeb', kind: 'web' })
+    const room = await insertWork(env, { title: '傾向の予約ルーム', kind: 'room' })
+    await insertAttempt(env, {
+      userId: frank.userId,
+      workId: take,
+      status: 'purchased',
+      purchasedOn: daysAgo(3),
+    })
+    await insertAttempt(env, { userId: frank.userId, workId: web, status: 'purchased' })
+    await insertAttempt(env, {
+      userId: frank.userId,
+      workId: room,
+      status: 'purchased',
+      purchasedOn: daysAgo(30),
+    })
+    await insertAttempt(env, {
+      userId: frank.userId,
+      workId: web,
+      status: 'cleared',
+      attemptNo: 2,
+      difficulty: 2,
+      volume: 3,
+      finishedOn: daysAgo(1),
+    })
+  })
+
+  it('?view=done: 積み謎の古い順（経過日数は今日 JST から、予約済みは出ない）と形式別の平均', async () => {
+    const html = await (await get('/stats?view=done', frank.cookie)).text()
+    expect(html).toMatch(
+      /<a href="\/records\/[0-9A-Z]+"><span>傾向の積み持ち帰り<\/span><span class="note">3 日前に購入<\/span><\/a><a href="\/records\/[0-9A-Z]+"><span>傾向の積みWeb<\/span><span class="note">日付なし<\/span><\/a><\/div>/,
+    )
+    expect(html).not.toContain('傾向の予約ルーム')
+    expect(html).toContain('<dt>Web</dt><dd>難易度 2.0 · 物量 3.0</dd>')
   })
 })

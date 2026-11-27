@@ -7,6 +7,8 @@ import {
   Empty,
   Kpis,
   Legend,
+  Menu,
+  MenuItem,
   MonthStack,
   RateBars,
   TopBar,
@@ -26,6 +28,7 @@ export type StatsPageProps = {
 }
 
 const pct = (r: number | null) => (r === null ? '—' : `${Math.round(r * 100)}%`)
+const avg = (n: number | null) => (n === null ? '—' : n.toFixed(1))
 
 // view は既定がデータ次第なので常に付ける。year は今年なら省く
 const statsHref = (p: { view: StatsView; year: number; thisYear: number }) => {
@@ -176,7 +179,7 @@ const VisitView = (p: StatsPageProps) => {
 }
 
 const DoneView = (p: StatsPageProps) => {
-  const { summary, byKind, monthly } = p.stats.done
+  const { summary, byKind, monthly, backlogOldest, averages } = p.stats.done
   return (
     <>
       <Kpis
@@ -206,6 +209,23 @@ const DoneView = (p: StatsPageProps) => {
         )}
       </div>
       <div class="sect">
+        <h2>形式別の平均</h2>
+        {averages.length ? (
+          <dl class="kv">
+            {averages.map((a) => (
+              <>
+                <dt>{doneKindLabel(a.kind)}</dt>
+                <dd>
+                  難易度 {avg(a.difficulty)} · 物量 {avg(a.volume)}
+                </dd>
+              </>
+            ))}
+          </dl>
+        ) : (
+          <Empty>まだ完了した記録がありません。</Empty>
+        )}
+      </div>
+      <div class="sect">
         <MonthHead {...p} title="月別の完了数" />
         {sumSeries(monthly) ? (
           <>
@@ -219,6 +239,22 @@ const DoneView = (p: StatsPageProps) => {
           </>
         ) : (
           <Empty>{p.year} 年の記録はありません。</Empty>
+        )}
+      </div>
+      <div class="sect">
+        <h2>積み謎の古い順</h2>
+        {backlogOldest.length ? (
+          <Menu>
+            {backlogOldest.map((b) => (
+              <MenuItem
+                href={`/records/${b.attemptId}`}
+                label={b.title}
+                note={b.days === null ? '日付なし' : `${b.days} 日前に購入`}
+              />
+            ))}
+          </Menu>
+        ) : (
+          <Empty>買った・未着手の記録はありません。</Empty>
         )}
       </div>
       <Wishlist {...p} />
