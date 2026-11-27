@@ -10,8 +10,14 @@ import type {
   ProposalRow,
 } from '../db/proposals'
 import { workKinds } from '../db/schema'
+import { norm } from '../lib/norm'
 import { isoToJstDate } from '../lib/time'
-import type { ApprovalChoice, RejectionChoice, StaleField } from '../pipeline/apply'
+import {
+  type ApprovalChoice,
+  BULK_MAX,
+  type RejectionChoice,
+  type StaleField,
+} from '../pipeline/apply'
 import { nameColumn, type ProposalTable, placeholderOf, workOnlySections } from '../pipeline/fields'
 import {
   Checkbox,
@@ -164,6 +170,230 @@ const AutoApplyForm = ({ on, saved }: { on: boolean; saved?: boolean }) => (
   </form>
 )
 
+// ---- まとめて承認（create で候補 0 件の承認待ちだけ。src/routes/admin/proposals.tsx の /proposals/bulk）
+
+// 承認待ちタブの一覧。選べる行の左に Checkbox（選べない行は同じ幅を空ける）。確認ページへは GET
+const BulkPickForm = ({ items }: { items: AdminProposalRow[] }) => (
+  <form method="get" action="/admin/proposals/bulk" class="list">
+    <p class="note" style="margin:0">
+      候補の無い新しい提案は、チェックしてまとめて承認できます（1 回 {BULK_MAX}{' '}
+      件まで）。候補つき・更新・紐付け・統合は 1 件ずつ開いて確かめてください。
+    </p>
+    <label hidden data-check-all={String(BULK_MAX)}>
+      <input type="checkbox" /> 選べる提案をすべて選ぶ（先頭 {BULK_MAX} 件）
+    </label>
+    {items.map((r) => (
+      <div class="pick">
+        {r.bulkable ? (
+          <label class="pick-box">
+            <input
+              type="checkbox"
+              name="id"
+              value={r.id}
+              aria-label={`まとめて承認: ${r.headline}`}
+            />
+          </label>
+        ) : (
+          <span class="pick-box" aria-hidden="true" />
+        )}
+        <ProposalTicket r={r} />
+      </div>
+    ))}
+    <button type="submit" class="btn pri">
+      選んだ提案をまとめて承認
+    </button>
+  </form>
+)
+
+export type BulkItem = {
+  id: string
+  headline: string
+  // 種類 · 対象 · 団体（見つからない提案は id）
+  meta: string
+  // 提案が見つかったか（見つからない行は詳細へのリンクを出さない）
+  found: boolean
+  // 束が新しく作る団体の名前（organization.name）。無ければ null
+  newOrg: string | null
+}
+
+export type BulkResult = BulkItem & {
+  // applied = 承認した、failed = できなかった（errors に理由）、unprocessed = 上限で打ち切って pending のまま
+  result: 'applied' | 'failed' | 'unprocessed'
+  errors: string[]
+}
+
+// 一覧の 1 行の題名と meta（種類 · 対象 · 団体）。団体は束で新しく作るもの（@organization）と既存の参照先を分けて出す
+export const bulkItemOf = (
+  p: ProposalRow,
+  fields: AdminProposalField[],
+  names: RefNames,
+): BulkItem => {
+  const t = p.targetTable
+  const orgField = fields.find(
+    (f) => f.field === `${t}.primary_organization_id` || f.field === `${t}.organization_id`,
+  )
+  const newOrg =
+    p.kind === 'create'
+      ? (fields.find((f) => f.field === 'organization.name')?.newValue ?? null)
+      : null
+  const org = !orgField?.newValue
+    ? t === 'work'
+      ? '団体未設定'
+      : null
+    : placeholderOf(orgField)
+      ? `団体（新しく作る）: ${newOrg ?? NOT_FOUND}`
+      : `団体: ${names.organization.get(orgField.newValue) ?? NOT_FOUND}`
+  return {
+    id: p.id,
+    headline: headlineOf(p, fields, names),
+    meta: [kindLabelOf(p), org].filter(Boolean).join(' · '),
+    found: true,
+    newOrg,
+  }
+}
+
+// 見つからない id の行（id は送られたまま出す。JSX がエスケープする）
+export const bulkMissingItemOf = (id: string): BulkItem => ({
+  id,
+  headline: NOT_FOUND,
+  meta: `id: ${id}`,
+  found: false,
+  newOrg: null,
+})
+
+// 新しく作る団体の名前（norm で比べる）が 2 件以上の提案で重なるか
+const dupNewOrg = (items: readonly BulkItem[]): boolean => {
+  const seen = new Set<string>()
+  for (const i of items) {
+    if (!i.newOrg) continue
+    const k = norm(i.newOrg)
+    if (seen.has(k)) return true
+    seen.add(k)
+  }
+  return false
+}
+
+const BulkRow = ({ item, children }: { item: BulkItem; children?: Child }) => (
+  <div class="cand">
+    <span class="title">{item.headline}</span>
+    <span class="meta">
+      {item.meta}
+      {item.found ? (
+        <>
+          {' · '}
+          <a href={`/admin/proposals/${encodeURIComponent(item.id)}`}>開く</a>
+        </>
+      ) : null}
+    </span>
+    {children}
+  </div>
+)
+
+// 確認ページ。items は反映する提案、skipped はまとめて承認できない提案（理由つき）
+export const BulkConfirm = (props: {
+  items: BulkItem[]
+  skipped: BulkResult[]
+  errors?: string[]
+  // BULK_MAX を超えて選ばれたときの注記
+  over?: string
+}) => (
+  <>
+    <TopBar back="/admin/proposals" label="まとめて承認" />
+    {props.errors?.length ? (
+      <div class="sect">
+        <FormErrors errors={props.errors} />
+      </div>
+    ) : null}
+    {dupNewOrg(props.items) ? (
+      <p class="note" role="alert">
+        同じ名前の団体を新しく作る提案が複数あります。まとめて承認すると同名の団体が複数できます。先に団体だけを承認してください。
+      </p>
+    ) : null}
+    {props.over ? (
+      <p class="note" role="status">
+        {props.over}
+      </p>
+    ) : null}
+    {props.items.length ? (
+      <form method="post" action="/admin/proposals/bulk" class="sect">
+        <h2>反映する提案（{props.items.length} 件）</h2>
+        <p class="note">
+          全項目を採用して、1 件ずつ反映します。形式などを選び直すときは、詳細から 1
+          件ずつ承認してください。
+        </p>
+        <p class="note">
+          一度に処理できる数には上限があります。処理しきれなかった分は、結果の画面から続けて承認できます。
+        </p>
+        <div class="list">
+          {props.items.map((i) => (
+            <BulkRow item={i}>
+              <input type="hidden" name="id" value={i.id} />
+            </BulkRow>
+          ))}
+        </div>
+        <button type="submit" class="btn pri">
+          {props.items.length} 件を承認して反映
+        </button>
+      </form>
+    ) : null}
+    {props.skipped.length ? (
+      <div class="sect">
+        <h2>まとめて承認できない提案（{props.skipped.length} 件）</h2>
+        <div class="list">
+          {props.skipped.map((i) => (
+            <BulkRow item={i}>
+              <p class="note" style="margin:0">
+                {i.errors.join(' ')}
+              </p>
+            </BulkRow>
+          ))}
+        </div>
+      </div>
+    ) : null}
+  </>
+)
+
+// 結果。件ごとに承認した / できなかった（理由）/ 未処理
+export const BulkResults = ({ results, over }: { results: BulkResult[]; over?: string }) => {
+  const n = (r: BulkResult['result']) => results.filter((x) => x.result === r).length
+  const rest = n('unprocessed')
+  return (
+    <>
+      <TopBar back="/admin/proposals" label="まとめて承認" />
+      <div class="list">
+        <p class="note" role="status">
+          {`承認 ${n('applied')} 件 / 失敗 ${n('failed')} 件 / 未処理 ${rest} 件`}
+        </p>
+        {over ? (
+          <p class="note" style="margin:0">
+            {over}
+          </p>
+        ) : null}
+        {results.map((r) => (
+          <BulkRow item={r}>
+            {r.result === 'applied' ? (
+              <p class="note" style="margin:0">
+                反映しました
+              </p>
+            ) : r.result === 'unprocessed' ? (
+              <p class="note" style="margin:0">
+                未処理（承認待ちのままです）
+              </p>
+            ) : (
+              <FormErrors errors={r.errors} />
+            )}
+          </BulkRow>
+        ))}
+        {rest ? (
+          <p class="note" style="margin:0">
+            <a href="/admin/proposals">続けて承認する ›</a>
+          </p>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
 export const ProposalsList = (props: {
   tab: AdminProposalTab
   pendingCount: number
@@ -185,15 +415,23 @@ export const ProposalsList = (props: {
       current={props.tab}
       label="提案の状態"
     />
-    <div class="list">
-      {props.items.length ? (
-        props.items.map((r) => (
-          <ProposalTicket r={r} chip={props.tab !== 'pending'} revertUntil={props.tab === 'auto'} />
-        ))
-      ) : (
-        <Empty>{emptyText[props.tab]}</Empty>
-      )}
-    </div>
+    {props.tab === 'pending' && props.items.some((r) => r.bulkable) ? (
+      <BulkPickForm items={props.items} />
+    ) : (
+      <div class="list">
+        {props.items.length ? (
+          props.items.map((r) => (
+            <ProposalTicket
+              r={r}
+              chip={props.tab !== 'pending'}
+              revertUntil={props.tab === 'auto'}
+            />
+          ))
+        ) : (
+          <Empty>{emptyText[props.tab]}</Empty>
+        )}
+      </div>
+    )}
     <Pager
       base="/admin/proposals"
       page={props.page}

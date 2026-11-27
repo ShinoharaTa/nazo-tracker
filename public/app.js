@@ -77,6 +77,19 @@ document.addEventListener('click', (e) => {
   else openSpoiler(toggle, body, veil)
 })
 
+// まとめて承認の「選べる提案をすべて選ぶ」。data-check-all の件数（1 回の上限）まで先頭から入れ、外すときは全部外す（JS が無いときは hidden のまま）
+for (const all of document.querySelectorAll('[data-check-all]')) {
+  const input = all.querySelector('input')
+  const boxes = [...(all.closest('form')?.querySelectorAll('input[name="id"]') ?? [])]
+  const max = Number(all.getAttribute('data-check-all')) || boxes.length
+  all.hidden = false
+  input?.addEventListener('change', () => {
+    boxes.forEach((box, n) => {
+      box.checked = input.checked && n < max
+    })
+  })
+}
+
 // data-copy="<input の id>" のボタン。input の値をクリップボードへ。使えなければ input を選択状態にする
 document.addEventListener('click', async (e) => {
   const target = e.target

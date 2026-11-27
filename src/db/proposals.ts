@@ -1,7 +1,7 @@
 // 出典（source）・提案（proposal / proposal_field）・却下記憶（rejection_memory）の読み書き（docs/agent-pipeline.md §4・§5）。
 // マスタは読むだけ（承認での反映の文は src/pipeline/apply.ts）。記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
 import { nowIso } from '../lib/time'
 import { nameColumn, type ProposalDraft, type ProposalTable } from '../pipeline/fields'
@@ -335,30 +335,35 @@ const tabWhere = (tab: AdminProposalTab, now: string) => {
   )
 }
 
-// id → 表示名（run は作品の題名）。無い id は入らない
+// namesOf の 1 文あたりの id 数（D1 は 1 文の変数が 100 個まで。まとめて承認では 1 提案あたり団体が 2 つまで入る）
+const NAMES_IDS_PER_SELECT = 50
+
+// id → 表示名（run は作品の題名）。無い id は入らない。NAMES_IDS_PER_SELECT 個ずつに分けて読む
 export const namesOf = async (
   db: Db,
   table: ProposalTable,
   ids: readonly string[],
 ): Promise<Map<string, string>> => {
   const uniq = [...new Set(ids)]
-  if (uniq.length === 0) return new Map()
-  let rows: { id: string; name: string }[]
-  if (table === 'run') {
-    rows = await db
-      .select({ id: run.id, name: work.title })
-      .from(run)
-      .innerJoin(work, eq(work.id, run.workId))
-      .where(inArray(run.id, uniq))
-  } else if (table === 'work') {
-    rows = await db
-      .select({ id: work.id, name: work.title })
-      .from(work)
-      .where(inArray(work.id, uniq))
-  } else {
+  const part = (xs: string[]): Promise<{ id: string; name: string }[]> => {
+    if (table === 'run') {
+      return db
+        .select({ id: run.id, name: work.title })
+        .from(run)
+        .innerJoin(work, eq(work.id, run.workId))
+        .where(inArray(run.id, xs))
+    }
+    if (table === 'work') {
+      return db.select({ id: work.id, name: work.title }).from(work).where(inArray(work.id, xs))
+    }
     const t = tables[table]
-    rows = await db.select({ id: t.id, name: t.name }).from(t).where(inArray(t.id, uniq))
+    return db.select({ id: t.id, name: t.name }).from(t).where(inArray(t.id, xs))
   }
+  const parts: string[][] = []
+  for (let i = 0; i < uniq.length; i += NAMES_IDS_PER_SELECT) {
+    parts.push(uniq.slice(i, i + NAMES_IDS_PER_SELECT))
+  }
+  const rows = (await Promise.all(parts.map(part))).flat()
   return new Map(rows.map((r) => [r.id, r.name]))
 }
 
@@ -375,13 +380,37 @@ export type AdminProposalRow = {
   headline: string
   // 出典のドメイン（重複なし）
   domains: string[]
+  // まとめて承認に入れられるか（bulkApprovable）
+  bulkable: boolean
 }
 
 const NOT_FOUND_NAME = '（見つかりません）'
 
+// まとめて承認に入れられる提案: 承認待ちの create で、保存された名寄せ候補が 0 件（壊れた JSON は候補ありとみなす）。
+// 候補つき・update / link / merge は詳細で 1 件ずつ見る
+export const bulkApprovable = (
+  p: Pick<ProposalRow, 'status' | 'kind' | 'matchCandidatesJson'>,
+): boolean => {
+  if (p.status !== 'pending' || p.kind !== 'create') return false
+  try {
+    const c: unknown = JSON.parse(p.matchCandidatesJson ?? '[]')
+    return Array.isArray(c) && c.length === 0
+  } catch {
+    return false
+  }
+}
+
 type ListCols = Pick<
   ProposalRow,
-  'id' | 'kind' | 'targetTable' | 'targetId' | 'status' | 'confidence' | 'createdAt' | 'revertUntil'
+  | 'id'
+  | 'kind'
+  | 'targetTable'
+  | 'targetId'
+  | 'status'
+  | 'confidence'
+  | 'createdAt'
+  | 'revertUntil'
+  | 'matchCandidatesJson'
 >
 
 // 一覧の行に見出しと出典のドメインを付ける
@@ -464,6 +493,7 @@ const decorate = async (db: Db, rows: ListCols[]): Promise<AdminProposalRow[]> =
       revertUntil: r.revertUntil,
       headline: headline ?? NOT_FOUND_NAME,
       domains: domainRows.flatMap((d) => (d.proposalId === r.id && d.domain ? [d.domain] : [])),
+      bulkable: bulkApprovable(r),
     }
   })
 }
@@ -477,6 +507,7 @@ const rowCols = {
   confidence: proposal.confidence,
   createdAt: proposal.createdAt,
   revertUntil: proposal.revertUntil,
+  matchCandidatesJson: proposal.matchCandidatesJson,
 }
 
 // 承認待ちは古い順、それ以外は新しい順。50 件ずつ
@@ -547,14 +578,11 @@ export type AdminProposalField = {
   source: ProposalSource | null
 }
 
-export const getAdminProposal = async (
-  db: Db,
-  id: string,
-): Promise<{ row: ProposalRow; fields: AdminProposalField[] } | null> => {
-  const row = await db.select().from(proposal).where(eq(proposal.id, id)).get()
-  if (!row) return null
+// 提案の項目（出典つき）。where で 1 提案分か、複数の提案分を読む
+const adminFieldsWhere = async (db: Db, where: SQL) => {
   const rows = await db
     .select({
+      proposalId: proposalField.proposalId,
       id: proposalField.id,
       field: proposalField.field,
       oldValue: proposalField.oldValue,
@@ -569,13 +597,47 @@ export const getAdminProposal = async (
     })
     .from(proposalField)
     .leftJoin(source, eq(source.id, proposalField.sourceId))
-    .where(eq(proposalField.proposalId, id))
+    .where(where)
     .orderBy(asc(proposalField.field), asc(proposalField.id))
-  const fields = rows.map(({ url, domain, fetchedAt, excerpt, ...f }) => {
+  return rows.map(({ proposalId, url, domain, fetchedAt, excerpt, ...f }) => {
     const [table, column] = f.field.split('.') as [ProposalTable, string]
-    return { ...f, table, column, source: url ? { url, domain, fetchedAt, excerpt } : null }
+    const field: AdminProposalField = {
+      ...f,
+      table,
+      column,
+      source: url ? { url, domain, fetchedAt, excerpt } : null,
+    }
+    return { proposalId, field }
   })
+}
+
+export const getAdminProposal = async (
+  db: Db,
+  id: string,
+): Promise<{ row: ProposalRow; fields: AdminProposalField[] } | null> => {
+  const row = await db.select().from(proposal).where(eq(proposal.id, id)).get()
+  if (!row) return null
+  const fields = (await adminFieldsWhere(db, eq(proposalField.proposalId, id))).map((r) => r.field)
   return { row, fields }
+}
+
+// getAdminProposal の複数版（まとめて承認の先読み）。提案と項目をそれぞれ 1 文で読む。ids は 1 文の変数の上限（100）より少なく
+export const getAdminProposals = async (
+  db: Db,
+  ids: readonly string[],
+): Promise<Map<string, { row: ProposalRow; fields: AdminProposalField[] }>> => {
+  const out = new Map<string, { row: ProposalRow; fields: AdminProposalField[] }>()
+  if (ids.length === 0) return out
+  const [rows, fields] = await Promise.all([
+    db
+      .select()
+      .from(proposal)
+      .where(inArray(proposal.id, [...ids])),
+    adminFieldsWhere(db, inArray(proposalField.proposalId, [...ids])),
+  ])
+  for (const row of rows) out.set(row.id, { row, fields: [] })
+  for (const f of fields) out.get(f.proposalId)?.fields.push(f.field)
+  return out
 }
 
 // 自動反映を取り消すときに superseded にする承認待ち: follow-up（kind / is_permanent）と、
