@@ -86,6 +86,13 @@ describe('ログイン後', () => {
     expect(html).toContain('ななしさん')
   })
 
+  it('/settings に開発フェーズ名（P? で実装）が出ない', async () => {
+    const { cookie } = await loginAs(env, { subject: 'no-phase', owner: true })
+    const html = await (await get('/settings', cookie)).text()
+    expect(html).toContain('準備中')
+    expect(html).not.toMatch(/P\d+ で/)
+  })
+
   it('/ と /login は /records へ', async () => {
     const { cookie } = await loginAs(env, { subject: 'member2' })
     expect((await get('/', cookie)).headers.get('location')).toBe('/records')

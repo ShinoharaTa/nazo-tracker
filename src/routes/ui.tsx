@@ -377,16 +377,16 @@ const SettingsList = ({
         <MenuItem label="Google" note={linkNote(linked, 'google')} disabled />
         <MenuItem label="Discord" note={linkNote(linked, 'discord')} disabled />
         <MenuItem label="LINE" note={linkNote(linked, 'line')} disabled />
-        <MenuItem label="ほかのログイン方法を連携" note="P6 で実装" disabled />
-        <MenuItem label="復旧コード" note="P6 で実装" disabled />
+        <MenuItem label="ほかのログイン方法を連携" note="準備中" disabled />
+        <MenuItem label="復旧コード" note="準備中" disabled />
       </Menu>
       <p class="note">ログイン方法を 2 つ連携しておくと、片方が使えなくなっても戻れます。</p>
     </div>
     <div class="sect">
       <h2>フレンド</h2>
       <Menu>
-        <MenuItem label="フレンド" note="P8 で実装" disabled />
-        <MenuItem label="招待リンクをコピー" note="P8 で実装" disabled />
+        <MenuItem label="フレンド" note="準備中" disabled />
+        <MenuItem label="招待リンクをコピー" note="準備中" disabled />
       </Menu>
       <p class="note">
         フレンドに見えるのは、作品名・ステータス・日付だけです。メモやネタバレは見えません。
@@ -400,7 +400,7 @@ const SettingsList = ({
           note={excludeFromCounts ? '含めない' : '含める'}
           href="/settings/counts"
         />
-        <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
+        <MenuItem label="自分のデータをエクスポート" note="準備中" disabled />
       </Menu>
     </div>
     <div class="sect">
