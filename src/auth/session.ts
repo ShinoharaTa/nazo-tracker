@@ -22,7 +22,7 @@ export const SESSION_DAYS = 30
 // 残りがこれ未満になったら SESSION_DAYS 延長する
 export const SESSION_SLIDE_DAYS = 15
 
-const cookieOptions = (c: Context<AppEnv>): CookieOptions => ({
+export const cookieOptions = (c: Context<AppEnv>): CookieOptions => ({
   path: '/',
   httpOnly: true,
   sameSite: 'Lax',

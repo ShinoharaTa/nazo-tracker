@@ -103,6 +103,7 @@
 - ログアウトは `POST /auth/logout` のみ。状態を変える POST は `Origin` が `APP_ORIGIN` と一致するか `Sec-Fetch-Site: same-origin` のときだけ通す（CSRF）。
 - hono/csrf はフォーム系 Content-Type の POST のみ Origin を検査する。JSON API は CORS preflight に依存（P2 以降の `/api/*` で注意）。
 - 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない）。
+- ログイン後の戻り先は cookie `after_login`（`Path=/; HttpOnly; SameSite=Lax; Max-Age=600`、`Secure` は session と同じ）だけで受ける。未ログインで招待リンク `/f/<code>` を開いたときに置き、値が `/f/<コードの書式>` に完全一致するときだけ（新規ユーザーも）そこへ 302。それ以外の値は無視する（オープンリダイレクト防止）。読んだら必ず消す（`src/auth/login.ts` の `redirectAfterLogin`）。
 
 ### オーナー
 - 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。provider は `google` / `discord` / `line` を使える（LINE は `line:<sub>`、sub は `U` で始まる 33 文字）。
