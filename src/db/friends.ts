@@ -180,7 +180,8 @@ export const sendRequest = async (db: Db, viewerId: string, code: string): Promi
 // 届いた申請を承認する（1 回の batch）。(1) 自分宛ての有効な pending を、送り主が退会しておらず
 // 双方向に block が無いときだけ accepted に、
 // (2) その行が今の時刻で accepted になっていて双方向に block が無ければ friendship を作り、
-// (3) 自分から相手への pending があれば canceled に。friendship が出来なければ false（呼び出し側で 404）
+// (3) 自分から相手への pending / declined があれば canceled に（断った申請が解除後に「申請中」として戻らないように）。
+// 最後に friendship があれば true（すでにフレンドの二重承認も true）。無ければ false（呼び出し側で 404）
 export const acceptRequest = async (
   db: Db,
   viewerId: string,
@@ -189,7 +190,7 @@ export const acceptRequest = async (
   const now = nowIso()
   const acceptedNow = sql`r.id = ${requestId} AND r.to_user_id = ${viewerId}
     AND r.status = 'accepted' AND r.responded_at = ${now}`
-  const [, accepted, , , friend] = await db.$client.batch<{ id?: string; ok?: number }>([
+  const [, , , , friend] = await db.$client.batch<{ ok: number }>([
     stmt(db, expirePending(viewerId, now)),
     stmt(
       db,
@@ -211,7 +212,7 @@ export const acceptRequest = async (
     stmt(
       db,
       sql`UPDATE friend_request SET status = 'canceled', responded_at = ${now}
-        WHERE from_user_id = ${viewerId} AND status = 'pending'
+        WHERE from_user_id = ${viewerId} AND status IN ('pending', 'declined')
           AND to_user_id = (SELECT r.from_user_id FROM friend_request r WHERE ${acceptedNow})`,
     ),
     stmt(
@@ -222,7 +223,7 @@ export const acceptRequest = async (
         WHERE r.id = ${requestId} AND r.to_user_id = ${viewerId}`,
     ),
   ])
-  return accepted.results.length > 0 && friend.results.length > 0
+  return friend.results.length > 0
 }
 
 // 設定 → フレンドの一覧に出す相手（申請なら申請日 createdAt も）
@@ -293,16 +294,23 @@ export const listFriends = async (db: Db, viewerId: string): Promise<FriendPerso
   return rows.map((r) => ({ userId: r.id, displayName: r.display_name }))
 }
 
-// 1 人のフレンド（解除の確認画面用）。フレンドでなければ null
-export const findFriend = async (
+// 解除・ブロックの確認画面に出す相手。今のフレンド（friend: true）か、自分に有効な pending を送ってきた人
+// （friend: false。ブロックだけできる）。どちらでもなければ null（呼び出し側で 404）。条件は blockTarget と同じ
+export const findManageTarget = async (
   db: Db,
   viewerId: string,
   userId: string,
-): Promise<FriendPerson | null> => {
-  const row = await db.get<{ id: string; display_name: string }>(
-    sql`SELECT u.id, u.display_name ${friendsOf(viewerId)} AND u.id = ${userId}`,
+): Promise<(FriendPerson & { friend: boolean }) | null> => {
+  const row = await db.get<{ id: string; display_name: string; friend: number }>(
+    sql`SELECT u.id, u.display_name, ${isFriend(viewerId)} AS friend FROM user u
+      WHERE u.id = ${userId} AND u.id <> ${viewerId} AND u.deleted_at IS NULL
+        AND ${noBlock(viewerId)}
+        AND (${isFriend(viewerId)}
+          OR EXISTS (SELECT 1 FROM friend_request r
+            WHERE r.from_user_id = u.id AND r.to_user_id = ${viewerId}
+              AND r.status = 'pending' AND r.created_at > ${addDays(nowIso(), -REQUEST_EXPIRE_DAYS)}))`,
   )
-  return row ? { userId: row.id, displayName: row.display_name } : null
+  return row ? { userId: row.id, displayName: row.display_name, friend: row.friend === 1 } : null
 }
 
 // 設定一覧の note 用（フレンドの人数、届いた申請の件数）。数え方は listFriends / listIncoming と同じ
@@ -419,21 +427,7 @@ const blockTarget = async (db: Db, viewerId: string, target: string): Promise<bo
   return inserted.results.length > 0 || existing.results.length > 0
 }
 
-// 届いた申請の送り主をブロックする（自分宛ての有効な pending の id）
-export const blockRequester = async (
-  db: Db,
-  viewerId: string,
-  requestId: string,
-): Promise<boolean> => {
-  const row = await db.get<{ from_user_id: string }>(
-    sql`SELECT from_user_id FROM friend_request
-      WHERE id = ${requestId} AND to_user_id = ${viewerId} AND status = 'pending'
-        AND created_at > ${addDays(nowIso(), -REQUEST_EXPIRE_DAYS)}`,
-  )
-  return row ? blockTarget(db, viewerId, row.from_user_id) : false
-}
-
-// フレンドをブロックする
+// フレンドか、自分に有効な pending を送ってきた人をブロックする（確認画面 /friends/:userId/manage から）
 export const blockFriend = (db: Db, viewerId: string, userId: string): Promise<boolean> =>
   blockTarget(db, viewerId, userId)
 

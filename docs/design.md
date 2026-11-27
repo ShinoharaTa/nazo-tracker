@@ -225,8 +225,9 @@ flowchart LR
   - 申請の上限: 1 人が送れるのは直近 24 時間に 20 件（取り消し・断られた分も数える）、同じ相手へは同じ向きに 7 日に 1 回（状態を問わない）、pending の期限 30 日（書き込みのついでに canceled へ。cron は作らない）、受ける側に有効な pending が 50 件あれば受けない。判定は 1 文の条件付き INSERT（`src/db/friends.ts` の `sendRequest`）。相手からの pending があるときの「申請する」は承認として扱う（同時に申請し合った場合も、後から入る側を承認に回すので両方向の pending は残らない）。画面の判定は「相手から届いている」を「自分が申請中」より先に見る（自分の申請が断られて残っていても、届いた申請をリンクから承認できる）。
   - 断られた申請は、送った側には 30 日のあいだ「申請中」のまま見せる（断ったことを知らせない）。
   - 設定 → フレンド（`/settings/friends`）: 招待リンク、届いた申請（承認・断る・ブロック）、フレンド（表示名の昇順）、送った申請（取り消す）、ブロック中（解除）の順。空の節は見出しごと出さない。届いた申請は自分宛ての pending で 30 日以内、送った申請は自分からの pending / declined で 30 日以内（相手ごとに新しい 1 行。取り消すと同じ相手への有効な行をまとめて canceled）。設定一覧の note は「n 人」、届いた申請があれば「n 人・申請 m 件」。
-  - 承認・断る・取り消すは `POST /settings/friends/requests/:id/{accept,decline,cancel}`、解除は確認画面 `GET /friends/:userId/manage` → `POST /friends/:userId/remove`（friendship を消すだけ。相手には知らせない）。他人の id・無い id・状態が合わないものは全部同じ 404。招待リンクの画面からも、申請中なら「取り消す」、届いていれば「承認」「断る」が押せる。
-  - ブロック: 届いた申請（`POST /settings/friends/requests/:id/block`）か確認画面（`POST /friends/:userId/block`）から。相手は今のフレンドか、自分に有効な pending を送ってきた人だけ（それ以外は 404）。1 回の batch で block を入れ、friendship を消し、両方向の pending / declined を canceled にする（`src/db/friends.ts` の `blockTarget`）。相手からは退会したときと同じ見え方（一覧から消え、リンクは 404）で、ブロックしたことは知らせない。自分の「ブロック中」にだけ相手の表示名が出て、「解除」（`POST /settings/friends/blocks/:userId/delete`）で block 行を消す。解除しても friendship は戻らず、申請し直しは通常の規則（7 日に 1 回など）に従う。
+  - 承認・断る・取り消すは `POST /settings/friends/requests/:id/{accept,decline,cancel}`、解除は確認画面 `GET /friends/:userId/manage` → `POST /friends/:userId/remove`（friendship を消すだけ。相手には知らせない）。他人の id・無い id・状態が合わないものは全部同じ 404。すでにフレンドの申請をもう一度承認したとき（二重送信）は 404 にせず `/settings/friends` へ 302。承認では自分から相手への pending / declined も canceled にする（断った相手からの申請を承認したあと、解除しても「申請中」が戻らない）。招待リンクの画面からも、申請中なら「取り消す」、届いていれば「承認」「断る」が押せる。
+  - ブロック: 確認画面（`GET /friends/:userId/manage` → `POST /friends/:userId/block`）から。届いた申請の「ブロック」もこの確認画面へ移り（「断る」は 1 タップのまま）、まだフレンドでない送り主にはブロックだけを出す。確認画面の「戻る」はフレンドなら記録一覧 `/friends/:userId`、申請の送り主なら `/settings/friends`。相手は今のフレンドか、自分に有効な pending を送ってきた人だけ（それ以外は確認画面も POST も 404）。1 回の batch で block を入れ、friendship を消し、両方向の pending / declined を canceled にする（`src/db/friends.ts` の `blockTarget`）。相手からは退会したときと同じ見え方（一覧から消え、リンクは 404）で、ブロックしたことは知らせない。自分の「ブロック中」にだけ相手の表示名が出て、「解除」（`POST /settings/friends/blocks/:userId/delete`）で block 行を消す。解除しても friendship は戻らず、申請し直しは通常の規則（7 日に 1 回など）に従う。
+  - ブロック → 解除は、相手から推測できる場合がある（ブロック中は相手から自分のリンクが 404 になり、解除後に戻る）。これは許容する（決定）。
 
 ### 6.3 フレンドに見せる範囲
 
@@ -234,10 +235,10 @@ flowchart LR
 
 後の Phase（P11）で入れる候補: ユーザー既定の share level（`none` / `status` / `rating` / `memo`）+ 記録ごとの `hidden` 上書き。フレンドごとの個別設定・グループは更に後。
 
-データモデルの扱い（決定: **列は v1 から持つ**）: `user.default_share_level`（既定 `status`、v1 は UI 無しで固定値）と `attempt.share_override`（v1 は常に NULL）を最初から定義し、`asFriendOf` の射影も level 別の型で作っておく。v1 では status 以外の分岐を UI から到達不能にする。
+データモデルの扱い（決定: **列は v1 から持つ**）: `user.default_share_level`（既定 `status`、v1 は UI 無しで固定値）と `attempt.share_override`（v1 は常に NULL）を最初から定義する。`asFriendOf` の射影は v1 では `FriendAttemptStatus` だけを作り、level は `FriendRepo.level` に持つ（Rating / Memo の型は P11 で作る）。v1 では status 以外の分岐を UI から到達不能にする。
 
 ### 6.4 認可の実装
-- 記録系ルートは HTML の `/records/*`（本人）、`/api/me/*`（本人、JSON を出す段階で足す）と `/api/friends/:userId/*`（フレンド閲覧）のみ。後者は **friendship(accepted) かつ block 無し** を必ず確認し、満たさなければ 404。v1 は `status` 射影のみ返す。
+- 記録系ルートは HTML の `/records/*`（本人）、HTML の `/friends/:userId`（フレンドの記録一覧）、`/api/me/*`（本人、JSON を出す段階で足す）と `/api/friends/:userId/*`（フレンド閲覧）のみ。後者は **friendship(accepted) かつ block 無し** を必ず確認し、満たさなければ 404。v1 は `status` 射影のみ返す。
 - リポジトリ層: `scopedTo(viewerId)` が返すハンドルに `own()` と `asFriendOf(targetUserId)` の 2 口。`asFriendOf` は friendship を検証し、level 別の列セットしか返せない型にする。**`spoiler_memo` と `spoiler=1` の画像は `own()` の型にしか存在しない**。ネタバレの応答（`spoilerResponse`）は `own()` だけが返す brand 付きの `OwnAttempt` しか受けない（auth.md §6）。これ以外に attempt / session / image を読む経路を作らない。
 - **オーナー**: 承認 UI・マスタ編集（`/admin/*`）・リクエスト一覧・通報対応・genre 管理。他人の記録を見る画面・API・集計ビューは作らない。フレンドとしてのオーナーは一般ユーザーと同じ扱い。
 - **agent トークン**: マスタ読、リクエスト読、提案・出典書き。記録系・フレンド系・画像は 403。

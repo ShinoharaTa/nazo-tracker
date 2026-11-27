@@ -3,12 +3,19 @@
 // `import * as` と `export *` は全テーブルを持ち出せるので、許可リスト外なら名前に関係なく違反。
 // ネタバレ部品（src/ui/spoiler.tsx の SpoilerFragment / SpoilerPage / spoilerHeaders）の import と、
 // `as OwnAttempt` / `<OwnAttempt>` のキャスト（src/db/scoped.ts 以外）も違反。
+// フレンドの射影（vFriendAttempt）は許可リストのファイルでも src/db/scoped.ts 以外は違反。
+// `import * as` / `export *` も許可リストのファイルでは src/db/client.ts 以外は違反（`s.vFriendAttempt` で読めるので）。
+// 許可リスト外では、文字列中の生 SQL で FROM / JOIN / UPDATE / INTO の後ろに記録系の表名・ビュー名があっても違反。
+// 生 SQL の v_friend_attempt は許可リストのファイルでも src/db/scoped.ts 以外は違反。
+// 引数でルートを差し替えられる（test/check-scoped-negative.mjs が一時ディレクトリで陰性を確かめる）。
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const root = process.argv[2]
+  ? resolve(process.argv[2])
+  : resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const schemaPath = join(root, 'src/db/schema')
 
 const forbidden = new Set([
@@ -19,7 +26,27 @@ const forbidden = new Set([
   'wishlist',
   'marketVisit',
   'vAttemptEnriched',
+  'vFriendAttempt',
 ])
+// フレンドの射影は asFriendOf だけが読む。許可リスト（counts.ts など）でも import させない
+const friendOnly = new Set(['vFriendAttempt'])
+// 生 SQL で読み書きさせない表名・ビュー名（forbidden の各テーブルの SQL 上の名前）
+const forbiddenSql = [
+  'attempt',
+  'attempt_genre',
+  'session',
+  'image',
+  'wishlist',
+  'market_visit',
+  'v_attempt_enriched',
+  'v_friend_attempt',
+]
+// FROM attempt / JOIN "session" / UPDATE `image` / INTO wishlist（大文字小文字は問わない）
+const rawSqlRe = new RegExp(
+  `\\b(?:FROM|JOIN|UPDATE|INTO)\\s+["\`\\[]?(${forbiddenSql.join('|')})(?![\\w$])`,
+  'gi',
+)
+const rawFriendSqlRe = /\b(?:FROM|JOIN|UPDATE|INTO)\s+["`[]?v_friend_attempt(?![\w$])/i
 const allowed = new Set([
   'src/db/scoped.ts',
   'src/db/counts.ts',
@@ -121,6 +148,18 @@ for (const file of walk(join(root, 'src'))) {
     if (star) violations.push(`${rel}: *（schema 全体）`)
     const hit = names.filter((n) => forbidden.has(n))
     if (hit.length > 0) violations.push(`${rel}: ${hit.join(', ')}`)
+    const tables = [...new Set([...src.matchAll(rawSqlRe)].map((m) => m[1].toLowerCase()))]
+    if (tables.length > 0) violations.push(`${rel}: 生 SQL の ${tables.join(', ')}`)
+  } else {
+    const { star, names } = importsOf(file, src, schemaPath)
+    if (star && rel !== 'src/db/client.ts') {
+      violations.push(`${rel}: *（schema 全体。名前付きで import する）`)
+    }
+    if (rel !== 'src/db/scoped.ts') {
+      const hit = names.filter((n) => friendOnly.has(n))
+      if (rawFriendSqlRe.test(src)) hit.push('生 SQL の v_friend_attempt')
+      if (hit.length > 0) violations.push(`${rel}: ${hit.join(', ')}（asFriendOf だけが読む）`)
+    }
   }
   if (!spoilerAllowed.has(rel)) {
     const { star, names } = importsOf(file, src, spoilerPath)

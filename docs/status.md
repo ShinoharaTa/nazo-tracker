@@ -31,7 +31,7 @@
 | P5 | #6 | `nazo-admin` CLI、`/process-queue`、escape MCP 手順、trailcast インポート | P4 |
 | P6 | #7 | Bluesky ログイン、複数プロバイダ紐付け（`oauth_state.mode='link'`）、復旧コード | P1 |
 | P7 | #8 | 出店（market / edition / booth）、gamemarket.jp 取り込み、得意傾向の統計、エクスポート | P3 |
-| P8 | #9 | フレンド（招待リンク・申請・承認・ブロック）、`asFriendOf` の status 射影、作品ページの「フレンド n 人」 | P3 |
+| P8 | #9 | フレンド（招待リンク・申請・承認・ブロック）、`asFriendOf` の status 射影、作品ページの「フレンド n 人」。B-PR1〜5（招待コード・招待リンク・申請一覧・ブロック・フレンドの記録一覧、#128 → #134 → #139 → #142 → #146）は実装済み・未マージ。B-PR6（作品ページの「フレンド n 人」）は未着手 | P3 |
 | P9 | #10 | 画像（R2、クライアント縮小、EXIF 検査、ネタバレ写真は本人のみ、通報・削除、容量上限）。退会時の R2 実体削除 `TODO(P9)` もここ | P3 |
 | P10 | #11 | ルーム型一覧（都道府県 → 店舗 → 作品）、常設 run、kind / is_permanent の推定 → 承認 | P2, P4 |
 | P11 | #12 | フレンド公開範囲設定（既定 share level、記録ごと hidden、写真の表示）、Bluesky フォローからの候補 | P8, P9 |
