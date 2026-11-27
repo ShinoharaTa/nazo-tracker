@@ -127,6 +127,12 @@ describe('GET /works', () => {
     expect(h).not.toContain('マージ済み作品')
   })
 
+  it('?kind=room に開発フェーズ名（P10）が出ない', async () => {
+    const h = await html('/works?kind=room')
+    expect(h).toContain('都道府県 → 店舗の順で探す機能は準備中です。')
+    expect(h).not.toContain('（P10）')
+  })
+
   it.each([
     ['ＷＯＲＤＥＡＬ', 'WORDEAL'],
     ['word eal', 'WORDEAL'],

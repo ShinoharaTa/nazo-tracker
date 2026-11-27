@@ -220,7 +220,7 @@ describe('GET /records/:id', () => {
     // ジャンルは sort_order 順（ひらめき → 論理）
     expect(h).toMatch(/<span class="gtag">ひらめき<\/span><span class="gtag">論理<\/span>/)
     expect(h).toContain('進行ログはまだありません。')
-    expect(h).toContain('写真は P9 で追加できます。')
+    expect(h).toContain('写真の追加は準備中です。')
     // 左の一覧で選ばれている
     expect(h).toContain(`<a class="ticket sel" href="/records/${ids.cleared}">`)
   })

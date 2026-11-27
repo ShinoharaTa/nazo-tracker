@@ -617,7 +617,7 @@ export const RecordDetail = ({
             ＋
           </button>
         </div>
-        <p class="note">写真は P9 で追加できます。</p>
+        <p class="note">写真の追加は準備中です。</p>
       </div>
       {/* TODO(P8): フレンド n 人 */}
       <div class="sect">

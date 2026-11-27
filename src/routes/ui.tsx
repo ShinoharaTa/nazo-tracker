@@ -102,9 +102,7 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
         )
       })}
     </nav>
-    {kind === 'room' ? (
-      <p class="note">ルーム型は都道府県 → 店舗の順でも探せます（P10）。</p>
-    ) : null}
+    {kind === 'room' ? <p class="note">都道府県 → 店舗の順で探す機能は準備中です。</p> : null}
     <div class="list">
       {items.length ? (
         items.map((w) => (
@@ -406,8 +404,8 @@ export const SettingsList = ({
         <MenuItem label="Google" note={linkNote(linked, 'google')} disabled />
         <MenuItem label="Discord" note={linkNote(linked, 'discord')} disabled />
         <MenuItem label="LINE" note={linkNote(linked, 'line')} disabled />
-        <MenuItem label="ほかのログイン方法を連携" note="P6 で実装" disabled />
-        <MenuItem label="復旧コード" note="P6 で実装" disabled />
+        <MenuItem label="ほかのログイン方法を連携" note="準備中" disabled />
+        <MenuItem label="復旧コード" note="準備中" disabled />
       </Menu>
       <p class="note">ログイン方法を 2 つ連携しておくと、片方が使えなくなっても戻れます。</p>
     </div>
