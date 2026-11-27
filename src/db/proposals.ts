@@ -1,7 +1,7 @@
 // 出典（source）・提案（proposal / proposal_field）・却下記憶（rejection_memory）の読み書き（docs/agent-pipeline.md §4・§5）。
 // マスタは読むだけ（承認での反映の文は src/pipeline/apply.ts）。記録系テーブル（scripts/check-scoped.mjs の禁止語）はここから import しない。
 
-import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
 import { nowIso } from '../lib/time'
 import { nameColumn, type ProposalDraft, type ProposalTable } from '../pipeline/fields'
@@ -565,14 +565,11 @@ export type AdminProposalField = {
   source: ProposalSource | null
 }
 
-export const getAdminProposal = async (
-  db: Db,
-  id: string,
-): Promise<{ row: ProposalRow; fields: AdminProposalField[] } | null> => {
-  const row = await db.select().from(proposal).where(eq(proposal.id, id)).get()
-  if (!row) return null
+// 提案の項目（出典つき）。where で 1 提案分か、複数の提案分を読む
+const adminFieldsWhere = async (db: Db, where: SQL) => {
   const rows = await db
     .select({
+      proposalId: proposalField.proposalId,
       id: proposalField.id,
       field: proposalField.field,
       oldValue: proposalField.oldValue,
@@ -587,13 +584,47 @@ export const getAdminProposal = async (
     })
     .from(proposalField)
     .leftJoin(source, eq(source.id, proposalField.sourceId))
-    .where(eq(proposalField.proposalId, id))
+    .where(where)
     .orderBy(asc(proposalField.field), asc(proposalField.id))
-  const fields = rows.map(({ url, domain, fetchedAt, excerpt, ...f }) => {
+  return rows.map(({ proposalId, url, domain, fetchedAt, excerpt, ...f }) => {
     const [table, column] = f.field.split('.') as [ProposalTable, string]
-    return { ...f, table, column, source: url ? { url, domain, fetchedAt, excerpt } : null }
+    const field: AdminProposalField = {
+      ...f,
+      table,
+      column,
+      source: url ? { url, domain, fetchedAt, excerpt } : null,
+    }
+    return { proposalId, field }
   })
+}
+
+export const getAdminProposal = async (
+  db: Db,
+  id: string,
+): Promise<{ row: ProposalRow; fields: AdminProposalField[] } | null> => {
+  const row = await db.select().from(proposal).where(eq(proposal.id, id)).get()
+  if (!row) return null
+  const fields = (await adminFieldsWhere(db, eq(proposalField.proposalId, id))).map((r) => r.field)
   return { row, fields }
+}
+
+// getAdminProposal の複数版（まとめて承認の先読み）。提案と項目をそれぞれ 1 文で読む。ids は 1 文の変数の上限（100）より少なく
+export const getAdminProposals = async (
+  db: Db,
+  ids: readonly string[],
+): Promise<Map<string, { row: ProposalRow; fields: AdminProposalField[] }>> => {
+  const out = new Map<string, { row: ProposalRow; fields: AdminProposalField[] }>()
+  if (ids.length === 0) return out
+  const [rows, fields] = await Promise.all([
+    db
+      .select()
+      .from(proposal)
+      .where(inArray(proposal.id, [...ids])),
+    adminFieldsWhere(db, inArray(proposalField.proposalId, [...ids])),
+  ])
+  for (const row of rows) out.set(row.id, { row, fields: [] })
+  for (const f of fields) out.get(f.proposalId)?.fields.push(f.field)
+  return out
 }
 
 // 自動反映を取り消すときに superseded にする承認待ち: follow-up（kind / is_permanent）と、

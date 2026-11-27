@@ -6,11 +6,13 @@ import { currentUser } from '../../auth/middleware'
 import type { Db } from '../../db/client'
 import { runStmts } from '../../db/master-write'
 import {
+  type AdminProposalField,
   type AdminProposalTab,
   adminProposalTabs,
   bulkApprovable,
   countPendingProposals,
   getAdminProposal,
+  getAdminProposals,
   getRawRow,
   getTargetRow,
   listAdminProposals,
@@ -18,6 +20,7 @@ import {
   nextPendingId,
   otherPendingForTarget,
   otherPendingWithEscapeUrl,
+  type ProposalRow,
   proposalStatusOf,
   resolveCandidates,
 } from '../../db/proposals'
@@ -165,7 +168,6 @@ proposals.post('/proposals/settings', async (c) => {
 // ---- まとめて承認（P5 計画 §4。create で候補 0 件の承認待ちを、1 件ずつ既存の承認処理に全項目採用で通す）
 
 const BULK_NONE = '提案を 1 件以上選んでください。'
-const BULK_TOO_MANY = `まとめて承認できるのは 1 回 ${BULK_MAX} 件までです。`
 const BULK_NOT_ALLOWED = '候補つき・更新・紐付け・統合の提案は、詳細から 1 件ずつ承認してください。'
 const BULK_NOT_FOUND = '提案が見つかりません。'
 const BULK_WRITE_FAILED = '書き込めませんでした。詳細を開いて確かめてください。'
@@ -179,13 +181,14 @@ const bulkIdsOf = (v: unknown): string[] => [
 
 type BulkLoaded = {
   id: string
-  d: Awaited<ReturnType<typeof getAdminProposal>>
+  d: { row: ProposalRow; fields: AdminProposalField[] } | null
   item: BulkItem
 }
 
-// 提案と、表示に使う名前（題名・団体）。名前は表ごとに 1 回で引く（1 提案あたり各表 1 つまで）
+// 提案・項目と、表示に使う名前（題名・団体）。提案・項目は 1 文ずつ、名前は表ごとに 1 文で引く（1 提案あたり各表 1 つまで）
 const bulkLoad = async (db: Db, ids: string[]): Promise<BulkLoaded[]> => {
-  const ds = await Promise.all(ids.map((id) => getAdminProposal(db, id)))
+  const loaded = await getAdminProposals(db, ids)
+  const ds = ids.map((id) => loaded.get(id) ?? null)
   const want: Record<ProposalTable, string[]> = {
     work: [],
     run: [],
@@ -241,11 +244,17 @@ const bulkErrorPage = (c: Context<AppEnv>, error: string) =>
     400,
   )
 
+// 上限を超えて選ばれたら先頭 BULK_MAX 件だけを対象にし、残りの件数を出す
+const bulkRestNote = (rest: number) =>
+  rest > 0
+    ? `一度に承認できるのは ${BULK_MAX} 件までです。残り ${rest} 件は、このあと続けて承認してください。`
+    : undefined
+
 // 確認ページ（題名と団体の一覧）。GET なので書き込まない
 proposals.get('/proposals/bulk', async (c) => {
-  const ids = bulkIdsOf(c.req.queries('id'))
-  if (ids.length === 0) return bulkErrorPage(c, BULK_NONE)
-  if (ids.length > BULK_MAX) return bulkErrorPage(c, BULK_TOO_MANY)
+  const all = bulkIdsOf(c.req.queries('id'))
+  if (all.length === 0) return bulkErrorPage(c, BULK_NONE)
+  const ids = all.slice(0, BULK_MAX)
   const loaded = await bulkLoad(c.get('db'), ids)
   const items: BulkItem[] = []
   const skipped: BulkResult[] = []
@@ -256,7 +265,7 @@ proposals.get('/proposals/bulk', async (c) => {
   }
   return c.html(
     <AdminPage title="まとめて承認">
-      <BulkConfirm items={items} skipped={skipped} />
+      <BulkConfirm items={items} skipped={skipped} rest={bulkRestNote(all.length - ids.length)} />
     </AdminPage>,
   )
 })
@@ -264,9 +273,9 @@ proposals.get('/proposals/bulk', async (c) => {
 // 1 件ずつ buildApproval → write（1 提案 = 1 batch、先頭の change_log で二重送信を止める）。失敗しても残りは進める
 proposals.post('/proposals/bulk', async (c) => {
   const db = c.get('db')
-  const ids = bulkIdsOf((await c.req.parseBody({ all: true })).id)
-  if (ids.length === 0) return bulkErrorPage(c, BULK_NONE)
-  if (ids.length > BULK_MAX) return bulkErrorPage(c, BULK_TOO_MANY)
+  const all = bulkIdsOf((await c.req.parseBody({ all: true })).id)
+  if (all.length === 0) return bulkErrorPage(c, BULK_NONE)
+  const ids = all.slice(0, BULK_MAX)
   const userId = currentUser(c).id
   const results: BulkResult[] = []
   for (const l of await bulkLoad(db, ids)) {
@@ -288,7 +297,7 @@ proposals.post('/proposals/bulk', async (c) => {
   }
   return c.html(
     <AdminPage title="まとめて承認">
-      <BulkResults results={results} />
+      <BulkResults results={results} rest={bulkRestNote(all.length - ids.length)} />
     </AdminPage>,
   )
 })

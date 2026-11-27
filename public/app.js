@@ -77,12 +77,15 @@ document.addEventListener('click', (e) => {
   else openSpoiler(toggle, body, veil)
 })
 
-// まとめて承認の「選べる提案をすべて選ぶ」（JS が無いときは hidden のまま）
+// まとめて承認の「選べる提案をすべて選ぶ」。data-check-all の件数（1 回の上限）まで先頭から入れ、外すときは全部外す（JS が無いときは hidden のまま）
 for (const all of document.querySelectorAll('[data-check-all]')) {
   const input = all.querySelector('input')
-  const boxes = all.closest('form')?.querySelectorAll('input[name="id"]') ?? []
+  const boxes = [...(all.closest('form')?.querySelectorAll('input[name="id"]') ?? [])]
+  const max = Number(all.getAttribute('data-check-all')) || boxes.length
   all.hidden = false
   input?.addEventListener('change', () => {
-    for (const box of boxes) box.checked = input.checked
+    boxes.forEach((box, n) => {
+      box.checked = input.checked && n < max
+    })
   })
 }

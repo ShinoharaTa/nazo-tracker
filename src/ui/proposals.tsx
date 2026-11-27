@@ -178,8 +178,8 @@ const BulkPickForm = ({ items }: { items: AdminProposalRow[] }) => (
       候補の無い新しい提案は、チェックしてまとめて承認できます（1 回 {BULK_MAX}{' '}
       件まで）。候補つき・更新・紐付け・統合は 1 件ずつ開いて確かめてください。
     </p>
-    <label hidden data-check-all>
-      <input type="checkbox" /> 選べる提案をすべて選ぶ
+    <label hidden data-check-all={String(BULK_MAX)}>
+      <input type="checkbox" /> 選べる提案をすべて選ぶ（先頭 {BULK_MAX} 件）
     </label>
     {items.map((r) => (
       <div class="pick">
@@ -252,6 +252,8 @@ export const BulkConfirm = (props: {
   items: BulkItem[]
   skipped: BulkResult[]
   errors?: string[]
+  // 上限を超えて選ばれたときの「残り M 件は…」
+  rest?: string
 }) => (
   <>
     <TopBar back="/admin/proposals" label="まとめて承認" />
@@ -259,6 +261,11 @@ export const BulkConfirm = (props: {
       <div class="sect">
         <FormErrors errors={props.errors} />
       </div>
+    ) : null}
+    {props.rest ? (
+      <p class="note" role="status">
+        {props.rest}
+      </p>
     ) : null}
     {props.items.length ? (
       <form method="post" action="/admin/proposals/bulk" class="sect">
@@ -297,7 +304,7 @@ export const BulkConfirm = (props: {
 )
 
 // 結果。件ごとに反映した / できなかった（理由）
-export const BulkResults = ({ results }: { results: BulkResult[] }) => {
+export const BulkResults = ({ results, rest }: { results: BulkResult[]; rest?: string }) => {
   const ok = results.filter((r) => r.ok).length
   const ng = results.length - ok
   return (
@@ -307,6 +314,11 @@ export const BulkResults = ({ results }: { results: BulkResult[] }) => {
         <p class="note" role="status">
           {ok} 件を反映しました。{ng ? `${ng} 件は反映できませんでした。` : ''}
         </p>
+        {rest ? (
+          <p class="note" style="margin:0">
+            {rest}
+          </p>
+        ) : null}
         {results.map((r) => (
           <BulkRow item={r}>
             {r.ok ? (
@@ -319,7 +331,7 @@ export const BulkResults = ({ results }: { results: BulkResult[] }) => {
           </BulkRow>
         ))}
         <p class="note" style="margin:0">
-          <a href="/admin/proposals">承認待ちの一覧へ ›</a>
+          <a href="/admin/proposals">続けて承認する ›</a>
         </p>
       </div>
     </>

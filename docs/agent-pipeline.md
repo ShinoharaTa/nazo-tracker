@@ -84,6 +84,11 @@ A-3 自動反映ルール（Worker 側、`src/pipeline/auto.ts`。`/admin/propos
 - 同じ対象の承認待ち、同じ `run.escape_id_url` で回を作る承認待ちがほかにあれば詳細に出す（後者はどれか 1 件を承認すると残りは「同じ escape.id URL の回があります。」で止まる）。束の中でほかの項目から参照されていない団体・会場・販売先の節には注記を出す（採用すると単独で作る）。
 - `shop.organization_id` も `@organization` で同じ束の団体を指せる。
 
+まとめて承認（`GET/POST /admin/proposals/bulk`、承認待ちタブの Checkbox → 確認ページ（題名と団体）→ 結果）:
+- 選べるのは `kind=create` で、保存された名寄せ候補（`match_candidates_json`）が 0 件の pending だけ。候補つき・update / link / merge は Checkbox を出さず、POST に混ぜても反映しない（結果に理由を出す）。非オーナーは 404（`requireOwner`）。
+- 1 件ずつ上の承認処理（全項目採用・形式は提案の値・新しく作る）に通す。1 提案 = 1 batch で、先頭の change_log で二重送信を止める仕組みもそのまま。途中で 1 件が検証・書き込みで落ちても残りは進め、件ごとに結果を出す。
+- 1 回 `BULK_MAX` = 6 件まで。根拠: Workers Free の D1 は 1 回の呼び出しで 50 クエリまで（`db.batch()` は 1 と数える。https://developers.cloudflare.com/d1/platform/limits/ ）。実測は共通 4（セッション・提案と項目の先読み・名前）+ 1 件あたり 1〜6（団体だけの束は 1、既存の団体・会場を指す作品 + 回の束が 6）。余裕 10 を残して 4 + 6N ≤ 40。上限を超えて選んだら先頭 6 件だけを対象にし、「残り M 件は、このあと続けて承認してください。」と出す。一覧の「すべて選ぶ」も先頭 6 件だけ。
+
 fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化した new_value 群)。
 
 ## 5. Claude → D1 書き込み経路（比較）

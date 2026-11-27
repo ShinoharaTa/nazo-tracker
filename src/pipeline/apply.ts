@@ -118,8 +118,10 @@ export const approvalChoiceOf = (
   }
 }
 
-// まとめて承認（P5 計画 §4）で 1 回に送れる件数
-export const BULK_MAX = 50
+// まとめて承認で 1 回に反映する件数（docs/agent-pipeline.md §4）。Workers Free の D1 は 1 回の呼び出しで 50 クエリまで
+// （batch は 1 と数える）。実測で共通 4 + 1 件あたり最大 6（既存の団体・会場を指す作品 + 回の束）なので、
+// 余裕 10 を残して 4 + 6N ≤ 40 の最大 N。test/admin-proposals-bulk.test.ts で数えている
+export const BULK_MAX = 6
 
 // まとめて承認の選択: 詳細の承認フォームを既定のまま送ったのと同じ（全項目採用、形式は提案の値、新しく作る、メモなし）
 export const bulkChoiceOf = (
