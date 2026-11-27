@@ -13,6 +13,7 @@ import {
   byRating,
   byVolume,
   companionCounts,
+  companionGroups,
   computeStats,
   defaultView,
   doneAverages,
@@ -319,8 +320,7 @@ describe('src/lib/stats', () => {
   })
 
   it('defaultView: 来場型 0 件・完了型ありなら done、それ以外は visit', () => {
-    const view = (rows: OwnAttemptRow[]) =>
-      defaultView(computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }))
+    const view = defaultView
     expect(view([row({ status: 'cleared', kind: 'takeaway' })])).toBe('done')
     expect(view([])).toBe('visit')
     expect(view([row({ status: 'purchased', kind: 'hall' })])).toBe('visit')
@@ -331,8 +331,11 @@ describe('src/lib/stats', () => {
 
   it('capped なら「直近 5000 件だけを集計しています」を出す', async () => {
     const props = {
-      stats: computeStats([], [], new Map(), { year: 2026, today: '2026-11-27' }),
-      view: 'visit' as const,
+      stats: computeStats([], [], new Map(), {
+        year: 2026,
+        today: '2026-11-27',
+        view: 'visit' as const,
+      }),
       year: 2026,
       thisYear: 2026,
       minYear: 2000,
@@ -347,8 +350,7 @@ describe('src/lib/stats', () => {
   it('記録 0 件の visit は KPI を — / 0 で出し、グラフは Empty（凡例なし）', async () => {
     const html = String(
       await StatsPage({
-        stats: computeStats([], [], new Map(), { year: 2026, today: '2026-11-27' }),
-        view: 'visit',
+        stats: computeStats([], [], new Map(), { year: 2026, today: '2026-11-27', view: 'visit' }),
         year: 2026,
         thisYear: 2026,
         minYear: 2000,
@@ -368,8 +370,11 @@ describe('src/lib/stats', () => {
     const done = async (rows: OwnAttemptRow[]) =>
       String(
         await StatsPage({
-          stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }),
-          view: 'done',
+          stats: computeStats(rows, [], new Map(), {
+            year: 2026,
+            today: '2026-11-27',
+            view: 'done',
+          }),
           year: 2026,
           thisYear: 2026,
           minYear: 2000,
@@ -537,17 +542,19 @@ describe('src/lib/stats（得意傾向）', () => {
   })
 
   it('byCompanion: 1 記録内の重複は 1 回。3 件以上だけ、成功率の順', () => {
-    const v = byCompanion([
-      row({ status: 'cleared', companions: 'あや、あや,けん' }),
-      row({ status: 'failed', companions: 'あや／けん' }),
-      row({ status: 'cleared', companions: 'あや けん' }),
-      row({ status: 'cleared', companions: 'ゆう' }),
-      row({ status: 'cleared', companions: 'みき' }),
-      row({ status: 'cleared', companions: 'みき' }),
-      row({ status: 'cleared', companions: 'みき' }),
-      row({ status: 'dropped', companions: 'ゆう' }),
-      row({ status: 'purchased', companions: 'ゆう' }),
-    ])
+    const v = byCompanion(
+      companionGroups([
+        row({ status: 'cleared', companions: 'あや、あや,けん' }),
+        row({ status: 'failed', companions: 'あや／けん' }),
+        row({ status: 'cleared', companions: 'あや けん' }),
+        row({ status: 'cleared', companions: 'ゆう' }),
+        row({ status: 'cleared', companions: 'みき' }),
+        row({ status: 'cleared', companions: 'みき' }),
+        row({ status: 'cleared', companions: 'みき' }),
+        row({ status: 'dropped', companions: 'ゆう' }),
+        row({ status: 'purchased', companions: 'ゆう' }),
+      ]),
+    )
     expect(v.map((x) => [x.label, x.cleared, x.total])).toEqual([
       ['みき', 3, 3],
       ['あや', 2, 3],
@@ -579,7 +586,11 @@ describe('src/lib/stats（得意傾向）', () => {
       })
       return { ...r, work: { ...r.work, org } }
     })
-    const v = computeStats(done, [], new Map(), { year: 2026, today: '2026-11-27' }).visit
+    const v = computeStats(done, [], new Map(), {
+      year: 2026,
+      today: '2026-11-27',
+      view: 'visit',
+    }).visit
     expect(v.byVolume.every((x) => x.total === 0)).toBe(true)
     expect(v.byOrg).toEqual([])
     expect(v.byCompanion).toEqual([])
@@ -646,7 +657,7 @@ describe('src/lib/stats（完了側の傾向）', () => {
       ],
       [],
       new Map(),
-      { year: 2026, today: '2026-11-27' },
+      { year: 2026, today: '2026-11-27', view: 'done' },
     ).done
     expect(d.backlogOldest.map((x) => x.attemptId)).toEqual(['tk'])
   })
@@ -672,8 +683,7 @@ describe('src/lib/stats（完了側の傾向）', () => {
   const donePage = async (rows: OwnAttemptRow[]) =>
     String(
       await StatsPage({
-        stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }),
-        view: 'done',
+        stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27', view: 'done' }),
         year: 2026,
         thisYear: 2026,
         minYear: 2000,
@@ -722,7 +732,7 @@ describe('src/lib/stats（完了側の傾向）', () => {
       [row({ id: 'pf', status: 'purchased', kind: 'line', purchasedOn: '2026-12-05' })],
       [],
       new Map(),
-      { year: 2026, today: '2026-11-27' },
+      { year: 2026, today: '2026-11-27', view: 'done' },
     ).done.backlogOldest
     expect(b[0].days).toBe(-8)
   })
@@ -766,17 +776,25 @@ describe('src/lib/stats（ふりかえり）', () => {
     expect(s.played).toBe(4)
   })
 
-  it('summarizeLookback: 合計時間は進行ログの合計を優先し、値がある記録だけ数える。再挑戦は attempt_no >= 2', () => {
+  it('summarizeLookback: 合計時間は進行ログの合計を優先し、値がある記録だけ数える。再挑戦は遊んだ数の内数', () => {
     const s = summarizeLookback([
       row({ status: 'cleared', durationSec: 100, sessionDurationSec: 3600 }),
       row({ status: 'failed', durationSec: 1800 }),
       row({ status: 'in_progress', kind: 'web', sessionDurationSec: 0 }),
+      // 再挑戦に入る: 来場型の成功・失敗、完了型のクリア
       row({ status: 'cleared', attemptNo: 2 }),
+      row({ status: 'failed', kind: 'hall', attemptNo: 2 }),
+      row({ status: 'cleared', kind: 'web', attemptNo: 3 }),
+      // 入らない: 遊んだ数に入らない記録（予約済み・積み謎・完了型の失敗・進行中）
+      row({ status: 'purchased', kind: 'room', attemptNo: 2 }),
       row({ status: 'purchased', kind: 'web', attemptNo: 3 }),
+      row({ status: 'failed', kind: 'web', attemptNo: 2 }),
+      row({ status: 'in_progress', kind: 'line', attemptNo: 2 }),
     ])
     expect(s.durationSec).toBe(5400)
     expect(s.timedRecords).toBe(3)
-    expect(s.retries).toBe(2)
+    expect(s.played).toBe(5)
+    expect(s.retries).toBe(3)
     expect(summarizeLookback([])).toEqual({
       played: 0,
       durationSec: 0,
@@ -840,12 +858,14 @@ describe('src/lib/stats（ふりかえり）', () => {
 
   it('companionCounts: splitCompanions で分け、全ステータスを数える。1 記録内の重複は 1 回', () => {
     expect(
-      companionCounts([
-        row({ status: 'cleared', companions: 'あや、けん あや' }),
-        row({ status: 'purchased', companions: 'あや／みき' }),
-        row({ status: 'in_progress', kind: 'web', companions: 'けん' }),
-        row({ status: 'cleared' }),
-      ]),
+      companionCounts(
+        companionGroups([
+          row({ status: 'cleared', companions: 'あや、けん あや' }),
+          row({ status: 'purchased', companions: 'あや／みき' }),
+          row({ status: 'in_progress', kind: 'web', companions: 'けん' }),
+          row({ status: 'cleared' }),
+        ]),
+      ),
     ).toEqual([
       { label: 'あや', count: 2 },
       { label: 'けん', count: 2 },
@@ -870,8 +890,7 @@ describe('src/lib/stats（ふりかえり）', () => {
   ) =>
     String(
       await StatsPage({
-        stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }),
-        view: 'all',
+        stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27', view: 'all' }),
         year: 2026,
         thisYear: 2026,
         minYear: 2000,
@@ -880,15 +899,27 @@ describe('src/lib/stats（ふりかえり）', () => {
       }),
     )
 
-  it('ふりかえり 0 件: KPI は 0 / —、各節は Empty、マイリストの古い登録は出さない', async () => {
+  it('ふりかえり 0 件: KPI は 0 / —、Empty は 1 つにまとめ、マイリストの古い登録は出さない', async () => {
     const html = await allPage([])
     expect(html).toContain('<b><span class="hl">0</span></b>')
     expect(html).toContain('<b>—</b><span>時間の記録がある 0 件</span>')
-    expect(html.match(/まだデータがありません。/g)).toHaveLength(4)
-    expect(html).not.toContain('class="bars"')
+    expect(html.match(/まだデータがありません。/g)).toHaveLength(1)
+    expect(html).not.toContain('年別の遊んだ数')
+    expect(html).not.toContain('class="bars')
     expect(html).toContain('0 件 · うちプレイ済み 0 件')
     expect(html).not.toContain('いちばん古い登録')
     expect(html).not.toContain('直近 5000 件')
+  })
+
+  it('ふりかえり: 遊んだ数が 0 でも時間の記録があれば節ごとに出す', async () => {
+    const html = await allPage([
+      row({ status: 'in_progress', kind: 'web', durationSec: 600, companions: 'あや' }),
+    ])
+    expect(html).toContain('<b>10 分</b><span>時間の記録がある 1 件</span>')
+    expect(html).toContain('年別の遊んだ数')
+    // 年別・評価・都道府県は空、よく一緒に行く人は 1 行（ラベルは棒の上）
+    expect(html.match(/まだデータがありません。/g)).toHaveLength(3)
+    expect(html).toContain('<div class="bars label-top"><div class="bar"><span>あや</span>')
   })
 
   it('ふりかえり: capped の注記、合計時間の書式、マイリストのいちばん古い登録', async () => {
@@ -914,8 +945,7 @@ describe('src/lib/stats（ふりかえり）', () => {
     for (const view of ['visit', 'done'] as const) {
       const html = String(
         await StatsPage({
-          stats: computeStats([], [], new Map(), { year: 2026, today: '2026-11-27' }),
-          view,
+          stats: computeStats([], [], new Map(), { year: 2026, today: '2026-11-27', view }),
           year: 2026,
           thisYear: 2026,
           minYear: 2000,
@@ -1336,8 +1366,11 @@ describe('GET /stats（得意傾向）', () => {
     )
     const html = String(
       await StatsPage({
-        stats: computeStats(rows, [], new Map(), { year: 2026, today: '2026-11-27' }),
-        view: 'visit',
+        stats: computeStats(rows, [], new Map(), {
+          year: 2026,
+          today: '2026-11-27',
+          view: 'visit',
+        }),
         year: 2026,
         thisYear: 2026,
         minYear: 2000,
@@ -1492,7 +1525,8 @@ describe('GET /stats（ふりかえり）', () => {
     expect(html).toContain('<b><span class="hl">4</span></b>')
     // 60 分 + 30 分（記録の 100 秒は使わない）
     expect(html).toContain('<b>1 時間 30 分</b><span>時間の記録がある 2 件</span>')
-    expect(html).toContain('<span>再挑戦</span><b>2</b>')
+    // 再挑戦 = ルームの 2 回目（失敗）。Web の 2 回目は失敗なので遊んだ数に入らず、再挑戦にも入らない
+    expect(html).toContain('<span>再挑戦</span><b>1</b>')
     expect(html.match(/class="hl[ "]/g)).toHaveLength(1)
   })
 
@@ -1508,7 +1542,11 @@ describe('GET /stats（ふりかえり）', () => {
     )
     expect(html).toContain(countBar('東京都', '100', 2) + countBar('大阪府', '50', 1))
     expect(html).toContain('会場が分かる記録 3 件')
-    expect(html).toContain(countBar('あや', '100', 2) + countBar('けん', '50', 1))
+    // よく一緒に行く人だけラベルを棒の上に置く
+    expect(html).toContain(
+      `<div class="bars label-top">${countBar('あや', '100', 2)}${countBar('けん', '50', 1)}</div>`,
+    )
+    expect(html.match(/<div class="bars label-top">/g)).toHaveLength(1)
     expect(html).toMatch(/2 件 · うちプレイ済み 1 件 · いちばん古い登録: 1[01] 日前/)
     // ふりかえりの棒は系列の色を付けない
     expect(html).not.toMatch(/class="fl [rk]-/)
@@ -1521,12 +1559,53 @@ describe('GET /stats（ふりかえり）', () => {
     expect(await (await get('/stats?view=', gina.cookie)).text()).toBe(base)
   })
 
-  it('記録 0 件のユーザーでも ?view=all は 200 で各節が Empty', async () => {
+  it('記録 0 件のユーザーでも ?view=all は 200 で Empty が 1 つ', async () => {
     const hana = await loginAs(env, { subject: 'stats-hana' })
     const res = await get('/stats?view=all', hana.cookie)
     expect(res.status).toBe(200)
     const html = await res.text()
-    expect(html.match(/まだデータがありません。/g)).toHaveLength(4)
+    expect(html.match(/まだデータがありません。/g)).toHaveLength(1)
     expect(html).toContain('0 件 · うちプレイ済み 0 件</p>')
+  })
+
+  it('?view=all&year=: chip のリンクに year を引き継ぐ', async () => {
+    const y = thisYear - 2
+    const html = await (await get(`/stats?view=all&year=${y}`, gina.cookie)).text()
+    expect(html).toContain(chipOn(`/stats?view=all&amp;year=${y}`, 'ふりかえり'))
+    expect(html).toContain(
+      `<a class="fchip" href="/stats?view=visit&amp;year=${y}">ルーム・公演</a>`,
+    )
+    expect(html).toContain(
+      `<a class="fchip" href="/stats?view=done&amp;year=${y}">持ち帰り・周遊など</a>`,
+    )
+  })
+
+  it('よく一緒に行く人の名前はエスケープされる', async () => {
+    const ivan = await loginAs(env, { subject: 'stats-ivan' })
+    const w = await insertWork(env, { title: 'ふりかえりのエスケープ', kind: 'room' })
+    await insertAttempt(env, {
+      userId: ivan.userId,
+      workId: w,
+      status: 'cleared',
+      // / は区切りなので閉じタグは入れない
+      companions: '<script>alert(1)',
+    })
+    const html = await (await get('/stats?view=all', ivan.cookie)).text()
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('<span>&lt;script&gt;alert(1)</span>')
+  })
+
+  it('いちばん古い登録は自分のマイリストだけ（他人のもっと古い行は混ざらない）', async () => {
+    const judy = await loginAs(env, { subject: 'stats-judy' })
+    const kate = await loginAs(env, { subject: 'stats-kate' })
+    const w = await insertWork(env, { title: 'ふりかえりのマイリスト', kind: 'web' })
+    const ago = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString()
+    await insertWish(env, judy.userId, w, ago(3))
+    await insertWish(env, kate.userId, w, ago(400))
+    const html = await (await get('/stats?view=all', judy.cookie)).text()
+    expect(html).toMatch(/1 件 · うちプレイ済み 0 件 · いちばん古い登録: [34] 日前/)
+    expect(html).not.toMatch(/40[01] 日前/)
+    const k = await (await get('/stats?view=all', kate.cookie)).text()
+    expect(k).toMatch(/いちばん古い登録: 40[01] 日前/)
   })
 })

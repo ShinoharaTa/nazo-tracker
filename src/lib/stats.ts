@@ -9,8 +9,12 @@ import { isoToJstDate } from './time'
 
 type Kind = OwnAttemptRow['work']['kind']
 
-// today は今日の日付（JST、YYYY-MM-DD）。積み謎の経過日数に使う
-export type StatsOptions = { year: number; today: string }
+// 見方。visit = 来場型（成功率）、done = 完了型（完了数）、all = ふりかえり（両方）
+export type StatsView = 'visit' | 'done' | 'all'
+
+// today は今日の日付（JST、YYYY-MM-DD）。積み謎の経過日数に使う。
+// view の見方で使う集計だけを計算する（Workers の CPU 時間を抑える）
+export type StatsOptions<V extends StatsView = StatsView> = { year: number; today: string; view: V }
 
 // total = 分母（成功＋失敗）、cleared = 成功
 export type RateRow = { total: number; cleared: number }
@@ -77,58 +81,66 @@ export type LookbackSummary = {
   // sessionDurationSec ?? durationSec の合計（値がある記録だけ）と、その記録数
   durationSec: number
   timedRecords: number
-  // attempt_no >= 2 の記録数（全ステータス）
+  // attempt_no >= 2 で遊んだ数に入る記録の数（played の内数）
   retries: number
 }
 
 // 月別の系列。counts は 1〜12 月の 12 要素
 export type MonthSeries<K> = { key: K; counts: number[] }[]
 
-export type Stats = {
-  visit: {
-    summary: VisitSummary
-    // 難易度 1〜5 の 5 行固定（difficulty NULL は除外）
-    byDifficulty: (RateRow & { label: string })[]
-    // total ≥ 1 のみ。成功率 DESC, total DESC, ラベル ASC。
-    // best は total ≥ 5 の行のうち成功率が最高の 1 行（同率は並びの先頭）だけ、その成功率が 50% 以上のとき true
-    byGenre: GenreRateRow[]
-    // 物量 1〜5 の 5 行固定（volume NULL は除外）
-    byVolume: (RateRow & { label: string })[]
-    // work.org ごと。total ≥ 3 のみ、成功率 DESC, total DESC, 名前 ASC、上位 10
-    byOrg: OrgRateRow[]
-    // 同行者（splitCompanions で分割）ごと。total ≥ 3 のみ、並びは byOrg と同じ、上位 10
-    byCompanion: (RateRow & { label: string })[]
-    // hall, room の 2 行固定
-    byKind: (RateRow & { kind: VisitKind })[]
-    // 常に成功・失敗の 2 系列、この順
-    monthly: MonthSeries<'cleared' | 'failed'>
-  }
-  done: {
-    summary: DoneSummary
-    // cleared ≥ 1 のみ。workKinds 順、NULL が最後
-    byKind: { kind: DoneKind; cleared: number }[]
-    // その年に 1 件以上ある形式だけ、byKind と同じ順
-    monthly: MonthSeries<DoneKind>
-    // purchased のみ。purchased_on ASC（NULL は最後）、同じ日は created_at ASC、上位 10
-    backlogOldest: BacklogRow[]
-    // cleared ≥ 1 の形式だけ、byKind と同じ順
-    averages: DoneAverageRow[]
-  }
-  // 来場型・完了型の両方
-  all: {
-    summary: LookbackSummary
-    // 遊んだ数が 1 件以上の年だけ、新しい年が上
-    byYear: { year: number; count: number }[]
-    // 評価 1〜5 の 5 行固定（rating NULL は除外。全ステータス）
-    byRating: CountRow[]
-    // run.venue.prefecture がある記録だけ。件数 DESC, 名前 ASC、上位 10
-    byPrefecture: CountRow[]
-    // 都道府県が分かる記録の数（上位 10 で切る前）
-    prefectureRecords: number
-    // 同行者（splitCompanions で分割）ごとの記録数（全ステータス）。並びは byPrefecture と同じ、上位 10
-    companions: CountRow[]
-  }
+export type VisitStats = {
+  summary: VisitSummary
+  // 難易度 1〜5 の 5 行固定（difficulty NULL は除外）
+  byDifficulty: (RateRow & { label: string })[]
+  // total ≥ 1 のみ。成功率 DESC, total DESC, ラベル ASC。
+  // best は total ≥ 5 の行のうち成功率が最高の 1 行（同率は並びの先頭）だけ、その成功率が 50% 以上のとき true
+  byGenre: GenreRateRow[]
+  // 物量 1〜5 の 5 行固定（volume NULL は除外）
+  byVolume: (RateRow & { label: string })[]
+  // work.org ごと。total ≥ 3 のみ、成功率 DESC, total DESC, 名前 ASC、上位 10
+  byOrg: OrgRateRow[]
+  // 同行者（splitCompanions で分割）ごと。total ≥ 3 のみ、並びは byOrg と同じ、上位 10
+  byCompanion: (RateRow & { label: string })[]
+  // hall, room の 2 行固定
+  byKind: (RateRow & { kind: VisitKind })[]
+  // 常に成功・失敗の 2 系列、この順
+  monthly: MonthSeries<'cleared' | 'failed'>
 }
+
+export type DoneStats = {
+  summary: DoneSummary
+  // cleared ≥ 1 のみ。workKinds 順、NULL が最後
+  byKind: { kind: DoneKind; cleared: number }[]
+  // その年に 1 件以上ある形式だけ、byKind と同じ順
+  monthly: MonthSeries<DoneKind>
+  // purchased のみ。purchased_on ASC（NULL は最後）、同じ日は created_at ASC、上位 10
+  backlogOldest: BacklogRow[]
+  // cleared ≥ 1 の形式だけ、byKind と同じ順
+  averages: DoneAverageRow[]
+}
+
+// 来場型・完了型の両方
+export type LookbackStats = {
+  summary: LookbackSummary
+  // 遊んだ数が 1 件以上の年だけ、新しい年が上
+  byYear: { year: number; count: number }[]
+  // 評価 1〜5 の 5 行固定（rating NULL は除外。全ステータス）
+  byRating: CountRow[]
+  // run.venue.prefecture がある記録だけ。件数 DESC, 名前 ASC、上位 10
+  byPrefecture: CountRow[]
+  // 都道府県が分かる記録の数（上位 10 で切る前）
+  prefectureRecords: number
+  // 同行者（splitCompanions で分割）ごとの記録数（全ステータス）。並びは byPrefecture と同じ、上位 10
+  companions: CountRow[]
+}
+
+// view ごとに、その見方の集計だけを持つ
+export type Stats =
+  | { view: 'visit'; visit: VisitStats }
+  | { view: 'done'; done: DoneStats }
+  | { view: 'all'; all: LookbackStats }
+
+export type StatsOf<V extends StatsView> = Extract<Stats, { view: V }>
 
 export const splitByVisit = (
   rows: readonly OwnAttemptRow[],
@@ -284,7 +296,11 @@ export const byOrg = (rows: readonly OwnAttemptRow[]): OrgRateRow[] => {
     .slice(0, groupLimit)
 }
 
-export const byCompanion = (rows: readonly OwnAttemptRow[]): (RateRow & { label: string })[] => {
+// 同行者名 → その人がいる記録。splitCompanions は 1 行につき 1 回だけ呼ぶ。
+// 同行者別（visit）・よく一緒に行く人（all）はこの結果を受け取る
+export const companionGroups = (
+  rows: readonly OwnAttemptRow[],
+): ReadonlyMap<string, readonly OwnAttemptRow[]> => {
   const grouped = new Map<string, OwnAttemptRow[]>()
   for (const r of rows) {
     for (const name of splitCompanions(r.companions)) {
@@ -293,12 +309,18 @@ export const byCompanion = (rows: readonly OwnAttemptRow[]): (RateRow & { label:
       grouped.set(name, list)
     }
   }
-  return [...grouped]
+  return grouped
+}
+
+// groups は来場型の記録から作る（rateOf は形式を見ないので、完了型の失敗が混ざると分母に入る）
+export const byCompanion = (
+  groups: ReadonlyMap<string, readonly OwnAttemptRow[]>,
+): (RateRow & { label: string })[] =>
+  [...groups]
     .map(([label, list]) => ({ label, ...rateOf(list) }))
     .filter((g) => g.total >= groupMinTotal)
     .sort(byRate)
     .slice(0, groupLimit)
-}
 
 const visitKinds: readonly VisitKind[] = ['hall', 'room']
 
@@ -447,7 +469,7 @@ export const summarizeLookback = (rows: readonly OwnAttemptRow[]): LookbackSumma
     played: rows.filter(isPlayed).length,
     durationSec,
     timedRecords,
-    retries: rows.filter((r) => r.attemptNo >= 2).length,
+    retries: rows.filter((r) => isPlayed(r) && r.attemptNo >= 2).length,
   }
 }
 
@@ -491,13 +513,10 @@ export const byPrefecture = (
   return { rows: topCounts(counts), records }
 }
 
-export const companionCounts = (rows: readonly OwnAttemptRow[]): CountRow[] => {
-  const counts = new Map<string, number>()
-  for (const r of rows) {
-    for (const name of splitCompanions(r.companions)) counts.set(name, (counts.get(name) ?? 0) + 1)
-  }
-  return topCounts(counts)
-}
+// groups は companionGroups の結果（記録数を数えるだけ。ステータスは問わない）
+export const companionCounts = (
+  groups: ReadonlyMap<string, readonly OwnAttemptRow[]>,
+): CountRow[] => topCounts(new Map([...groups].map(([name, list]) => [name, list.length])))
 
 // マイリストのいちばん古い登録（created_at、ISO）から today（JST）までの日数。無ければ null
 export const wishlistOldestDays = (
@@ -509,44 +528,60 @@ export const wishlistOldestDays = (
   return on === null ? null : daysBetween(on, today)
 }
 
-// 来場型を記録しない人が空の画面に着かないよう、来場型 0 件・完了型ありなら done
-export const defaultView = (stats: Stats): 'visit' | 'done' =>
-  stats.visit.summary.records === 0 && stats.done.summary.records > 0 ? 'done' : 'visit'
+// 来場型を記録しない人が空の画面に着かないよう、来場型 0 件・完了型ありなら done。
+// 集計の前に見方を決めるので rows から直接判定する
+export const defaultView = (rows: readonly OwnAttemptRow[]): 'visit' | 'done' =>
+  rows.length > 0 && !rows.some((r) => isVisitKind(r.work.kind)) ? 'done' : 'visit'
 
-export const computeStats = (
+export const computeStats = <V extends StatsView>(
   rows: readonly OwnAttemptRow[],
   genres: readonly { attemptId: string; genreId: string }[],
   genreLabels: ReadonlyMap<string, string>,
-  { year, today }: StatsOptions,
-): Stats => {
-  const { visit, done } = splitByVisit(rows)
-  const prefecture = byPrefecture(rows)
-  return {
-    visit: {
-      summary: summarizeVisit(visit),
-      byDifficulty: byDifficulty(visit),
-      // visit 側の rows だけを渡すので、完了型の記録に付いたジャンルは落ちる
-      byGenre: byGenre(visit, genres, genreLabels),
-      byVolume: byVolume(visit),
-      byOrg: byOrg(visit),
-      byCompanion: byCompanion(visit),
-      byKind: visitByKind(visit),
-      monthly: visitMonthly(visit, year),
-    },
-    done: {
-      summary: summarizeDone(done),
-      byKind: doneByKind(done),
-      monthly: doneMonthly(done, year),
-      backlogOldest: backlogOldest(done, today),
-      averages: doneAverages(done),
-    },
-    all: {
-      summary: summarizeLookback(rows),
-      byYear: playedByYear(rows),
-      byRating: byRating(rows),
-      byPrefecture: prefecture.rows,
-      prefectureRecords: prefecture.records,
-      companions: companionCounts(rows),
-    },
-  }
+  { year, today, view }: StatsOptions<V>,
+): StatsOf<V> => {
+  const stats = ((): Stats => {
+    if (view === 'all') {
+      const prefecture = byPrefecture(rows)
+      return {
+        view,
+        all: {
+          summary: summarizeLookback(rows),
+          byYear: playedByYear(rows),
+          byRating: byRating(rows),
+          byPrefecture: prefecture.rows,
+          prefectureRecords: prefecture.records,
+          companions: companionCounts(companionGroups(rows)),
+        },
+      }
+    }
+    const { visit, done } = splitByVisit(rows)
+    if (view === 'done') {
+      return {
+        view,
+        done: {
+          summary: summarizeDone(done),
+          byKind: doneByKind(done),
+          monthly: doneMonthly(done, year),
+          backlogOldest: backlogOldest(done, today),
+          averages: doneAverages(done),
+        },
+      }
+    }
+    return {
+      view: 'visit',
+      visit: {
+        summary: summarizeVisit(visit),
+        byDifficulty: byDifficulty(visit),
+        // visit 側の rows だけを渡すので、完了型の記録に付いたジャンルは落ちる
+        byGenre: byGenre(visit, genres, genreLabels),
+        byVolume: byVolume(visit),
+        byOrg: byOrg(visit),
+        byCompanion: byCompanion(companionGroups(visit)),
+        byKind: visitByKind(visit),
+        monthly: visitMonthly(visit, year),
+      },
+    }
+  })()
+  // 上の分岐は view に対応する形だけを返す
+  return stats as StatsOf<V>
 }

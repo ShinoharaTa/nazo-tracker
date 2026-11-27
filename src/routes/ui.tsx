@@ -296,15 +296,20 @@ ui.get('/stats', async (c) => {
     own.statsRows(),
     own.wishlistSummary(),
   ])
-  // ラベルは並び順（同率・同数ならラベル順）にも使うので集計の前に引く。archived のジャンルも出す
-  const genreRows = await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
+  // view が visit / done / all 以外（無し・不正値）ならデータ次第で決める。集計はその見方の分だけ
+  const v = c.req.query('view')
+  const view = v === 'visit' || v === 'done' || v === 'all' ? v : defaultView(rows)
+  // ラベルは並び順（同率・同数ならラベル順）にも使うので集計の前に引く。archived のジャンルも出す。
+  // ジャンル別は来場型の見方にしか無いので、それ以外では引かない
+  const genreRows =
+    view === 'visit'
+      ? await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
+      : []
   const stats = computeStats(rows, genres, new Map(genreRows.map((g) => [g.id, g.label])), {
     year,
     today,
+    view,
   })
-  // view が visit / done / all 以外（無し・不正値）ならデータ次第で決める
-  const v = c.req.query('view')
-  const view = v === 'visit' || v === 'done' || v === 'all' ? v : defaultView(stats)
   c.header('Cache-Control', 'private, no-store')
   return c.html(
     <Layout
@@ -314,7 +319,6 @@ ui.get('/stats', async (c) => {
       left={
         <StatsPage
           stats={stats}
-          view={view}
           year={year}
           thisYear={thisYear}
           minYear={STATS_MIN_YEAR}
