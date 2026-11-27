@@ -36,7 +36,7 @@ const statusOf = (
     errors.push(
       isVisitKind(kind)
         ? 'ルーム・公演では選べないステータスです。'
-        : `${kind ? workKindLabels[kind] : '形式未設定'}では選べないステータスです。`,
+        : `${workKindLabels[kind as WorkKind]}では選べないステータスです。`,
     )
   }
   return status ?? attemptStatuses[0]

@@ -211,7 +211,7 @@ const Detail = () => {
   )
 }
 
-// 蛍光マーカー 7 色（docs/visual-design.md §3.1）。黄以外は統計のグラフ系列だけに使う
+// 蛍光マーカー 9 色（docs/visual-design.md §3.1）。黄以外は統計のグラフ系列だけに使う
 const markers = [
   { name: 'yellow', label: '黄（強調・持ち帰り）' },
   { name: 'green', label: '緑（成功）' },

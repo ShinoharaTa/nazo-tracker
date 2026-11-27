@@ -106,6 +106,8 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 --pat-horiz: repeating-linear-gradient(0deg,   var(--ink-pat) 0 1px, transparent 1px 4px);
 --pat-vert:  repeating-linear-gradient(90deg,  var(--ink-pat) 0 1px, transparent 1px 4px);
 --pat-dot:   radial-gradient(var(--ink-pat) 0.9px, transparent 1.3px);   /* --ps: 4px 4px と組 */
+--pat-cross: repeating-linear-gradient(45deg,  var(--ink-pat) 0 1px, transparent 1px 6px),
+             repeating-linear-gradient(-45deg, var(--ink-pat) 0 1px, transparent 1px 6px);
 --pat-grid:  repeating-linear-gradient(0deg, var(--ink-pat) 0 1px, transparent 1px 4px),
              repeating-linear-gradient(90deg, var(--ink-pat) 0 1px, transparent 1px 4px);
 ```
@@ -125,7 +127,7 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 - 蛍光ペン自体と紙の差は 1.26:1 しかない。**蛍光ペンは飾りで、意味は持たせない**（引いてある語は、引かなくても太字・大きさで既に 1 番目になっている）。
 - 赤と黒の差は 2.76:1、青と黒は 2.20:1。色覚の型によっては赤・青が黒に見える前提で、**色の意味は必ず形（線種・下線・波線・書体）でも出す**（§3.4）。
 
-蛍光マーカー 7 色（同じ式）:
+蛍光マーカー 9 色（同じ式）:
 | マーカー | 黒字 #1c1c1c を上に | 紙 --surface #fffefa との差 | 紙 --bg #f6f4ee との差 | muted #6b6a66 を上に | 赤ペン #b4302a を上に |
 |---|---|---|---|---|---|
 | 黄 #ffe45c | **13.39** | 1.26 | 1.16 | 4.26 ✗ | 4.86 |
@@ -134,6 +136,8 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 | 水色 #86d0f2 | **10.00** | 1.69 | 1.55 | 3.18 ✗ | 3.63 ✗ |
 | 橙 #ffb257 | **9.54** | 1.77 | 1.62 | 3.03 ✗ | 3.46 ✗ |
 | 紫 #c3a6f2 | **8.16** | 2.07 | 1.90 | 2.59 ✗ | 2.96 ✗ |
+| 青緑 #7ad9c0 | **10.16** | 1.66 | 1.53 | 3.23 ✗ | 3.68 ✗ |
+| 藤色 #a9b8f5 | **8.81** | 1.92 | 1.76 | 2.80 ✗ | 3.20 ✗ |
 | 灰 #d3cfc4 | **10.95** | 1.54 | 1.42 | 3.48 ✗ | 3.97 ✗ |
 
 - 黒字はどの色の上でも AA（4.5）を大きく超える。**マーカーの上に置く字は --fg だけ**（muted・赤ペンは全色で不可。「muted に引かない」を全色に広げる）。
@@ -149,7 +153,7 @@ https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IB
 | **赤ペン** `--pen-red` | 失敗（.st-failed）、期限（終了まで 14 日以内の会期 `.due`）、ネタバレの見出し（.spoil-title）、削除・退会などの戻せない操作（.btn.danger の文字と破線） | 本文、作品名、リンク、成功率が低いこと（「苦手」を責めない）、入力エラー以外の注記 | 意味で使う（失敗・期限）分はデータ次第で上限なし。ただし **1 行に赤は 1 つまで**。飾りの赤は作らない |
 | **青ペン** `--pen-blue` | 枠の無い文字リンク（作品・団体・会場・外部リンク・「ネタバレメモを編集」「作品を見る ›」）＝**必ず下線つき** | 一覧の行全体（.ticket は行ごとリンクだが文字は黒のまま）、枠つきボタン（黒のまま）、塗りのボタン、見出し、長文メモ | リンクは上限なし。`.pen` は 1 画面 3 か所まで（記録詳細と進行ログだけで使う） |
 
-部品見本（`/_ui` のギャラリー）は例外で、7 色の見本を並べるため上限も「統計画面の外では使わない」も当てはめない。
+部品見本（`/_ui` のギャラリー）は例外で、9 色の見本を並べるため上限も「統計画面の外では使わない」も当てはめない。
 
 統計画面での数え方: ルーム・公演 = hero の緑 1 か所、持ち帰り・周遊など = hero の黄 1 か所。§4.5 の未実装「得意」（2 か所目）はこの後も入れられる。
 
@@ -235,7 +239,7 @@ a:not([class]), a.meta, .kv a, .card a:not(.btn) {
 | `.k-web` | Web | `--mk-cyan` | `--pat-horiz` | Web |
 | `.k-takeaway` | 持ち帰り | `--mk-yellow` | なし（無地） | 持ち帰り |
 | `.k-cafe` | カフェ | `--mk-teal` | `--pat-vert` | カフェ |
-| `.k-box` | 箱 | `--mk-periwinkle` | `--pat-dot`（`--ps: 4px 4px`） | 箱 |
+| `.k-box` | 箱 | `--mk-periwinkle` | `--pat-cross`（LINE の点と色が近いので模様で分ける） | 箱 |
 | `.k-other` | その他 | `--mk-gray` | `--pat-back` | その他 |
 | `.k-none` | 形式未設定 | `--mk-gray` | `--pat-grid` | 形式未設定 |
 - 失敗をピンクの**無地**にするのは「成功率が低いことを赤で責めない」（§3.3）に合わせるため。赤ペンは使わない。

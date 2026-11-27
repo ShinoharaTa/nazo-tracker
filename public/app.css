@@ -34,6 +34,9 @@
   --pat-vert: repeating-linear-gradient(90deg, var(--ink-pat) 0 1px, transparent 1px 4px);
   /* --ps: 4px 4px と組 */
   --pat-dot: radial-gradient(var(--ink-pat) 0.9px, transparent 1.3px);
+  --pat-cross:
+    repeating-linear-gradient(45deg, var(--ink-pat) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(-45deg, var(--ink-pat) 0 1px, transparent 1px 6px);
   --pat-grid:
     repeating-linear-gradient(0deg, var(--ink-pat) 0 1px, transparent 1px 4px),
     repeating-linear-gradient(90deg, var(--ink-pat) 0 1px, transparent 1px 4px);
@@ -839,8 +842,7 @@ button.gtag.on {
 }
 .k-box {
   --c: var(--mk-periwinkle);
-  --p: var(--pat-dot);
-  --ps: 4px 4px;
+  --p: var(--pat-cross);
 }
 .k-other {
   --c: var(--mk-gray);

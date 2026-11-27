@@ -6,6 +6,7 @@
 -- そこで work_old に退避 → DROP → 同じ名前 work で作り直して INSERT、の順にし、検査は defer_foreign_keys で COMMIT 時に回す。
 -- INSERT … SELECT の列は 0000 の work の全 15 列（0002〜0005 で work の列は変わっていない）。
 -- v_attempt_enriched は work を参照するので、先に DROP して最後に 0004 と同じ定義で作り直す。
+-- リモート（--remote）で行がある状態での適用は未検証。本番が空のうちに適用する。行がある表の作り直しにこのやり方を使い回す前に検証する。
 PRAGMA defer_foreign_keys = on;--> statement-breakpoint
 DROP VIEW `v_attempt_enriched`;--> statement-breakpoint
 CREATE TABLE `work_old` AS SELECT "id", "title", "title_norm", "kind", "primary_organization_id", "official_url", "description", "player_min", "player_max", "estimated_minutes", "time_limit_minutes", "first_released_on", "merged_into_id", "created_at", "updated_at" FROM `work`;--> statement-breakpoint
