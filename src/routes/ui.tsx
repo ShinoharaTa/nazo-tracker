@@ -8,6 +8,7 @@ import { findOAuthProvider } from '../auth/providers/types'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
 import type { Db } from '../db/client'
 import { countsFor, type WorkCounts } from '../db/counts'
+import { friendCounts } from '../db/friends'
 import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
 import { countPendingProposals } from '../db/proposals'
 import { countRequests } from '../db/requests'
@@ -330,11 +331,14 @@ const linkNote = (linked: Set<string>, provider: string) =>
 // 設定一覧（左ページ）の中身。linked は連携済みの provider 名。displayName は DB の現在値（表示名フォーム用）
 // openRequests / pendingProposals はオーナーのときだけ（未選別のリクエスト・承認待ちの提案の件数）
 // friendCode は招待コード（NULL で招待停止。フレンド画面 src/routes/friends.tsx が使う）
+// friends / incomingRequests はフレンドの人数と届いた申請の件数（「フレンド」の note）
 export type SettingsState = {
   linked: Set<string>
   excludeFromCounts: boolean
   displayName: string
   friendCode: string | null
+  friends: number
+  incomingRequests: number
   openRequests: number | null
   pendingProposals: number | null
 }
@@ -342,9 +346,10 @@ export type SettingsState = {
 export const settingsState = async (db: Db, user: SessionUser): Promise<SettingsState> => {
   const own = scopedTo(db, user.id).own()
   const owner = user.role === 'owner'
-  const [linked, profile, openRequests, pendingProposals] = await Promise.all([
+  const [linked, profile, friend, openRequests, pendingProposals] = await Promise.all([
     own.linkedProviders(),
     own.profile(),
+    friendCounts(db, user.id),
     owner ? countRequests(db, 'open') : null,
     owner ? countPendingProposals(db) : null,
   ])
@@ -353,6 +358,8 @@ export const settingsState = async (db: Db, user: SessionUser): Promise<Settings
     excludeFromCounts: profile.excludeFromCounts,
     displayName: profile.displayName,
     friendCode: profile.friendCode,
+    friends: friend.friends,
+    incomingRequests: friend.incoming,
     openRequests,
     pendingProposals,
   }
@@ -361,7 +368,7 @@ export const settingsState = async (db: Db, user: SessionUser): Promise<Settings
 // 設定一覧（左ページ）
 export const SettingsList = ({
   user,
-  state: { linked, excludeFromCounts, openRequests, pendingProposals },
+  state: { linked, excludeFromCounts, friends, incomingRequests, openRequests, pendingProposals },
 }: {
   user: SessionUser
   state: SettingsState
@@ -388,7 +395,13 @@ export const SettingsList = ({
     <div class="sect">
       <h2>フレンド</h2>
       <Menu>
-        <MenuItem label="フレンド" note="0 人" href="/settings/friends" />
+        <MenuItem
+          label="フレンド"
+          note={
+            incomingRequests > 0 ? `${friends} 人・申請 ${incomingRequests} 件` : `${friends} 人`
+          }
+          href="/settings/friends"
+        />
       </Menu>
       <p class="note">
         フレンドに見えるのは、作品名・ステータス・日付だけです。メモやネタバレは見えません。

@@ -59,7 +59,7 @@ export type InviterState =
   // （自分の申請が断られて残っていても、届いた申請をリンクから承認できるように）
   | { kind: 'incoming'; userId: string; displayName: string; requestId: string }
   // 自分の申請が pending / declined で 30 日以内（断られたことは「申請中」と同じに見せる）
-  | { kind: 'outgoing'; userId: string; displayName: string }
+  | { kind: 'outgoing'; userId: string; displayName: string; requestId: string }
   | { kind: 'can_request'; userId: string; displayName: string }
 
 // drizzle の batch は引数付きの生 SQL（db.run(sql`…`)）を受けられないので、条件付き INSERT を含む batch は
@@ -99,14 +99,15 @@ export const findInviter = async (
     display_name: string
     blocked: number
     friends: number
-    outgoing: number
+    outgoing_id: string | null
     incoming_id: string | null
   }>(sql`SELECT u.id, u.display_name,
       NOT ${noBlock(viewerId)} AS blocked,
       ${isFriend(viewerId)} AS friends,
-      EXISTS (SELECT 1 FROM friend_request r
+      (SELECT r.id FROM friend_request r
         WHERE r.from_user_id = ${viewerId} AND r.to_user_id = u.id
-          AND r.status IN ('pending', 'declined') AND r.created_at > ${expire}) AS outgoing,
+          AND r.status IN ('pending', 'declined') AND r.created_at > ${expire}
+        ORDER BY r.created_at DESC LIMIT 1) AS outgoing_id,
       (SELECT r.id FROM friend_request r
         WHERE r.from_user_id = u.id AND r.to_user_id = ${viewerId}
           AND r.status = 'pending' AND r.created_at > ${expire}) AS incoming_id
@@ -117,7 +118,7 @@ export const findInviter = async (
   if (row.friends) return { kind: 'friends', userId: row.id }
   const who = { userId: row.id, displayName: row.display_name }
   if (row.incoming_id) return { kind: 'incoming', ...who, requestId: row.incoming_id }
-  if (row.outgoing) return { kind: 'outgoing', ...who }
+  if (row.outgoing_id) return { kind: 'outgoing', ...who, requestId: row.outgoing_id }
   return { kind: 'can_request', ...who }
 }
 
@@ -222,4 +223,157 @@ export const acceptRequest = async (
     ),
   ])
   return accepted.results.length > 0 && friend.results.length > 0
+}
+
+// 設定 → フレンドの一覧に出す相手（申請なら申請日 createdAt も）
+export type FriendPerson = { userId: string; displayName: string }
+export type RequestRow = FriendPerson & { requestId: string; createdAt: string }
+
+// 届いた申請（自分宛ての pending で 30 日以内）。送り主が退会済み・どちらかがブロック中なら出さない。新しい順
+export const listIncoming = async (db: Db, viewerId: string): Promise<RequestRow[]> => {
+  const rows = await db.all<{
+    id: string
+    user_id: string
+    display_name: string
+    created_at: string
+  }>(
+    sql`SELECT r.id, u.id AS user_id, u.display_name, r.created_at
+      FROM friend_request r JOIN user u ON u.id = r.from_user_id
+      WHERE r.to_user_id = ${viewerId} AND r.status = 'pending'
+        AND r.created_at > ${addDays(nowIso(), -REQUEST_EXPIRE_DAYS)}
+        AND u.deleted_at IS NULL AND ${noBlock(viewerId)}
+      ORDER BY r.created_at DESC, r.id DESC`,
+  )
+  return rows.map((r) => ({
+    requestId: r.id,
+    userId: r.user_id,
+    displayName: r.display_name,
+    createdAt: r.created_at,
+  }))
+}
+
+// 送った申請（自分からの pending / declined で 30 日以内。断られた分も「申請中」として出す）。
+// 同じ相手に 2 行あり得る（断られて 7 日後に送り直した場合）ので、相手ごとに新しい 1 行だけ。新しい順
+export const listOutgoing = async (db: Db, viewerId: string): Promise<RequestRow[]> => {
+  const rows = await db.all<{
+    id: string
+    user_id: string
+    display_name: string
+    created_at: string
+  }>(
+    sql`SELECT r.id, u.id AS user_id, u.display_name, r.created_at
+      FROM friend_request r JOIN user u ON u.id = r.to_user_id
+      WHERE r.from_user_id = ${viewerId} AND r.status IN ('pending', 'declined')
+        AND r.created_at > ${addDays(nowIso(), -REQUEST_EXPIRE_DAYS)}
+        AND u.deleted_at IS NULL AND ${noBlock(viewerId)}
+        AND NOT EXISTS (SELECT 1 FROM friend_request n
+          WHERE n.from_user_id = r.from_user_id AND n.to_user_id = r.to_user_id
+            AND n.status IN ('pending', 'declined') AND n.created_at > r.created_at)
+      ORDER BY r.created_at DESC, r.id DESC`,
+  )
+  return rows.map((r) => ({
+    requestId: r.id,
+    userId: r.user_id,
+    displayName: r.display_name,
+    createdAt: r.created_at,
+  }))
+}
+
+// フレンドの相手側（u）。退会済み・どちらかがブロック中は除く（どちらも friendship は消えるので二重の保険）
+const friendsOf = (viewerId: string) => sql`FROM friendship f
+  JOIN user u ON u.id = CASE WHEN f.user_lo = ${viewerId} THEN f.user_hi ELSE f.user_lo END
+  WHERE (f.user_lo = ${viewerId} OR f.user_hi = ${viewerId})
+    AND u.deleted_at IS NULL AND ${noBlock(viewerId)}`
+
+// フレンド一覧。表示名の昇順
+export const listFriends = async (db: Db, viewerId: string): Promise<FriendPerson[]> => {
+  const rows = await db.all<{ id: string; display_name: string }>(
+    sql`SELECT u.id, u.display_name ${friendsOf(viewerId)} ORDER BY u.display_name, u.id`,
+  )
+  return rows.map((r) => ({ userId: r.id, displayName: r.display_name }))
+}
+
+// 1 人のフレンド（解除の確認画面用）。フレンドでなければ null
+export const findFriend = async (
+  db: Db,
+  viewerId: string,
+  userId: string,
+): Promise<FriendPerson | null> => {
+  const row = await db.get<{ id: string; display_name: string }>(
+    sql`SELECT u.id, u.display_name ${friendsOf(viewerId)} AND u.id = ${userId}`,
+  )
+  return row ? { userId: row.id, displayName: row.display_name } : null
+}
+
+// 設定一覧の note 用（フレンドの人数、届いた申請の件数）。数え方は listFriends / listIncoming と同じ
+export const friendCounts = async (
+  db: Db,
+  viewerId: string,
+): Promise<{ friends: number; incoming: number }> => {
+  const row = await db.get<{ friends: number; incoming: number }>(
+    sql`SELECT (SELECT COUNT(*) ${friendsOf(viewerId)}) AS friends,
+      (SELECT COUNT(*) FROM friend_request r JOIN user u ON u.id = r.from_user_id
+        WHERE r.to_user_id = ${viewerId} AND r.status = 'pending'
+          AND r.created_at > ${addDays(nowIso(), -REQUEST_EXPIRE_DAYS)}
+          AND u.deleted_at IS NULL AND ${noBlock(viewerId)}) AS incoming`,
+  )
+  return { friends: row?.friends ?? 0, incoming: row?.incoming ?? 0 }
+}
+
+// 届いた申請を断る（自分宛ての pending で 30 日以内 → declined）。相手には知らせない（送った側は「申請中」のまま）。
+// 該当が無ければ false（呼び出し側で 404）
+export const declineRequest = async (
+  db: Db,
+  viewerId: string,
+  requestId: string,
+): Promise<boolean> => {
+  const now = nowIso()
+  const [, declined] = await db.$client.batch<{ id: string }>([
+    stmt(db, expirePending(viewerId, now)),
+    stmt(
+      db,
+      sql`UPDATE friend_request SET status = 'declined', responded_at = ${now}
+        WHERE id = ${requestId} AND to_user_id = ${viewerId} AND status = 'pending'
+          AND created_at > ${addDays(now, -REQUEST_EXPIRE_DAYS)}
+        RETURNING id`,
+    ),
+  ])
+  return declined.results.length > 0
+}
+
+// 送った申請を取り消す（自分からの pending / declined で 30 日以内 → canceled）。
+// 同じ相手への有効な行が他にもあれば一緒に取り消す（一覧・招待リンクの画面で「申請中」が残らないように）。
+// 該当が無ければ false（呼び出し側で 404）
+export const cancelRequest = async (
+  db: Db,
+  viewerId: string,
+  requestId: string,
+): Promise<boolean> => {
+  const now = nowIso()
+  const expire = addDays(now, -REQUEST_EXPIRE_DAYS)
+  const [, canceled] = await db.$client.batch<{ id: string }>([
+    stmt(db, expirePending(viewerId, now)),
+    stmt(
+      db,
+      sql`UPDATE friend_request SET status = 'canceled', responded_at = ${now}
+        WHERE from_user_id = ${viewerId} AND status IN ('pending', 'declined')
+          AND created_at > ${expire}
+          AND to_user_id = (SELECT r.to_user_id FROM friend_request r
+            WHERE r.id = ${requestId} AND r.from_user_id = ${viewerId}
+              AND r.status IN ('pending', 'declined') AND r.created_at > ${expire})
+        RETURNING id`,
+    ),
+  ])
+  return canceled.results.length > 0
+}
+
+// フレンド解除（friendship を消すだけ。相手には知らせない）。フレンドでなければ false（呼び出し側で 404）
+export const removeFriend = async (db: Db, viewerId: string, userId: string): Promise<boolean> => {
+  const rows = await db.all<{ user_lo: string }>(
+    sql`DELETE FROM friendship
+      WHERE (user_lo = ${viewerId} AND user_hi = ${userId})
+         OR (user_lo = ${userId} AND user_hi = ${viewerId})
+      RETURNING user_lo`,
+  )
+  return rows.length > 0
 }
