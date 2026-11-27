@@ -1,6 +1,6 @@
-// 本人の統計（/stats）。集計は src/lib/stats.ts。JS は使わず、見方（来場型 / 完了型）と年は GET パラメータで切り替える
+// 本人の統計（/stats）。集計は src/lib/stats.ts。JS は使わず、見方（来場型 / 完了型 / ふりかえり）と年は GET パラメータで切り替える
 
-import type { DoneKind, Stats, VisitKind } from '../lib/stats'
+import type { DoneKind, Stats, StatsOf, StatsView, VisitKind } from '../lib/stats'
 import {
   CountBars,
   doneKindClass,
@@ -15,16 +15,17 @@ import {
 } from './components'
 import { workKindLabels } from './labels'
 
-export type StatsView = 'visit' | 'done'
+export type { StatsView }
 
+// 見方は stats.view（computeStats に渡したもの）
 export type StatsPageProps = {
   stats: Stats
-  view: StatsView
   year: number
   thisYear: number
   minYear: number
   capped: boolean
-  wishlist: { total: number; played: number }
+  // oldestDays はいちばん古い登録からの日数（ふりかえりだけに出す。無ければ出さない）
+  wishlist: { total: number; played: number; oldestDays?: number | null }
 }
 
 const pct = (r: number | null) => (r === null ? '—' : `${Math.round(r * 100)}%`)
@@ -32,6 +33,21 @@ const avg = (n: number | null) => (n === null ? '—' : n.toFixed(1))
 // 積み謎の経過日数。0 以下（今日・未来の日付）は「今日購入」
 const backlogNote = (days: number | null) =>
   days === null ? '日付なし' : days <= 0 ? '今日購入' : `${days} 日前に購入`
+
+// 各見方の部品が受け取る形。stats はその見方の集計に絞ってある
+type ViewProps<V extends StatsView = StatsView> = Omit<StatsPageProps, 'stats'> & {
+  view: V
+  stats: StatsOf<V>
+}
+
+// 合計プレイ時間。分は四捨五入、1 時間未満は「m 分」
+const totalDuration = (sec: number) => {
+  const min = Math.round(sec / 60)
+  const h = Math.floor(min / 60)
+  return h ? `${h} 時間 ${min % 60} 分` : `${min} 分`
+}
+// マイリストのいちばん古い登録。0 以下（今日・未来の日付）は「今日」
+const oldestNote = (days: number) => `いちばん古い登録: ${days <= 0 ? '今日' : `${days} 日前`}`
 
 // view は既定がデータ次第なので常に付ける。year は今年なら省く
 const statsHref = (p: { view: StatsView; year: number; thisYear: number }) => {
@@ -55,7 +71,7 @@ const resultLegend = [
 const sumSeries = (series: readonly { counts: readonly number[] }[]) =>
   series.reduce((sum, s) => sum + s.counts.reduce((a, b) => a + b, 0), 0)
 
-const MonthHead = (p: StatsPageProps & { title: string }) => (
+const MonthHead = (p: ViewProps & { title: string }) => (
   <div class="row">
     <h2>
       {p.title} {p.year} 年
@@ -75,16 +91,17 @@ const MonthHead = (p: StatsPageProps & { title: string }) => (
   </div>
 )
 
-const Wishlist = ({ wishlist }: StatsPageProps) => (
+const Wishlist = ({ wishlist, view }: ViewProps) => (
   <div class="sect">
     <h2>マイリスト</h2>
     <p>
       {wishlist.total} 件 · うちプレイ済み {wishlist.played} 件
+      {view === 'all' && wishlist.oldestDays != null ? ` · ${oldestNote(wishlist.oldestDays)}` : ''}
     </p>
   </div>
 )
 
-const VisitView = (p: StatsPageProps) => {
+const VisitView = (p: ViewProps<'visit'>) => {
   const { summary, byDifficulty, byVolume, byGenre, byKind, byOrg, byCompanion, monthly } =
     p.stats.visit
   const noResult = <Empty>ルーム・公演の結果はまだありません。</Empty>
@@ -181,7 +198,7 @@ const VisitView = (p: StatsPageProps) => {
   )
 }
 
-const DoneView = (p: StatsPageProps) => {
+const DoneView = (p: ViewProps<'done'>) => {
   const { summary, byKind, monthly, backlogOldest, averages } = p.stats.done
   return (
     <>
@@ -273,27 +290,99 @@ const DoneView = (p: StatsPageProps) => {
   )
 }
 
-export const StatsPage = (p: StatsPageProps) => (
-  <>
-    <TopBar title="統計" />
-    <nav class="chips" aria-label="集計の対象">
-      {[
-        { view: 'visit' as const, label: 'ルーム・公演' },
-        { view: 'done' as const, label: '持ち帰り・周遊など' },
-      ].map((f) => {
-        const href = statsHref({ view: f.view, year: p.year, thisYear: p.thisYear })
-        return f.view === p.view ? (
-          <a class="fchip on" href={href} aria-current="page">
-            {f.label}
-          </a>
-        ) : (
-          <a class="fchip" href={href}>
-            {f.label}
-          </a>
-        )
-      })}
-    </nav>
-    {p.capped ? <p class="note">直近 5000 件だけを集計しています</p> : null}
-    {p.view === 'visit' ? <VisitView {...p} /> : <DoneView {...p} />}
-  </>
-)
+const LookbackView = (p: ViewProps<'all'>) => {
+  const { summary, byYear, byRating, byPrefecture, prefectureRecords, companions } = p.stats.all
+  const noData = <Empty>まだデータがありません。</Empty>
+  // 遊んだ数も時間の記録も無ければ、節ごとの空文言を並べず 1 つにする
+  const empty = summary.played === 0 && summary.timedRecords === 0
+  // 件数の棒は系列の意味を持たないので cls を渡さない（インクで塗る）
+  return (
+    <>
+      <Kpis
+        items={[
+          { label: '遊んだ数', hero: true, value: summary.played },
+          {
+            label: '合計プレイ時間',
+            value: summary.timedRecords ? totalDuration(summary.durationSec) : '—',
+            note: `時間の記録がある ${summary.timedRecords} 件`,
+          },
+          { label: '再挑戦', value: summary.retries },
+        ]}
+      />
+      {empty ? (
+        <div class="sect">{noData}</div>
+      ) : (
+        <>
+          <div class="sect">
+            <h2>年別の遊んだ数</h2>
+            {byYear.length ? (
+              <CountBars items={byYear.map((y) => ({ label: `${y.year} 年`, count: y.count }))} />
+            ) : (
+              noData
+            )}
+          </div>
+          <div class="sect">
+            <h2>評価の分布</h2>
+            {byRating.some((r) => r.count) ? <CountBars items={byRating} /> : noData}
+          </div>
+          <div class="sect">
+            <h2>都道府県別</h2>
+            {byPrefecture.length ? (
+              <>
+                <CountBars items={byPrefecture} />
+                <p class="note">会場が分かる記録 {prefectureRecords} 件</p>
+              </>
+            ) : (
+              noData
+            )}
+          </div>
+          <div class="sect">
+            <h2>よく一緒に行く人</h2>
+            {companions.length ? <CountBars labelTop items={companions} /> : noData}
+          </div>
+        </>
+      )}
+      <Wishlist {...p} />
+      <p class="note" style="margin-top:14px">
+        遊んだ数 =
+        ルーム・公演の成功・失敗と、持ち帰り・周遊などのクリアの合計です。統計は自分だけに表示されます。
+      </p>
+    </>
+  )
+}
+
+export const StatsPage = (p: StatsPageProps) => {
+  const { stats } = p
+  const view = stats.view
+  return (
+    <>
+      <TopBar title="統計" />
+      <nav class="chips" aria-label="集計の対象">
+        {[
+          { view: 'visit' as const, label: 'ルーム・公演' },
+          { view: 'done' as const, label: '持ち帰り・周遊など' },
+          { view: 'all' as const, label: 'ふりかえり' },
+        ].map((f) => {
+          const href = statsHref({ view: f.view, year: p.year, thisYear: p.thisYear })
+          return f.view === view ? (
+            <a class="fchip on" href={href} aria-current="page">
+              {f.label}
+            </a>
+          ) : (
+            <a class="fchip" href={href}>
+              {f.label}
+            </a>
+          )
+        })}
+      </nav>
+      {p.capped ? <p class="note">直近 5000 件だけを集計しています</p> : null}
+      {stats.view === 'visit' ? (
+        <VisitView {...p} view={stats.view} stats={stats} />
+      ) : stats.view === 'done' ? (
+        <DoneView {...p} view={stats.view} stats={stats} />
+      ) : (
+        <LookbackView {...p} view={stats.view} stats={stats} />
+      )}
+    </>
+  )
+}

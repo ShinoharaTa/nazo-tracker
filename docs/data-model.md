@@ -408,12 +408,12 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 - `v_friend_attempt`（`migrations/0008_v_friend_attempt.sql`、P8 で作成）: フレンドに見せる射影。attempt ⋈ work。列は `user_id` / `work_id` / `status` / `started_on` / `finished_on` / `share_override` / `created_at` / `work_title` / `work_kind` だけ（`share_override` と `created_at` は絞り込みと並び順にだけ使う）。**`spoiler_memo`・memo・rating・companions・`purchased_on`・attempt の id・session 由来の列は含めない。** 読むのは `src/db/scoped.ts` の `asFriendOf` だけ（`check:scoped` の禁止語に `vFriendAttempt`、許可リストのファイルからも不可）。attempt / work を作り直す migration では `v_attempt_enriched` と同じく DROP VIEW → 作り直し → CREATE VIEW
 - 集計ビュー（`v_attempt_monthly` / `v_attempt_by_difficulty` / `v_attempt_by_genre`）は作らない。統計は 1 ユーザー分の `v_attempt_enriched` をアプリ側で集計する（`src/lib/stats.ts`、純関数）。読むのは `own().statsRows()`（`created_at DESC` で最大 5000 行。超えたら直近 5000 件で集計し、画面に「直近 5000 件だけを集計しています」と出す）
 
-**P3 で出す指標**（HTML の `/stats`。JSON の `/api/me/stats` は出す段階で足す）: 見方は GET パラメータ `view`（`visit` / `done`。無し・不正値は §6 冒頭の既定）。来場型（visit）: 成功率（挑戦ベース・作品ベース）、参加（成功＋失敗、内訳に成功 / 失敗）、予約済み、難易度別の成功率（1〜5 の 5 行）、ジャンル別の成功率（分母 1 以上、成功率 → 件数の降順）、形式別の成功率（公演・ルームの 2 行）、月別の成功・失敗、旧ステータスの件数の注記。完了型（done）: 完了数（内訳に断念・失敗）、進行中、積み謎（買ったのみ）、形式別の完了数（`work_kind` NULL は「形式未設定」）、月別の完了数（形式ごとの積み上げ）。月別は年ごと 12 か月。基準日は上の「月別・年別件数」、`created_at` は JST の日付にする。両方にマイリストの件数とうちプレイ済み。年は `year`（2000〜今年、不正値は今年）。「断念を失敗に含める」（`drop=fail`）は廃止し、付いていても無視する。
+**P3 で出す指標**（HTML の `/stats`。JSON の `/api/me/stats` は出す段階で足す）: 見方は GET パラメータ `view`（`visit` / `done` / `all`。無し・不正値は §6 冒頭の既定）。来場型（visit）: 成功率（挑戦ベース・作品ベース）、参加（成功＋失敗、内訳に成功 / 失敗）、予約済み、難易度別の成功率（1〜5 の 5 行）、ジャンル別の成功率（分母 1 以上、成功率 → 件数の降順）、形式別の成功率（公演・ルームの 2 行）、月別の成功・失敗、旧ステータスの件数の注記。完了型（done）: 完了数（内訳に断念・失敗）、進行中、積み謎（買ったのみ）、形式別の完了数（`work_kind` NULL は「形式未設定」）、月別の完了数（形式ごとの積み上げ）。月別は年ごと 12 か月。基準日は上の「月別・年別件数」、`created_at` は JST の日付にする。両方にマイリストの件数とうちプレイ済み。年は `year`（2000〜今年、不正値は今年）。「断念を失敗に含める」（`drop=fail`）は廃止し、付いていても無視する。
 
 **P7 で足した指標**（来場型 `?view=visit`）: ジャンル別の「得意」、物量別・団体別・同行者別の成功率、「参加」の注記の再挑戦数。難易度帯・物量帯・直近 12 か月の推移・JSON の `/api/me/stats` は作らない。
 （完了型 `?view=done`）: 積み謎の古い順（上の「積み謎の年齢」）、形式別の平均（cleared の記録を形式ごとに平均難易度・平均物量。値がある行だけ、小数 1 桁、無ければ「—」。並びは形式別の完了数と同じ）。
 
-**P7 に送る指標**（残り）: 年別件数、会場/都道府県別、合計プレイ時間、同行者トップ、評価の分布、マイリストの登録からの経過日数。
+（ふりかえり `?view=all`、来場型・完了型の両方）: 遊んだ数（来場型の cleared + failed と完了型の cleared）、合計プレイ時間（`session_duration_sec ?? duration_sec` の合計。値がある記録だけ、その件数を注記）、再挑戦（attempt_no ≥ 2 で遊んだ数に入る記録の件数。遊んだ数の内数）、年別の遊んだ数（基準日は上の「月別・年別件数」、新しい年が上）、評価の分布（1〜5 の 5 行、NULL は除外）、都道府県別（`venue_prefecture` がある記録だけ、件数の降順 → 名前の昇順で上位 10、会場が分かる記録の件数を注記）、同行者トップ（上の分割、全ステータス、並びは都道府県別と同じ）、マイリストのいちばん古い登録からの経過日数（ふりかえりだけに出す）。集計は `computeStats` に渡した見方の分だけ行う（他の見方の節は計算しない）。
 
 ### フレンド向け射影（`/api/friends/:userId/attempts`）
 | level | 返す列 |
