@@ -224,8 +224,9 @@ flowchart LR
   - 招待リンク `GET /f/<code>`: 未ログインではコードを DB で引かず、招待者名も出さない固定文（コードの当たり外れも分からない）。コードが無い・退会済み・どちらかがブロック中は同じ 404。応答は `private, no-store`・`noindex`・`Referrer-Policy: no-referrer`。
   - 申請の上限: 1 人が送れるのは直近 24 時間に 20 件（取り消し・断られた分も数える）、同じ相手へは同じ向きに 7 日に 1 回（状態を問わない）、pending の期限 30 日（書き込みのついでに canceled へ。cron は作らない）、受ける側に有効な pending が 50 件あれば受けない。判定は 1 文の条件付き INSERT（`src/db/friends.ts` の `sendRequest`）。相手からの pending があるときの「申請する」は承認として扱う（同時に申請し合った場合も、後から入る側を承認に回すので両方向の pending は残らない）。画面の判定は「相手から届いている」を「自分が申請中」より先に見る（自分の申請が断られて残っていても、届いた申請をリンクから承認できる）。
   - 断られた申請は、送った側には 30 日のあいだ「申請中」のまま見せる（断ったことを知らせない）。
-  - 設定 → フレンド（`/settings/friends`）: 招待リンク、届いた申請（承認・断る）、フレンド（表示名の昇順）、送った申請（取り消す）の順。空の節は見出しごと出さない。届いた申請は自分宛ての pending で 30 日以内、送った申請は自分からの pending / declined で 30 日以内（相手ごとに新しい 1 行。取り消すと同じ相手への有効な行をまとめて canceled）。設定一覧の note は「n 人」、届いた申請があれば「n 人・申請 m 件」。
+  - 設定 → フレンド（`/settings/friends`）: 招待リンク、届いた申請（承認・断る・ブロック）、フレンド（表示名の昇順）、送った申請（取り消す）、ブロック中（解除）の順。空の節は見出しごと出さない。届いた申請は自分宛ての pending で 30 日以内、送った申請は自分からの pending / declined で 30 日以内（相手ごとに新しい 1 行。取り消すと同じ相手への有効な行をまとめて canceled）。設定一覧の note は「n 人」、届いた申請があれば「n 人・申請 m 件」。
   - 承認・断る・取り消すは `POST /settings/friends/requests/:id/{accept,decline,cancel}`、解除は確認画面 `GET /friends/:userId/manage` → `POST /friends/:userId/remove`（friendship を消すだけ。相手には知らせない）。他人の id・無い id・状態が合わないものは全部同じ 404。招待リンクの画面からも、申請中なら「取り消す」、届いていれば「承認」「断る」が押せる。
+  - ブロック: 届いた申請（`POST /settings/friends/requests/:id/block`）か確認画面（`POST /friends/:userId/block`）から。相手は今のフレンドか、自分に有効な pending を送ってきた人だけ（それ以外は 404）。1 回の batch で block を入れ、friendship を消し、両方向の pending / declined を canceled にする（`src/db/friends.ts` の `blockTarget`）。相手からは退会したときと同じ見え方（一覧から消え、リンクは 404）で、ブロックしたことは知らせない。自分の「ブロック中」にだけ相手の表示名が出て、「解除」（`POST /settings/friends/blocks/:userId/delete`）で block 行を消す。解除しても friendship は戻らず、申請し直しは通常の規則（7 日に 1 回など）に従う。
 
 ### 6.3 フレンドに見せる範囲
 

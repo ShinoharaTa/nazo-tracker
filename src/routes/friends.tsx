@@ -7,6 +7,8 @@ import { currentUser, requireUser } from '../auth/middleware'
 import type { Db } from '../db/client'
 import {
   acceptRequest,
+  blockFriend,
+  blockRequester,
   cancelRequest,
   clearFriendCode,
   declineRequest,
@@ -14,6 +16,7 @@ import {
   findFriend,
   findInviter,
   type InviterState,
+  listBlocked,
   listFriends,
   listIncoming,
   listOutgoing,
@@ -21,6 +24,7 @@ import {
   removeFriend,
   sendRequest,
   setFriendCode,
+  unblock,
 } from '../db/friends'
 import type { AppEnv } from '../env'
 import { FRIEND_CODE_RE } from '../lib/random'
@@ -103,7 +107,7 @@ const InviteLink = ({ url }: { url: string | null }) => (
 
 const requestDate = (r: RequestRow) => isoToJstDate(r.createdAt) ?? r.createdAt
 
-// 届いた申請（承認・断る）
+// 届いた申請（承認・断る・ブロック）
 const IncomingList = ({ rows }: { rows: RequestRow[] }) => (
   <div class="sect">
     <h2>届いた申請（{rows.length}）</h2>
@@ -121,6 +125,11 @@ const IncomingList = ({ rows }: { rows: RequestRow[] }) => (
             <form method="post" action={`/settings/friends/requests/${r.requestId}/decline`}>
               <button type="submit" class="btn ghost">
                 断る
+              </button>
+            </form>
+            <form method="post" action={`/settings/friends/requests/${r.requestId}/block`}>
+              <button type="submit" class="btn ghost">
+                ブロック
               </button>
             </form>
           </div>
@@ -162,14 +171,34 @@ const OutgoingList = ({ rows }: { rows: RequestRow[] }) => (
   </div>
 )
 
+// ブロック中（ブロックした側にだけ出る）
+const BlockedList = ({ rows }: { rows: FriendPerson[] }) => (
+  <div class="sect">
+    <h2>ブロック中（{rows.length}）</h2>
+    <div class="list">
+      {rows.map((b) => (
+        <div class="card">
+          <p>{b.displayName}</p>
+          <form method="post" action={`/settings/friends/blocks/${b.userId}/delete`}>
+            <button type="submit" class="btn ghost">
+              解除
+            </button>
+          </form>
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
 friends.get('/settings/friends', async (c) => {
   const user = currentUser(c)
   const db = c.get('db')
-  const [state, incoming, list, outgoing] = await Promise.all([
+  const [state, incoming, list, outgoing, blocked] = await Promise.all([
     settingsState(db, user),
     listIncoming(db, user.id),
     listFriends(db, user.id),
     listOutgoing(db, user.id),
+    listBlocked(db, user.id),
   ])
   const url = state.friendCode ? `${c.env.APP_ORIGIN}/f/${state.friendCode}` : null
   return c.html(
@@ -184,6 +213,7 @@ friends.get('/settings/friends', async (c) => {
           {incoming.length ? <IncomingList rows={incoming} /> : null}
           {list.length ? <FriendList rows={list} /> : null}
           {outgoing.length ? <OutgoingList rows={outgoing} /> : null}
+          {blocked.length ? <BlockedList rows={blocked} /> : null}
           <div class="sect">
             <p class="note">
               フレンドに見えるのは、作品名・ステータス・日付だけです。メモやネタバレは見えません。
@@ -221,7 +251,7 @@ const friendNotFound = async (c: Context<AppEnv>) => {
   )
 }
 
-// 届いた申請の承認・断る、送った申請の取り消し。成否は書き換えた行数で決める
+// 届いた申請の承認・断る・ブロック、送った申請の取り消し。成否は書き換えた行数で決める
 const requestAction =
   (action: (db: Db, viewerId: string, requestId: string) => Promise<boolean>) =>
   async (c: Context<AppEnv>) => {
@@ -234,8 +264,17 @@ const requestAction =
 friends.post('/settings/friends/requests/:id/accept', requestAction(acceptRequest))
 friends.post('/settings/friends/requests/:id/decline', requestAction(declineRequest))
 friends.post('/settings/friends/requests/:id/cancel', requestAction(cancelRequest))
+friends.post('/settings/friends/requests/:id/block', requestAction(blockRequester))
 
-// 解除の確認画面（この PR では解除ボタンだけ）
+// ブロック解除。friendship は戻らない（もう一度リンクから申請する）
+friends.post('/settings/friends/blocks/:userId/delete', async (c) => {
+  if (!(await unblock(c.get('db'), currentUser(c).id, c.req.param('userId')))) {
+    return friendNotFound(c)
+  }
+  return c.redirect('/settings/friends', 302)
+})
+
+// 解除・ブロックの確認画面
 friends.get('/friends/:userId/manage', async (c) => {
   const user = currentUser(c)
   const db = c.get('db')
@@ -259,6 +298,14 @@ friends.get('/friends/:userId/manage', async (c) => {
                   フレンドを解除する
                 </button>
               </form>
+              <p class="note">
+                ブロックすると、相手からはあなたが見えなくなり、申請も届かなくなります。相手には知らせません。
+              </p>
+              <form method="post" action={`/friends/${friend.userId}/block`}>
+                <button type="submit" class="btn danger">
+                  ブロックする
+                </button>
+              </form>
             </div>
           </div>
         </>
@@ -269,6 +316,14 @@ friends.get('/friends/:userId/manage', async (c) => {
 
 friends.post('/friends/:userId/remove', async (c) => {
   if (!(await removeFriend(c.get('db'), currentUser(c).id, c.req.param('userId')))) {
+    return friendNotFound(c)
+  }
+  return c.redirect('/settings/friends', 302)
+})
+
+// ブロックできるのは今のフレンドだけ（申請の送り主は /settings/friends/requests/:id/block）
+friends.post('/friends/:userId/block', async (c) => {
+  if (!(await blockFriend(c.get('db'), currentUser(c).id, c.req.param('userId')))) {
     return friendNotFound(c)
   }
   return c.redirect('/settings/friends', 302)
