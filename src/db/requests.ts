@@ -67,24 +67,33 @@ const toOwn = ({ payloadJson, ...r }: { payloadJson: string } & Omit<OwnRequest,
   payload: parsePayload(payloadJson),
 })
 
-export const createRequest = async (
+// 上限（直近 24 時間に dailyLimit 件未満）と重複（本人の未完了に同じ URL が無い）を満たすときだけ作る。
+// 判定と INSERT を 1 文の条件付き INSERT にして、同時に送られても上限・重複をすり抜けないようにする。
+// dailyLimit が null（オーナー）なら件数は見ない。URL が無ければ重複は見ない。入らなければ null
+export const createRequestIfAllowed = async (
   db: Db,
   userId: string,
   kind: RequestKind,
   payload: RequestPayload,
-): Promise<string> => {
+  dailyLimit: number | null,
+): Promise<string | null> => {
   const id = ulid()
   const now = nowIso()
-  await db.insert(request).values({
-    id,
-    requesterUserId: userId,
-    kind,
-    payloadJson: JSON.stringify(payload),
-    status: 'open',
-    createdAt: now,
-    updatedAt: now,
-  })
-  return id
+  const conds = [sql`1 = 1`]
+  if (dailyLimit !== null) {
+    conds.push(
+      sql`(SELECT COUNT(*) FROM ${request} WHERE ${request.requesterUserId} = ${userId} AND ${request.createdAt} > ${addDays(now, -1)}) < ${dailyLimit}`,
+    )
+  }
+  if (payload.url) {
+    conds.push(
+      sql`NOT EXISTS (SELECT 1 FROM ${request} WHERE ${request.requesterUserId} = ${userId} AND ${request.status} NOT IN ('done', 'rejected') AND json_extract(${request.payloadJson}, '$.url') = ${payload.url})`,
+    )
+  }
+  const rows = await db.all<{ id: string }>(
+    sql`INSERT INTO ${request} (id, requester_user_id, kind, payload_json, status, created_at, updated_at) SELECT ${id}, ${userId}, ${kind}, ${JSON.stringify(payload)}, 'open', ${now}, ${now} WHERE ${sql.join(conds, sql` AND `)} RETURNING id`,
+  )
+  return rows.length ? id : null
 }
 
 // 直近 24 時間に本人が作った件数（INDEX(requester_user_id, created_at) を使う）
