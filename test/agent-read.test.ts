@@ -1,9 +1,27 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
+import {
+  runFields,
+  shopFields,
+  validateRun,
+  validateShop,
+  validateVenue,
+  validateWork,
+  venueFields,
+  workFields,
+} from '../src/admin/validate'
 import { createDb } from '../src/db/client'
+import {
+  proposalStatuses,
+  requestStatuses,
+  runChannels,
+  shopKinds,
+  workKinds,
+} from '../src/db/schema'
 import { createToken } from '../src/db/tokens'
 import app from '../src/index'
 import { ulid } from '../src/lib/id'
+import { parseProposal } from '../src/pipeline/fields'
 import { loginAs } from './helpers/auth'
 import {
   insertOrg,
@@ -406,6 +424,153 @@ describe('名寄せ候補', () => {
   })
 })
 
+describe('GET /api/agent/schema', () => {
+  type Schema = {
+    proposal_fields: Record<string, Record<string, string[]>>
+    enums: Record<string, string[]>
+    placeholders: Record<string, string>
+    source_methods: string[]
+    request_statuses: string[]
+    proposal_statuses: string[]
+  }
+  const schema = async () => {
+    const r = await get('/api/agent/schema')
+    expect(r.status).toBe(200)
+    return r.body as unknown as Schema
+  }
+  const tryField = (kind: string, table: string, field: string) =>
+    parseProposal({
+      kind,
+      target_table: table,
+      ...(kind === 'create' ? {} : { target_id: 'x' }),
+      fields: [{ field, new_value: 'v', source_id: null, confidence: 1 }],
+    })
+
+  it('kind × 表の項目が parseProposal の許す項目と一致する', async () => {
+    const { proposal_fields: pf } = await schema()
+    expect(Object.keys(pf).sort()).toEqual(['create', 'link', 'merge', 'update'])
+    expect(Object.keys(pf.link)).toEqual(['run'])
+    expect(Object.keys(pf.merge).sort()).toEqual(['organization', 'venue', 'work'])
+    expect(pf.create.organization.sort()).toEqual([
+      'organization.escape_id_url',
+      'organization.name',
+      'organization.site_url',
+    ])
+    expect(pf.link.run).toEqual(['run.work_id'])
+    // 全 kind の項目と note を候補にして、載っているものは通り、載っていないものは unknown_field
+    const universe = new Set([
+      ...Object.values(pf).flatMap((t) => Object.values(t).flat()),
+      'work.note',
+      'run.note',
+      'organization.note',
+    ])
+    for (const [kind, tables] of Object.entries(pf)) {
+      for (const [table, fields] of Object.entries(tables)) {
+        for (const field of universe) {
+          const r = tryField(kind, table, field)
+          if (fields.includes(field)) {
+            expect(r.ok, `${kind} ${table} ${field}`).toBe(true)
+          } else {
+            expect(r, `${kind} ${table} ${field}`).toMatchObject({
+              ok: false,
+              error: { body: { error: 'unknown_field' } },
+            })
+          }
+        }
+      }
+    }
+  })
+
+  it('enum・source method・状態の一覧', async () => {
+    const s = await schema()
+    expect(s.enums['work.kind']).toEqual([...workKinds])
+    expect(s.enums['run.channel']).toEqual([...runChannels])
+    expect(s.enums['shop.kind']).toEqual([...shopKinds])
+    expect(s.enums['venue.prefecture']).toHaveLength(47)
+    expect(s.enums['run.is_permanent']).toEqual(['1', ''])
+    expect(s.source_methods).toEqual(['escape_mcp', 'webfetch', 'pds'])
+    expect(s.request_statuses).toEqual([...requestStatuses])
+    expect(s.proposal_statuses).toEqual([...proposalStatuses])
+  })
+
+  it('enum の各値は validator を通り、範囲外の値は落ちる', async () => {
+    const { enums } = await schema()
+    const db = createDb(env.DB)
+    const blank = (fields: readonly string[]) => Object.fromEntries(fields.map((f) => [f, '']))
+    // 列ごとに、検証する validator・ほかの列の値・エラーの見出し
+    const cases: Record<
+      string,
+      { label: string; run: (v: string) => Promise<{ ok: boolean; errors?: string[] }> }
+    > = {
+      'work.kind': {
+        label: '形式',
+        run: (v) => validateWork(db, { ...blank(workFields), title: '題', kind: v }),
+      },
+      'run.channel': {
+        label: '種別',
+        run: (v) => validateRun(db, { ...blank(runFields), channel: v }),
+      },
+      'run.is_permanent': {
+        label: '常設',
+        run: (v) =>
+          validateRun(db, { ...blank(runFields), channel: 'performance', is_permanent: v }),
+      },
+      'shop.kind': {
+        label: '種類',
+        run: (v) => validateShop(db, { ...blank(shopFields), name: '店', kind: v }),
+      },
+      'venue.prefecture': {
+        label: '都道府県',
+        run: (v) => validateVenue(db, { ...blank(venueFields), name: '会場', prefecture: v }),
+      },
+    }
+    expect(Object.keys(enums).sort()).toEqual(Object.keys(cases).sort())
+    for (const [key, c] of Object.entries(cases)) {
+      const bad = `${c.label}の値が正しくありません。`
+      for (const v of enums[key]) {
+        const r = await c.run(v)
+        expect(r.errors ?? [], `${key}=${v}`).not.toContain(bad)
+        // 販売だけは販売先が要る（値そのものは正しい）
+        if (!(key === 'run.channel' && v === 'sale')) expect(r.ok, `${key}=${v}`).toBe(true)
+      }
+      for (const v of ['nope', `${enums[key][0]}x`]) {
+        const r = await c.run(v)
+        expect(r.ok, `${key}=${v}`).toBe(false)
+        expect(r.errors, `${key}=${v}`).toContain(bad)
+      }
+    }
+  })
+
+  it('束の参照は fields.ts の placeholders と同じで、parseProposal が受け付ける', async () => {
+    const { placeholders, proposal_fields: pf } = await schema()
+    expect(placeholders).toEqual({
+      'work.primary_organization_id': '@organization',
+      'run.organization_id': '@organization',
+      'venue.organization_id': '@organization',
+      'shop.organization_id': '@organization',
+      'run.venue_id': '@venue',
+      'run.shop_id': '@shop',
+    })
+    for (const [field, ref] of Object.entries(placeholders)) {
+      const refTable = ref.slice(1)
+      const nameField = `${refTable}.name`
+      expect(pf.create.work, field).toContain(field)
+      const r = parseProposal({
+        kind: 'create',
+        target_table: 'work',
+        fields: [
+          { field: 'work.title', new_value: '題', source_id: null, confidence: 1 },
+          { field, new_value: ref, source_id: null, confidence: 1 },
+          ...(field.startsWith(`${refTable}.`)
+            ? []
+            : [{ field: nameField, new_value: '名', source_id: null, confidence: 1 }]),
+        ],
+      })
+      expect(r.ok, field).toBe(true)
+    }
+  })
+})
+
 describe('scope', () => {
   const allScopes = ['master:read', 'request:rw', 'source:write', 'proposal:write']
   const routes: { path: string; method: 'GET' | 'PATCH' | 'POST'; scope: string }[] = [
@@ -415,9 +580,11 @@ describe('scope', () => {
     { path: '/api/agent/match?title=x', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/rows/work/x', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/index/work', method: 'GET', scope: 'master:read' },
+    { path: '/api/agent/schema', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/sources', method: 'POST', scope: 'source:write' },
     { path: '/api/agent/proposals', method: 'POST', scope: 'proposal:write' },
     { path: '/api/agent/proposals?request_id=x', method: 'GET', scope: 'proposal:write' },
+    { path: '/api/agent/proposals', method: 'GET', scope: 'proposal:write' },
     { path: '/api/agent/proposals/x', method: 'GET', scope: 'proposal:write' },
   ]
 

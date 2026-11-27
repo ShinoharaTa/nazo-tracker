@@ -5,7 +5,7 @@ import { redirectAfterLogin } from '../auth/login'
 import { requireUser } from '../auth/middleware'
 import { beginOAuth, completeOAuth, isProviderReady } from '../auth/oauth'
 import { findOAuthProvider } from '../auth/providers/types'
-import { clearSessionCookie, deleteSession } from '../auth/session'
+import { clearSessionCookie, deleteSession, deleteUserSessions } from '../auth/session'
 import type { AppEnv } from '../env'
 
 const auth = new Hono<AppEnv>({ strict: false })
@@ -14,6 +14,14 @@ const auth = new Hono<AppEnv>({ strict: false })
 auth.post('/logout', requireUser, async (c) => {
   const id = c.get('sessionId')
   if (id) await deleteSession(c.get('db'), id)
+  clearSessionCookie(c)
+  return c.redirect('/login', 302)
+})
+
+// 自分の session_token を全端末分消す
+auth.post('/logout/all', requireUser, async (c) => {
+  const user = c.get('user')
+  if (user) await deleteUserSessions(c.get('db'), user.id)
   clearSessionCookie(c)
   return c.redirect('/login', 302)
 })
