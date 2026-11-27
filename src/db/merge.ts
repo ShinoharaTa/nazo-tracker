@@ -20,7 +20,7 @@ import {
   type WorkRow,
   workTitleNormTaken,
 } from './master'
-import { runStmts } from './master-write'
+import { deleteOrgAliasStmts, deleteWorkAliasStmts, runStmts } from './master-write'
 import {
   attempt,
   booth,
@@ -38,6 +38,44 @@ import {
 } from './schema'
 
 const wishlistInto = alias(wishlist, 'wishlist_into')
+const workAliasInto = alias(workAlias, 'work_alias_into')
+const orgAliasInto = alias(organizationAlias, 'organization_alias_into')
+
+// A の別名のうち、B に同じ title_norm の別名があるもの（UNIQUE(work_id, title_norm) で付け替えられない）
+const workAliasesTakenByB = (db: Db, a: WorkRow, b: WorkRow) =>
+  db
+    .select()
+    .from(workAlias)
+    .where(
+      and(
+        eq(workAlias.workId, a.id),
+        inArray(
+          workAlias.titleNorm,
+          db
+            .select({ titleNorm: workAliasInto.titleNorm })
+            .from(workAliasInto)
+            .where(eq(workAliasInto.workId, b.id)),
+        ),
+      ),
+    )
+
+// 団体版（UNIQUE(organization_id, name_norm)）
+const orgAliasesTakenByB = (db: Db, a: OrgRow, b: OrgRow) =>
+  db
+    .select()
+    .from(organizationAlias)
+    .where(
+      and(
+        eq(organizationAlias.organizationId, a.id),
+        inArray(
+          organizationAlias.nameNorm,
+          db
+            .select({ nameNorm: orgAliasInto.nameNorm })
+            .from(orgAliasInto)
+            .where(eq(orgAliasInto.organizationId, b.id)),
+        ),
+      ),
+    )
 
 export const mergeWorkStmts = async (
   db: Db,
@@ -47,6 +85,10 @@ export const mergeWorkStmts = async (
 ): Promise<BatchItem<'sqlite'>[]> => {
   const now = nowIso()
   const extra: BatchItem<'sqlite'>[] = []
+  // B に同じ表記がある A の別名は付け替えずに消す（change_log に delete）。付け替えより前に置く
+  const dropAliases = (await workAliasesTakenByB(db, a, b)).flatMap(
+    (r) => deleteWorkAliasStmts(db, r, ctx).stmts,
+  )
 
   // 旧題を B の別名に（B 側に同じ title_norm が無いときだけ）
   if (!(await workTitleNormTaken(db, { fromId: a.id, intoId: b.id }, a.titleNorm))) {
@@ -115,6 +157,7 @@ export const mergeWorkStmts = async (
       ),
     db.update(wishlist).set({ workId: b.id }).where(eq(wishlist.workId, a.id)),
     db.update(boothItem).set({ workId: b.id }).where(eq(boothItem.workId, a.id)),
+    ...dropAliases,
     db.update(workAlias).set({ workId: b.id }).where(eq(workAlias.workId, a.id)),
     ...extra,
     // A に統合済みの行（C → A）も B に向け直して鎖を畳む（change_log には出さない）
@@ -139,6 +182,10 @@ export const mergeOrganizationStmts = async (
 ): Promise<BatchItem<'sqlite'>[]> => {
   const now = nowIso()
   const extra: BatchItem<'sqlite'>[] = []
+  // B に同じ表記がある A の別名は付け替えずに消す（change_log に delete）。付け替えより前に置く
+  const dropAliases = (await orgAliasesTakenByB(db, a, b)).flatMap(
+    (r) => deleteOrgAliasStmts(db, r, ctx).stmts,
+  )
 
   // 旧名を B の別名に（B 側に同じ name_norm が無いときだけ）
   if (!(await orgNameNormTaken(db, { fromId: a.id, intoId: b.id }, a.nameNorm))) {
@@ -208,6 +255,7 @@ export const mergeOrganizationStmts = async (
     db.update(venue).set({ organizationId: b.id }).where(eq(venue.organizationId, a.id)),
     db.update(shop).set({ organizationId: b.id }).where(eq(shop.organizationId, a.id)),
     db.update(booth).set({ organizationId: b.id }).where(eq(booth.organizationId, a.id)),
+    ...dropAliases,
     db
       .update(organizationAlias)
       .set({ organizationId: b.id })

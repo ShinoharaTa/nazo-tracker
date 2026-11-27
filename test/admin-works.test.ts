@@ -478,6 +478,32 @@ describe('作品の別名', () => {
     expect(n?.n).toBe(0)
   })
 
+  it('同じ表記（title_norm が同じ）の別名は 400。別の作品には同じ別名を付けられる', async () => {
+    const id = await insertWork(env, { title: '別名重複の作品' })
+    const other = await insertWork(env, { title: '別名重複の別作品' })
+    await insertWorkAlias(env, { workId: id, title: 'ジュウフク２', kind: 'alt_spelling' })
+    const res = await post(
+      `/admin/works/${id}/aliases`,
+      { title: 'ｼﾞｭｳﾌｸ　2', kind: 'subtitle' },
+      owner.cookie,
+    )
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('同じ別名がすでにあります。')
+    const count = (workId: string) =>
+      env.DB.prepare('SELECT COUNT(*) AS n FROM work_alias WHERE work_id = ?')
+        .bind(workId)
+        .first<{ n: number }>()
+    expect((await count(id))?.n).toBe(1)
+
+    const ok = await post(
+      `/admin/works/${other}/aliases`,
+      { title: 'ジュウフク２', kind: 'alt_spelling' },
+      owner.cookie,
+    )
+    expect(ok.status).toBe(302)
+    expect((await count(other))?.n).toBe(1)
+  })
+
   it('統合済み作品では追加・削除とも 400', async () => {
     const into = await insertWork(env, { title: '別名の統合先作品' })
     const id = await insertWork(env, { title: '別名の統合元作品', mergedIntoId: into })

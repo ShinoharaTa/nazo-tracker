@@ -189,7 +189,7 @@ works.post('/works/:id/aliases', async (c) => {
   if (!w) return c.html(notFound(), 404)
   if (w.row.mergedIntoId) return c.html(mergedPage(w.mergedInto), 400)
   const form = formOf(await c.req.parseBody(), workAliasFields)
-  const v = validateWorkAlias(form)
+  const v = await validateWorkAlias(db, form, w.row.id)
   if (!v.ok) {
     return c.html(await editPage(db, { ...w, aliasValues: form, aliasErrors: v.errors }), 400)
   }

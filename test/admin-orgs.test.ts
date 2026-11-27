@@ -314,6 +314,32 @@ describe('団体の別名', () => {
     expect(n?.n).toBe(0)
   })
 
+  it('同じ表記（name_norm が同じ）の別名は 400。別の団体には同じ別名を付けられる', async () => {
+    const id = await insertOrg(env, { name: '別名重複団体' })
+    const other = await insertOrg(env, { name: '別名重複の別団体' })
+    await insertOrgAlias(env, { organizationId: id, name: 'ジュウフク２', kind: 'former_name' })
+    const res = await post(
+      `/admin/orgs/${id}/aliases`,
+      { name: 'ｼﾞｭｳﾌｸ　2', kind: 'label' },
+      owner.cookie,
+    )
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('同じ別名がすでにあります。')
+    const count = (orgId: string) =>
+      env.DB.prepare('SELECT COUNT(*) AS n FROM organization_alias WHERE organization_id = ?')
+        .bind(orgId)
+        .first<{ n: number }>()
+    expect((await count(id))?.n).toBe(1)
+
+    const ok = await post(
+      `/admin/orgs/${other}/aliases`,
+      { name: 'ジュウフク２', kind: 'former_name' },
+      owner.cookie,
+    )
+    expect(ok.status).toBe(302)
+    expect((await count(other))?.n).toBe(1)
+  })
+
   it('削除すると行が消え change_log の before_json に行が残る', async () => {
     const id = await insertOrg(env, { name: '別名削除団体' })
     const aliasId = await insertOrgAlias(env, {

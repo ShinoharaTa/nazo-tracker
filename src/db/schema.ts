@@ -123,6 +123,8 @@ export const organizationAlias = sqliteTable(
   },
   (t) => [
     index('organization_alias_name_norm_idx').on(t.nameNorm),
+    // 同じ団体に同じ表記（name_norm）の別名を 2 つ置かない
+    uniqueIndex('organization_alias_org_name_norm_unique').on(t.organizationId, t.nameNorm),
     check('organization_alias_kind_check', oneOf('kind', organizationAliasKinds)),
   ],
 )
@@ -163,7 +165,11 @@ export const workAlias = sqliteTable(
     titleNorm: text('title_norm').notNull(),
     kind: text('kind', { enum: workAliasKinds }).notNull(),
   },
-  () => [check('work_alias_kind_check', oneOf('kind', workAliasKinds))],
+  (t) => [
+    // 同じ作品に同じ表記（title_norm）の別名を 2 つ置かない
+    uniqueIndex('work_alias_work_title_norm_unique').on(t.workId, t.titleNorm),
+    check('work_alias_kind_check', oneOf('kind', workAliasKinds)),
+  ],
 )
 
 export const venue = sqliteTable('venue', {

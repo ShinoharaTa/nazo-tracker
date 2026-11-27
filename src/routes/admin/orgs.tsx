@@ -126,7 +126,7 @@ orgs.post('/orgs/:id/aliases', async (c) => {
   if (!o) return c.html(notFound(), 404)
   if (o.row.mergedIntoId) return c.html(mergedPage(o.mergedInto), 400)
   const form = formOf(await c.req.parseBody(), orgAliasFields)
-  const v = validateOrgAlias(form)
+  const v = await validateOrgAlias(db, form, o.row.id)
   if (!v.ok) {
     return c.html(editPage({ ...o, aliasValues: form, aliasErrors: v.errors }), 400)
   }
