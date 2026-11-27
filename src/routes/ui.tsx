@@ -374,6 +374,7 @@ const SettingsList = ({
       <Menu>
         <MenuItem label="Google" note={linkNote(linked, 'google')} disabled />
         <MenuItem label="Discord" note={linkNote(linked, 'discord')} disabled />
+        <MenuItem label="LINE" note={linkNote(linked, 'line')} disabled />
         <MenuItem label="ほかのログイン方法を連携" note="P6 で実装" disabled />
         <MenuItem label="復旧コード" note="P6 で実装" disabled />
       </Menu>
@@ -690,6 +691,7 @@ ui.get('/login', (c) => {
           <div class="list">
             <LoginButton name="google" label="Google" ready={ready('google')} primary />
             <LoginButton name="discord" label="Discord" ready={ready('discord')} />
+            <LoginButton name="line" label="LINE" ready={ready('line')} />
           </div>
           <p class="note" style="margin:0">
             メールアドレスは保存しません。ログイン先のアカウント ID だけを使います。

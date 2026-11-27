@@ -9,7 +9,7 @@ import { nowIso } from '../lib/time'
 import { createSession, deleteSession, writeSessionCookie } from './session'
 
 // identity.provider に CHECK は付けず、コード側で縛る
-export type Provider = 'dev' | 'google' | 'discord'
+export type Provider = 'dev' | 'google' | 'discord' | 'line'
 
 export const INITIAL_DISPLAY_NAME = 'ななしさん'
 

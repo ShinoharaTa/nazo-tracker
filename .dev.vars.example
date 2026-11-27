@@ -15,3 +15,7 @@ GOOGLE_CLIENT_SECRET=
 DISCORD_CLIENT_ID=
 # secret。本番は `wrangler secret put DISCORD_CLIENT_SECRET` で入れる
 DISCORD_CLIENT_SECRET=
+# LINE ログインのチャネル。CLIENT_ID が空なら LINE ログインは「準備中」
+LINE_CLIENT_ID=
+# secret。本番は `wrangler secret put LINE_CLIENT_SECRET` で入れる
+LINE_CLIENT_SECRET=

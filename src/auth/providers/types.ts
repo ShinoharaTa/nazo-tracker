@@ -4,6 +4,7 @@ import type { Bindings } from '../../env'
 import type { Provider } from '../login'
 import { discord } from './discord'
 import { google } from './google'
+import { line } from './line'
 
 export type OAuthProviderName = Exclude<Provider, 'dev'>
 
@@ -35,6 +36,7 @@ export type OAuthProvider = {
 export const oauthProviders: Partial<Record<OAuthProviderName, OAuthProvider>> = {
   google,
   discord,
+  line,
 }
 
 export const findOAuthProvider = (name: string): OAuthProvider | null =>
