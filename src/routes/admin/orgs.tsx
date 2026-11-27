@@ -2,6 +2,7 @@
 
 import { Hono } from 'hono'
 import {
+  ALIAS_TAKEN,
   emptyForm,
   type Form,
   formOf,
@@ -14,6 +15,7 @@ import { currentUser } from '../../auth/middleware'
 import { getAdminOrg, getOrgAliasRow, type OrgAliasRow, type OrgRow } from '../../db/master'
 import { createOrg, createOrgAlias, deleteOrgAlias, updateOrg } from '../../db/master-write'
 import type { AppEnv } from '../../env'
+import { isUniqueViolation } from '../../lib/db-error'
 import {
   AdminNotFound,
   AdminPage,
@@ -130,7 +132,13 @@ orgs.post('/orgs/:id/aliases', async (c) => {
   if (!v.ok) {
     return c.html(editPage({ ...o, aliasValues: form, aliasErrors: v.errors }), 400)
   }
-  await createOrgAlias(db, o.row.id, v.value, { actor: { userId: currentUser(c).id } })
+  try {
+    await createOrgAlias(db, o.row.id, v.value, { actor: { userId: currentUser(c).id } })
+  } catch (e) {
+    // 検証から書き込みまでの間に同じ別名が入った（二度押しなど）
+    if (!isUniqueViolation(e)) throw e
+    return c.html(editPage({ ...o, aliasValues: form, aliasErrors: [ALIAS_TAKEN] }), 400)
+  }
   return c.redirect(`/admin/orgs/${o.row.id}`, 302)
 })
 

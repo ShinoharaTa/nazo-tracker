@@ -340,6 +340,33 @@ describe('団体の別名', () => {
     expect((await count(other))?.n).toBe(1)
   })
 
+  it('検証の後に同じ別名が入っても（二度押しなどの競合）書き込みの UNIQUE 違反を 400 にする', async () => {
+    const id = await insertOrg(env, { name: '別名競合団体' })
+    // 検証の SELECT の後、INSERT の直前に同じ (organization_id, name_norm) の行を入れて競合を再現する
+    await env.DB.prepare(
+      `CREATE TRIGGER race_org_alias BEFORE INSERT ON organization_alias WHEN NEW.id NOT LIKE 'race-%'
+       BEGIN INSERT INTO organization_alias (id, organization_id, name, name_norm, kind)
+       VALUES ('race-' || NEW.id, NEW.organization_id, NEW.name, NEW.name_norm, NEW.kind); END`,
+    ).run()
+    try {
+      const res = await post(
+        `/admin/orgs/${id}/aliases`,
+        { name: '競合する別名', kind: 'label' },
+        owner.cookie,
+      )
+      expect(res.status).toBe(400)
+      expect(await res.text()).toContain('同じ別名がすでにあります。')
+    } finally {
+      await env.DB.prepare('DROP TRIGGER race_org_alias').run()
+    }
+    const n = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM organization_alias WHERE organization_id = ?',
+    )
+      .bind(id)
+      .first<{ n: number }>()
+    expect(n?.n).toBe(0)
+  })
+
   it('削除すると行が消え change_log の before_json に行が残る', async () => {
     const id = await insertOrg(env, { name: '別名削除団体' })
     const aliasId = await insertOrgAlias(env, {

@@ -504,6 +504,31 @@ describe('作品の別名', () => {
     expect((await count(other))?.n).toBe(1)
   })
 
+  it('検証の後に同じ別名が入っても（二度押しなどの競合）書き込みの UNIQUE 違反を 400 にする', async () => {
+    const id = await insertWork(env, { title: '別名競合の作品' })
+    // 検証の SELECT の後、INSERT の直前に同じ (work_id, title_norm) の行を入れて競合を再現する
+    await env.DB.prepare(
+      `CREATE TRIGGER race_work_alias BEFORE INSERT ON work_alias WHEN NEW.id NOT LIKE 'race-%'
+       BEGIN INSERT INTO work_alias (id, work_id, title, title_norm, kind)
+       VALUES ('race-' || NEW.id, NEW.work_id, NEW.title, NEW.title_norm, NEW.kind); END`,
+    ).run()
+    try {
+      const res = await post(
+        `/admin/works/${id}/aliases`,
+        { title: '競合する別名', kind: 'subtitle' },
+        owner.cookie,
+      )
+      expect(res.status).toBe(400)
+      expect(await res.text()).toContain('同じ別名がすでにあります。')
+    } finally {
+      await env.DB.prepare('DROP TRIGGER race_work_alias').run()
+    }
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM work_alias WHERE work_id = ?')
+      .bind(id)
+      .first<{ n: number }>()
+    expect(n?.n).toBe(0)
+  })
+
   it('統合済み作品では追加・削除とも 400', async () => {
     const into = await insertWork(env, { title: '別名の統合先作品' })
     const id = await insertWork(env, { title: '別名の統合元作品', mergedIntoId: into })

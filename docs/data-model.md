@@ -350,9 +350,9 @@ work A → B:
 | 6 | 統合後の B（B の題名・B と A の別名）に `title_norm = A.title_norm` が無ければ `INSERT work_alias(B, A.title, A.title_norm, 'former_title')` |
 | 7 | `B.official_url IS NULL AND A.official_url IS NOT NULL` なら `UPDATE work SET official_url=NULL WHERE id=A` → `UPDATE work SET official_url=A.official_url WHERE id=B`（UNIQUE 列は統合先が空のときだけ引き継ぐ。衝突しない） |
 | 8 | `UPDATE work SET merged_into_id=B, updated_at=now WHERE id=A` |
-| 9 | change_log: (`work`, A, `merge`, before=A, after=統合後の A) を 1 行。6 を実行したら (`work_alias`, 新 id, `create`)、7 を実行したら (`work`, B, `update`) も |
+| 9 | change_log: (`work`, A, `merge`, before=A, after=統合後の A) を 1 行。5 で消した別名ごとに (`work_alias`, その id, `delete`, before=消した行)、6 を実行したら (`work_alias`, 新 id, `create`)、7 を実行したら (`work`, B, `update`) も |
 
-organization A → B: `work.primary_organization_id` / `run.organization_id`（`billed_as` は書き換えない）/ `venue.organization_id` / `shop.organization_id` / `booth.organization_id` を B に → `organization_alias` を B に（B に同じ `name_norm` がある A の別名は DELETE して change_log に `delete`）→ A.name を `former_name` alias として B に（統合後の B の名前・別名に同じ `name_norm` が無ければ）→ `escape_id_url` と `slug`（slug は URL から導くので組で扱う）を、B の `escape_id_url` が NULL で A にあるときだけ B へ移す → A の `merged_into_id` → change_log（`merge` 1 行 + 別名の `create` + B の `update`）。
+organization A → B: `work.primary_organization_id` / `run.organization_id`（`billed_as` は書き換えない）/ `venue.organization_id` / `shop.organization_id` / `booth.organization_id` を B に → `organization_alias` を B に（B に同じ `name_norm` がある A の別名は DELETE して change_log に `delete`）→ A.name を `former_name` alias として B に（統合後の B の名前・別名に同じ `name_norm` が無ければ）→ `escape_id_url` と `slug`（slug は URL から導くので組で扱う）を、B の `escape_id_url` が NULL で A にあるときだけ B へ移す → A の `merged_into_id` → change_log（`merge` 1 行 + 消した別名ごとの `delete` + 別名の `create` + B の `update`）。
 
 venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` を B に → A の `merged_into_id` → change_log（`merge` 1 行）。venue に alias 表は無いので旧名は change_log にだけ残る。
 

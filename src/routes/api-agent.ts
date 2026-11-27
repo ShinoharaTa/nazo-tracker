@@ -39,6 +39,7 @@ import {
 import { requestStatuses } from '../db/schema'
 import { getAutoApply } from '../db/settings'
 import type { AppEnv } from '../env'
+import { isUniqueViolation } from '../lib/db-error'
 import { url as urlParser } from '../lib/form'
 import { hasUserinfo } from '../lib/match'
 import { isEscapeIdMyPage } from '../lib/url'
@@ -283,9 +284,6 @@ apiAgent.post('/sources', requireScope('source:write'), async (c) => {
 })
 
 // ---- 提案（proposal）。自動反映ルール（src/pipeline/auto.ts）に合えば auto_applied、それ以外は pending
-
-const isUniqueViolation = (e: unknown) =>
-  String((e as { cause?: unknown })?.cause ?? e).includes('UNIQUE constraint failed')
 
 // 提案の書き込みが UNIQUE 違反で落ちたときの 409 の本文。確かめてから書くまでの間に、同じ fingerprint の pending か、
 // （自動反映なら）同じ escape.id URL の回ができた。自動反映でほかの UNIQUE に当たったら conflict。どれでもなければ null

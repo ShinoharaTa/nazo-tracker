@@ -42,7 +42,7 @@ const workAliasInto = alias(workAlias, 'work_alias_into')
 const orgAliasInto = alias(organizationAlias, 'organization_alias_into')
 
 // A の別名のうち、B に同じ title_norm の別名があるもの（UNIQUE(work_id, title_norm) で付け替えられない）
-const workAliasesTakenByB = (db: Db, a: WorkRow, b: WorkRow) =>
+export const workAliasesTakenByB = (db: Db, a: WorkRow, b: WorkRow) =>
   db
     .select()
     .from(workAlias)
@@ -60,7 +60,7 @@ const workAliasesTakenByB = (db: Db, a: WorkRow, b: WorkRow) =>
     )
 
 // 団体版（UNIQUE(organization_id, name_norm)）
-const orgAliasesTakenByB = (db: Db, a: OrgRow, b: OrgRow) =>
+export const orgAliasesTakenByB = (db: Db, a: OrgRow, b: OrgRow) =>
   db
     .select()
     .from(organizationAlias)

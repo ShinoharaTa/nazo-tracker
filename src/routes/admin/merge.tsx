@@ -19,7 +19,13 @@ import {
   workMergeCounts,
   workTitleNormTaken,
 } from '../../db/master'
-import { mergeOrganization, mergeVenue, mergeWork } from '../../db/merge'
+import {
+  mergeOrganization,
+  mergeVenue,
+  mergeWork,
+  orgAliasesTakenByB,
+  workAliasesTakenByB,
+} from '../../db/merge'
 import type { AppEnv } from '../../env'
 import {
   AdminNotFound,
@@ -49,6 +55,12 @@ type Entity<R extends Row> = {
   merge: (db: Db, a: R, b: R, ctx: WriteCtx) => Promise<void>
 }
 
+// 「別名 N 件」。統合先に同じ別名があって消える分（M）があれば括弧で添える
+const aliasCount = (n: number, dropped: number): string =>
+  dropped > 0
+    ? `別名 ${n} 件（うち ${dropped} 件は統合先に同じ別名があるため削除）`
+    : `別名 ${n} 件`
+
 const orgName = async (db: Db, id: string | null): Promise<string | null> =>
   id ? ((await getAdminOrg(db, id))?.row.name ?? null) : null
 
@@ -63,12 +75,13 @@ const workEntity: Entity<WorkRow> = {
     ['公式サイト', r.officialUrl],
   ],
   notes: async (db, a, b) => {
-    const [n, taken] = await Promise.all([
+    const [n, taken, dropped] = await Promise.all([
       workMergeCounts(db, a.id),
       workTitleNormTaken(db, { fromId: a.id, intoId: b.id }, a.titleNorm),
+      workAliasesTakenByB(db, a, b),
     ])
     return [
-      `「${b.title}」に付け替わるもの: 回 ${n.runs} 件、別名 ${n.aliases} 件、出店 ${n.boothItems} 件。記録とマイリストも自動で付け替えます（件数は表示しません）。`,
+      `「${b.title}」に付け替わるもの: 回 ${n.runs} 件、${aliasCount(n.aliases, dropped.length)}、出店 ${n.boothItems} 件。記録とマイリストも自動で付け替えます（件数は表示しません）。`,
       'マイリストで両方に入れていた人は統合先側の 1 件だけが残ります。',
       taken
         ? '同じ題名が統合先にあるため旧題は追加しません。'
@@ -89,12 +102,13 @@ const orgEntity: Entity<OrgRow> = {
     ['公式サイト', r.siteUrl],
   ],
   notes: async (db, a, b) => {
-    const [n, taken] = await Promise.all([
+    const [n, taken, dropped] = await Promise.all([
       orgMergeCounts(db, a.id),
       orgNameNormTaken(db, { fromId: a.id, intoId: b.id }, a.nameNorm),
+      orgAliasesTakenByB(db, a, b),
     ])
     return [
-      `「${b.name}」に付け替わるもの: 作品 ${n.works} 件、回 ${n.runs} 件、会場 ${n.venues} 件、販売先 ${n.shops} 件、出店 ${n.booths} 件、別名 ${n.aliases} 件。回の名義の表記は書き換えません。`,
+      `「${b.name}」に付け替わるもの: 作品 ${n.works} 件、回 ${n.runs} 件、会場 ${n.venues} 件、販売先 ${n.shops} 件、出店 ${n.booths} 件、${aliasCount(n.aliases, dropped.length)}。回の名義の表記は書き換えません。`,
       taken
         ? '同じ名前が統合先にあるため旧名は追加しません。'
         : `「${a.name}」の名前は「${b.name}」の旧名として残ります。`,

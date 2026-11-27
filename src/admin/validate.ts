@@ -142,7 +142,7 @@ export const validateOrg = async (db: Db, f: Form, selfId?: string) => {
 export const orgAliasFields = ['name', 'kind', 'since', 'until'] as const
 
 // 別名の追加で、同じ親に同じ表記（*_norm）の別名があるとき（団体・作品共通）
-const ALIAS_TAKEN = '同じ別名がすでにあります。'
+export const ALIAS_TAKEN = '同じ別名がすでにあります。'
 
 export type OrgAliasInput = {
   name: string
