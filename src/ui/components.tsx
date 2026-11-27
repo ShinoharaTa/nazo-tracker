@@ -282,7 +282,10 @@ export const Switch = (props: {
   </label>
 )
 
-export const Menu = ({ children }: { children?: Child }) => <div class="menu">{children}</div>
+// cls は修飾クラス（例: 統計の積み謎の backlog）
+export const Menu = ({ children, cls }: { children?: Child; cls?: string }) => (
+  <div class={cls ? `menu ${cls}` : 'menu'}>{children}</div>
+)
 
 // href があればリンク、action があればそこへ POST するボタン、disabled なら押しても何も起きない
 // aria-disabled のボタン、どれも無ければ表示だけ

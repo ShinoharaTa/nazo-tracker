@@ -692,10 +692,44 @@ describe('src/lib/stats（完了側の傾向）', () => {
     )
   })
 
-  it('done の画面: 0 件なら形式別の平均・積み謎の古い順は Empty', async () => {
+  it('done の画面: 0 件なら形式別の平均は節ごと出さず、積み謎の古い順は Empty', async () => {
     const html = await donePage([])
-    expect(html.match(/まだ完了した記録がありません。/g)).toHaveLength(2)
+    expect(html).not.toContain('形式別の平均')
+    expect(html.match(/まだ完了した記録がありません。/g)).toHaveLength(1)
     expect(html).toContain('買った・未着手の記録はありません。')
+    expect(html).not.toContain('件を表示しています')
+  })
+
+  it('done の画面: 積み謎の 0 日と未来の日付は「今日購入」', async () => {
+    const html = await donePage([
+      row({ id: 'p0', status: 'purchased', kind: 'line', purchasedOn: '2026-11-27' }),
+      row({ id: 'pf', status: 'purchased', kind: 'line', purchasedOn: '2026-12-05' }),
+    ])
+    expect(html).toContain(
+      '<a href="/records/p0"><span>t</span><span class="note">今日購入</span></a>',
+    )
+    expect(html).toContain(
+      '<a href="/records/pf"><span>t</span><span class="note">今日購入</span></a>',
+    )
+    // 集計の days は生の値のまま
+    const b = computeStats(
+      [row({ id: 'pf', status: 'purchased', kind: 'line', purchasedOn: '2026-12-05' })],
+      [],
+      new Map(),
+      { year: 2026, today: '2026-11-27' },
+    ).done.backlogOldest
+    expect(b[0].days).toBe(-8)
+  })
+
+  it('done の画面: 積み謎が 10 件を超えると「古い順に 10 件を表示しています。」', async () => {
+    const rows = (n: number) =>
+      Array.from({ length: n }, () =>
+        row({ status: 'purchased', kind: 'takeaway', purchasedOn: '2026-01-01' }),
+      )
+    const html = await donePage(rows(11))
+    expect(html).toContain('<div class="menu backlog">')
+    expect(html).toContain('<p class="note">古い順に 10 件を表示しています。</p>')
+    expect(await donePage(rows(10))).not.toContain('件を表示しています')
   })
 })
 
@@ -1132,9 +1166,13 @@ describe('GET /stats（得意傾向）', () => {
 
 describe('GET /stats（完了側の傾向）', () => {
   let frank = { cookie: '', userId: '' }
-  // 今日（JST）から n 日前の YYYY-MM-DD
+  // 準備の「今日」（JST）。判定もこの日を基準にする
+  const base = todayJst()
+  // base から n 日前の YYYY-MM-DD
   const daysAgo = (n: number) =>
-    new Date(Date.parse(todayJst()) - n * 86_400_000).toISOString().slice(0, 10)
+    new Date(Date.parse(base) - n * 86_400_000).toISOString().slice(0, 10)
+  // base から見て today が何日進んだか（準備と判定の間に JST 0 時をまたいだときだけ 1 以上）
+  const elapsed = (today: string) => (Date.parse(today) - Date.parse(base)) / 86_400_000
   beforeAll(async () => {
     frank = await loginAs(env, { subject: 'stats-frank' })
     const take = await insertWork(env, { title: '傾向の積み持ち帰り', kind: 'takeaway' })
@@ -1165,9 +1203,15 @@ describe('GET /stats（完了側の傾向）', () => {
   })
 
   it('?view=done: 積み謎の古い順（経過日数は今日 JST から、予約済みは出ない）と形式別の平均', async () => {
+    const before = todayJst()
     const html = await (await get('/stats?view=done', frank.cookie)).text()
+    const after = todayJst()
+    // 画面の「今日」はリクエスト中の todayJst()。その前後どちらかの日で 3 日前（＋またいだ日数）
+    const days = [...new Set([before, after].map((t) => 3 + elapsed(t)))].join('|')
     expect(html).toMatch(
-      /<a href="\/records\/[0-9A-Z]+"><span>傾向の積み持ち帰り<\/span><span class="note">3 日前に購入<\/span><\/a><a href="\/records\/[0-9A-Z]+"><span>傾向の積みWeb<\/span><span class="note">日付なし<\/span><\/a><\/div>/,
+      new RegExp(
+        `<a href="/records/[0-9A-Z]+"><span>傾向の積み持ち帰り</span><span class="note">(${days}) 日前に購入</span></a><a href="/records/[0-9A-Z]+"><span>傾向の積みWeb</span><span class="note">日付なし</span></a></div>`,
+      ),
     )
     expect(html).not.toContain('傾向の予約ルーム')
     expect(html).toContain('<dt>Web</dt><dd>難易度 2.0 · 物量 3.0</dd>')
