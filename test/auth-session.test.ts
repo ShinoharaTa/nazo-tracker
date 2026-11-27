@@ -298,6 +298,11 @@ describe('すべての端末からログアウト', () => {
     expect(await sessionRows(userId)).toHaveLength(1)
   })
 
+  it('GET では受けない', async () => {
+    const { cookie } = await loginAs(env, { subject: 'all-getout' })
+    expect((await get('/auth/logout/all', cookie)).status).toBe(404)
+  })
+
   it('/settings に /auth/logout/all へ POST する form と説明が出る', async () => {
     const { cookie } = await loginAs(env, { subject: 'all-ui' })
     const html = await (await get('/settings', cookie)).text()
