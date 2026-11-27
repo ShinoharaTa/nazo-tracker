@@ -431,6 +431,11 @@ const SettingsList = ({
     <div class="sect">
       <Menu>
         <MenuItem label="ログアウト" action="/auth/logout" />
+        <MenuItem
+          label="すべての端末からログアウト"
+          note="ほかのスマホや PC でのログインもすべて切れます。"
+          action="/auth/logout/all"
+        />
         <MenuItem label="退会" href="/settings/delete" />
       </Menu>
     </div>

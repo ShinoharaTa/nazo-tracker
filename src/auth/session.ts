@@ -73,6 +73,11 @@ export const deleteSession = async (db: Db, id: string) => {
   await db.delete(sessionToken).where(eq(sessionToken.id, id))
 }
 
+// すべての端末からログアウト。その user の session_token を全部消す
+export const deleteUserSessions = async (db: Db, userId: string) => {
+  await db.delete(sessionToken).where(eq(sessionToken.userId, userId))
+}
+
 // session_token JOIN user の 1 クエリ
 export const findSession = async (db: Db, id: string) => {
   const rows = await db

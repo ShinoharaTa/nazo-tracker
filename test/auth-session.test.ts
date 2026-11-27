@@ -7,9 +7,9 @@ import { loginAs, ORIGIN, sessionCookieOf } from './helpers/auth'
 const get = (path: string, cookie?: string) =>
   app.request(path, { headers: cookie ? { Cookie: cookie } : {} }, env)
 
-const logout = (headers: Record<string, string>) =>
+const logout = (headers: Record<string, string>, path = '/auth/logout') =>
   app.request(
-    '/auth/logout',
+    path,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers },
@@ -260,5 +260,49 @@ describe('ログアウト', () => {
   it('GET では受けない', async () => {
     const { cookie } = await loginAs(env, { subject: 'getout' })
     expect((await get('/auth/logout', cookie)).status).toBe(404)
+  })
+})
+
+describe('すべての端末からログアウト', () => {
+  const logoutAll = (headers: Record<string, string>) => logout(headers, '/auth/logout/all')
+
+  it('自分の session 行がすべて消え、どちらの cookie も 302 /login。他人の session は残る', async () => {
+    const a = await loginAs(env, { subject: 'all-a' })
+    const b = await loginAs(env, { subject: 'all-a' })
+    expect(b.userId).toBe(a.userId)
+    expect(await sessionRows(a.userId)).toHaveLength(2)
+    const other = await loginAs(env, { subject: 'all-other' })
+
+    const res = await logoutAll({ Origin: ORIGIN, Cookie: a.cookie })
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/login')
+    expect(clearsSession(res)).toBe(true)
+    expect(await sessionRows(a.userId)).toEqual([])
+    expect((await get('/records', a.cookie)).status).toBe(302)
+    expect((await get('/records', b.cookie)).status).toBe(302)
+
+    expect(await sessionRows(other.userId)).toHaveLength(1)
+    expect((await get('/records', other.cookie)).status).toBe(200)
+  })
+
+  it('未ログインは 401', async () => {
+    const res = await logoutAll({ Origin: ORIGIN })
+    expect(res.status).toBe(401)
+    expect(await res.text()).toBe('ログインが必要です')
+  })
+
+  it('別オリジンの Origin は 403 で、session は消えない', async () => {
+    const { cookie, userId } = await loginAs(env, { subject: 'all-csrf' })
+    const res = await logoutAll({ Cookie: cookie, Origin: 'https://evil.example' })
+    expect(res.status).toBe(403)
+    expect(await sessionRows(userId)).toHaveLength(1)
+  })
+
+  it('/settings に /auth/logout/all へ POST する form と説明が出る', async () => {
+    const { cookie } = await loginAs(env, { subject: 'all-ui' })
+    const html = await (await get('/settings', cookie)).text()
+    expect(html).toContain('<form method="post" action="/auth/logout/all"><button type="submit">')
+    expect(html).toContain('すべての端末からログアウト')
+    expect(html).toContain('ほかのスマホや PC でのログインもすべて切れます。')
   })
 })
