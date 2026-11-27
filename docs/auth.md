@@ -25,7 +25,7 @@
 決定: Google + Discord から開始 → LINE を追加 → Bluesky は P6 → X は見送り。
 
 - ID トークンの署名（JWKS）は検証しない。token endpoint から TLS で直接受け取るため（OIDC Core 3.1.3.7）。iss / aud / exp / nonce は照合する（Google と LINE で共通の `src/auth/providers/id-token.ts`）。
-- LINE: LINE ログイン v2.1。scope は `openid` のみ（`profile` / `email` は要求しない）。認可 URL は `https://access.line.me/oauth2/v2.1/authorize`、token は `https://api.line.me/oauth2/v2.1/token`。ID トークンの iss は `https://access.line.me` のみ受け付け、aud はチャネル ID、`sub` を subject にする。nonce は Google と同じく `oauth_state.nonce` と照合する。
+- LINE: LINE ログイン v2.1。scope は `openid` のみ（`profile` / `email` は要求しない）。認可 URL は `https://access.line.me/oauth2/v2.1/authorize`、token は `https://api.line.me/oauth2/v2.1/token`。ID トークンの iss は `https://access.line.me` のみ受け付け、aud はチャネル ID、`sub` を subject にする。LINE のユーザー ID（sub）はプロバイダごとに異なる。チャネルは同じプロバイダの下に置き続ける（作り直すと全員の sub が変わり別ユーザー扱いになる）。nonce は Google と同じく `oauth_state.nonce` と照合する。
 - Discord: scope は `identify` のみ、認可 URL に `prompt=none`（`prompt=none` は既に認可済みのユーザーの同意画面を省略するだけで、初回は同意画面が出る（Discord 公式 docs））。API は v10 に固定（`/api/v10/oauth2/token`・`/api/v10/users/@me`）。token 応答の `token_type` が `Bearer`（大文字小文字は区別しない）で `scope` に `identify` を含むことを確かめ、`GET /api/v10/users/@me` の `id` を subject にする。`username` 等は読まない・保存しない。access_token は `/users/@me` を呼んだら捨てる。OIDC ではないので nonce は使わない（`oauth_state.nonce` は NULL）。
 - `<PROVIDER>_CLIENT_ID` と `<PROVIDER>_CLIENT_SECRET` のどちらかが空なら、そのプロバイダは「準備中」（`/login` のボタンは無効、`/auth/<provider>` は 503）。
 

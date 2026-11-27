@@ -17,15 +17,16 @@
    - `DISCORD_CLIENT_ID` は `wrangler.toml` の `[vars]`、シークレットは `npx wrangler secret put DISCORD_CLIENT_SECRET`
 6. LINE: LINE Developers コンソール（https://developers.line.biz/console/）でプロバイダを作り、その下に「LINE ログイン」チャネルを作る（アプリタイプ: ウェブアプリ）。
    - コールバック URL: `https://nazo.shino3.net/auth/line/callback` と `http://127.0.0.1:8787/auth/line/callback`
-   - scope は `openid` のみ
+   - メールアドレス取得権限（OpenID Connect の email）は申請しない。scope はアプリ側で openid のみ要求する
    - チャネル ID を `wrangler.toml` の `[vars]` の `LINE_CLIENT_ID`、チャネルシークレットは `npx wrangler secret put LINE_CLIENT_SECRET`
    - チャネルを「公開済み」にする（「開発中」のままだと、チャネルに開発者ロールで登録した人しかログインできない）
-7. オーナー: `wrangler.toml` の `OWNER_IDENTITIES = "discord:<自分の Discord ユーザー ID>"`（provider は `google` / `discord` / `line` を使える。LINE なら `line:<sub>`）。反映は次回ログイン時（既にログイン中なら一度ログアウトして再ログイン）。
+   - LINE のユーザー ID（sub）はプロバイダごとに異なる。チャネルは同じプロバイダの下に置き続ける（作り直すと全員の sub が変わり別ユーザー扱いになる）。
+7. オーナー: `wrangler.toml` の `OWNER_IDENTITIES = "discord:<自分の Discord ユーザー ID>"`（provider は `google` / `discord` / `line` を使える。LINE なら `line:<sub>`）。反映は次回ログイン時（既にログイン中なら一度ログアウトして再ログイン）。自分の LINE の sub は、一度 LINE でログインしてから `npx wrangler d1 execute nazo-tracker --remote --command "SELECT user_id, subject FROM identity WHERE provider = 'line'"` で引く（`subject` 列が sub）。
 8. `wrangler.toml` の `AUTH_DEV_LOGIN = "0"`、`UI_GALLERY = "0"` を確認する。
 9. カスタムドメインは `wrangler.toml` の `routes = [{ pattern = "nazo.shino3.net", custom_domain = true }]` と `workers_dev = false` で設定済み。`shino3.net` の DNS ゾーンが同じ Cloudflare アカウントにあれば、`npm run deploy` で DNS レコードと証明書が自動で作られる（ダッシュボードでの操作は不要。既に同名の DNS レコードがあると deploy が失敗するので、その場合は先に消す）。
 10. `npm run deploy` のあと確認する:
-   - `curl -I https://nazo.shino3.net/healthz` が 200
-   - `curl -I https://nazo.shino3.net/records` が 302、`location: /login`
+    - `curl -I https://nazo.shino3.net/healthz` が 200
+    - `curl -I https://nazo.shino3.net/records` が 302、`location: /login`
 
 ### 実アプリでの初回確認
 

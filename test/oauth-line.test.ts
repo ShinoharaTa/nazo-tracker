@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { parseAndVerifyLineIdToken } from '../src/auth/providers/line'
+import { line, parseAndVerifyLineIdToken } from '../src/auth/providers/line'
 import { findOAuthProvider, oauthProviders } from '../src/auth/providers/types'
 import app from '../src/index'
 import { sha256Base64url } from '../src/lib/random'
@@ -200,6 +200,29 @@ describe('parseAndVerifyLineIdToken', () => {
     expect(
       parseAndVerifyLineIdToken(jwt(claims('n-1')), { clientId: CLIENT_ID, nonce: null }),
     ).toBeNull()
+  })
+})
+
+describe('line.subjectOf', () => {
+  const ctx = { clientId: CLIENT_ID, nonce: 'n-1' }
+
+  it('id_token が正しければ sub を返す', async () => {
+    expect(await line.subjectOf({ id_token: jwt(claims('n-1')) }, ctx)).toBe(
+      'U0123456789abcdef0123456789abcdef',
+    )
+  })
+
+  it.each([
+    ['null', null],
+    ['文字列', 'not-an-object'],
+    ['数値', 1],
+    ['undefined', undefined],
+  ])('token がオブジェクトでなければ null（%s）', async (_, token) => {
+    expect(await line.subjectOf(token, ctx)).toBeNull()
+  })
+
+  it('id_token が無ければ null', async () => {
+    expect(await line.subjectOf({ access_token: 'at' }, ctx)).toBeNull()
   })
 })
 
