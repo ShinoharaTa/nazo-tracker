@@ -13,6 +13,7 @@
 | P1 認証 | セッション（ハッシュ保存・延長・固定化対策）、仮ログイン、オーナー判定、`scopedTo`、表示名、退会、Google / Discord OAuth | #2, #17〜#21 → #24〜#28 |
 | LINE ログイン | LINE ログイン（OIDC + PKCE、scope `openid`）、ID トークン検証を Google と共通化 | #107 → #109 |
 | 運用 docs | デプロイ手順・ローカル開発手順 | #31 → #32 |
+| レート制限 | ログイン入口（`/auth/:provider`・callback）と `/api/agent/*` に Workers の Rate Limiting binding（`docs/ops.md`） | #29 |
 | P4 補完パイプライン | リクエスト投稿・選別、agent トークン、`/api/agent`、source / proposal API、承認 UI（部分承認・却下記憶）、自動反映（既定 OFF）・7 日間の取り消し | #5（#47, #85〜#103） |
 
 ## 進行中
@@ -47,7 +48,6 @@
 | 区分 | 内容 | issue |
 |---|---|---|
 | DB | D1 ビュー（`v_*`）の作成 | #14 |
-| 認証まわり | ログイン系エンドポイントのレート制限（`oauth_state` の掃除は P1 で対応済み） | #29 |
 | 認証まわり | 「すべての端末からログアウト」 | #30 |
 | 本番デプロイ | D1 作成 → `database_id` 置換、`db:migrate:remote`、secret 4 つ（`SESSION_SECRET`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_SECRET`・`LINE_CLIENT_SECRET`）、Google / Discord の OAuth アプリ登録・LINE ログインチャネルの作成と公開、CLIENT_ID、`OWNER_IDENTITIES`、`AUTH_DEV_LOGIN=0` / `UI_GALLERY=0` 確認、カスタムドメイン nazo.shino3.net + `workers_dev = false` | `docs/ops.md`（ユーザー作業） |
 | 実機確認 | Google 初回ログイン、Discord 初回の同意画面、Discord が PKCE（`code_verifier`）を受理するか、LINE 初回ログイン | `docs/ops.md` |

@@ -41,6 +41,7 @@ import { getAutoApply } from '../db/settings'
 import type { AppEnv } from '../env'
 import { url as urlParser } from '../lib/form'
 import { hasUserinfo } from '../lib/match'
+import { allow } from '../lib/rate-limit'
 import { isEscapeIdMyPage } from '../lib/url'
 import { buildAutoApply } from '../pipeline/apply'
 import { autoApplyDecision } from '../pipeline/auto'
@@ -65,6 +66,15 @@ const apiAgent = new Hono<AppEnv>({ strict: false })
 apiAgent.use('*', async (c, next) => {
   await next()
   c.header('Cache-Control', 'no-store')
+})
+// requireAgent（SHA-256 + D1 読み）より前で止める。key は CF-Connecting-IP（無ければ制限しない）
+apiAgent.use('*', async (c, next) => {
+  const ip = c.req.header('CF-Connecting-IP') || null
+  if (!(await allow(c.env.AGENT_LIMITER, ip ? `agent:${ip}` : null))) {
+    c.header('Retry-After', '60')
+    return c.json({ error: 'rate_limited' }, 429)
+  }
+  await next()
 })
 apiAgent.use('*', requireAgent)
 
