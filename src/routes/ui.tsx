@@ -863,6 +863,8 @@ const loginMessage = (error: string | undefined, deleted: string | undefined): s
   if (deleted === '1') return '退会しました。'
   if (error === 'denied') return 'ログインがキャンセルされました。'
   if (error === 'failed') return 'ログインに失敗しました。もう一度お試しください。'
+  if (error === 'busy')
+    return 'アクセスが集中しています。1 分ほど待ってからもう一度お試しください。'
   return null
 }
 
