@@ -62,14 +62,15 @@ const attemptJson = (a: OwnExportAttempt) => ({
   })),
 })
 
-// wishlist は part 1 のときだけ渡す（null ならキーを出さない）
+// wishlist は part 1 のときだけ渡す（null なら wishlist / wishlist_truncated のキーを出さない）。
+// truncated は EXPORT_WISHLIST_LIMIT で切れたとき true
 export const buildExportJson = (input: {
   exportedAt: string
   part: number
   parts: number
   spoiler: boolean
   attempts: OwnExportAttempt[]
-  wishlist: OwnExportWish[] | null
+  wishlist: { items: OwnExportWish[]; truncated: boolean } | null
 }): string =>
   JSON.stringify({
     version: 1,
@@ -80,11 +81,12 @@ export const buildExportJson = (input: {
     attempts: input.attempts.map(attemptJson),
     ...(input.wishlist
       ? {
-          wishlist: input.wishlist.map((w) => ({
+          wishlist: input.wishlist.items.map((w) => ({
             work: workJson(w.work),
             memo: w.memo,
             created_at: w.createdAt,
           })),
+          wishlist_truncated: input.wishlist.truncated,
         }
       : {}),
   })

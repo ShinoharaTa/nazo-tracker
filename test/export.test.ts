@@ -1,6 +1,9 @@
 import { env } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
+import { createDb } from '../src/db/client'
+import { scopedTo } from '../src/db/scoped'
 import app from '../src/index'
+import { buildExportJson } from '../src/lib/export'
 import { ulid } from '../src/lib/id'
 import { todayJst } from '../src/lib/time'
 import { loginAs } from './helpers/auth'
@@ -20,6 +23,7 @@ const json = async (path: string, cookie: string) => {
     includes_spoiler: boolean
     attempts: Record<string, unknown>[]
     wishlist?: Record<string, unknown>[]
+    wishlist_truncated?: boolean
   }
 }
 
@@ -254,6 +258,41 @@ describe('/settings/export', () => {
     const w = await insertWork(env, { title: 'エクスポート 501' })
     await insertManyAttempts(userId, w, 501)
     await insertWish(env, userId, w)
+    // id 順で 500 件目（part 1 の最後）と 501 件目（part 2）に進行ログ・ジャンル・ネタバレを付ける
+    const sorted = await env.DB.prepare('SELECT id FROM attempt WHERE user_id = ? ORDER BY id')
+      .bind(userId)
+      .all<{ id: string }>()
+    const [a500, a501] = [sorted.results[499]?.id ?? '', sorted.results[500]?.id ?? '']
+    const sess500 = await insertSession(env, { attemptId: a500, userId, playedOn: '2026-04-01' })
+    const sess501 = await insertSession(env, { attemptId: a501, userId, playedOn: '2026-04-02' })
+    await insertGenre(env, a500, userId, 'g_logic')
+    await insertGenre(env, a501, userId, 'g_story')
+    const setSpoiler = env.DB.prepare('UPDATE attempt SET spoiler_memo = ? WHERE id = ?')
+    await env.DB.batch([setSpoiler.bind('ネタバレ500', a500), setSpoiler.bind('ネタバレ501', a501)])
+
+    const sp1 = await json('/settings/export/data.json?part=1&spoiler=1', cookie)
+    const x500 = sp1.attempts.find((a) => a.id === a500)
+    expect(x500).toMatchObject({ spoiler_memo: 'ネタバレ500', genres: ['論理'] })
+    expect(sessionsOf(x500).map((s) => s.id)).toEqual([sess500])
+    expect(sp1.attempts.filter((a) => a.spoiler_memo !== null).map((a) => a.id)).toEqual([a500])
+    expect(sp1.attempts.flatMap((a) => sessionsOf(a)).map((s) => s.id)).toEqual([sess500])
+    const sp1Text = JSON.stringify(sp1)
+    expect(sp1Text).not.toContain(a501)
+    expect(sp1Text).not.toContain('ネタバレ501')
+    expect(sp1Text).not.toContain('ストーリー')
+
+    const sp2 = await json('/settings/export/data.json?part=2&spoiler=1', cookie)
+    expect(sp2.attempts).toHaveLength(1)
+    expect(sp2.attempts[0]).toMatchObject({
+      id: a501,
+      spoiler_memo: 'ネタバレ501',
+      genres: ['ストーリー'],
+    })
+    expect(sessionsOf(sp2.attempts[0]).map((s) => s.id)).toEqual([sess501])
+    const sp2Text = JSON.stringify(sp2)
+    expect(sp2Text).not.toContain(a500)
+    expect(sp2Text).not.toContain('ネタバレ500')
+    expect(sp2Text).not.toContain('論理')
 
     const page = await (await get('/settings/export', { Cookie: cookie })).text()
     expect(page).toContain('href="/settings/export/data.json?part=2"')
@@ -263,6 +302,7 @@ describe('/settings/export', () => {
     expect(p1).toMatchObject({ part: 1, parts: 2 })
     expect(p1.attempts).toHaveLength(500)
     expect(p1.wishlist).toHaveLength(1)
+    expect(p1.wishlist_truncated).toBe(false)
     const ids = p1.attempts.map((a) => a.id as string)
     expect(ids).toEqual([...ids].sort())
 
@@ -273,10 +313,43 @@ describe('/settings/export', () => {
     expect(p2.attempts).toHaveLength(1)
     expect(p2.attempts[0]?.id > (ids.at(-1) ?? '')).toBe(true)
     expect('wishlist' in p2).toBe(false)
+    expect('wishlist_truncated' in p2).toBe(false)
 
     for (const q of ['?part=3', '?part=0', '?part=abc', '?part=1.5', '?part=01', '']) {
       const r = await get(`/settings/export/data.json${q}`, { Cookie: cookie })
       expect(r.status, q).toBe(404)
     }
+  })
+
+  it('マイリストが上限を超えたら切って wishlist_truncated: true（上限は引数で差し替え）', async () => {
+    const { userId } = await loginAs(env, { subject: 'ex-wish-cap' })
+    const ws = [
+      await insertWork(env, { title: 'エクスポート 上限 1' }),
+      await insertWork(env, { title: 'エクスポート 上限 2' }),
+      await insertWork(env, { title: 'エクスポート 上限 3' }),
+    ]
+    for (const [i, w] of ws.entries())
+      await insertWish(env, userId, w, `2026-01-0${i + 1}T00:00:00.000Z`)
+    const own = scopedTo(createDb(env.DB), userId).own()
+
+    const cut = await own.exportWishlist(2)
+    expect(cut.truncated).toBe(true)
+    expect(cut.items.map((x) => x.work.id)).toEqual([ws[0], ws[1]])
+    const body = JSON.parse(
+      buildExportJson({
+        exportedAt: '2026-01-10T00:00:00.000Z',
+        part: 1,
+        parts: 1,
+        spoiler: false,
+        attempts: [],
+        wishlist: cut,
+      }),
+    )
+    expect(body.wishlist).toHaveLength(2)
+    expect(body.wishlist_truncated).toBe(true)
+
+    const all = await own.exportWishlist(3)
+    expect(all.truncated).toBe(false)
+    expect(all.items).toHaveLength(3)
   })
 })

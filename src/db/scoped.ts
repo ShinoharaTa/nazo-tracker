@@ -247,8 +247,8 @@ export type OwnRepo = {
   // 記録を attempt.id ASC で EXPORT_PART 件ずつ。part は 1 始まり（範囲の検査は呼び出し側）。
   // spoiler: true のときだけ spoiler_memo を読み、spoilerMemo のキーを付ける
   exportPart(part: number, opts: { spoiler: boolean }): Promise<OwnExportAttempt[]>
-  // マイリスト全件。created_at ASC で最大 EXPORT_WISHLIST_LIMIT 件
-  exportWishlist(): Promise<OwnExportWish[]>
+  // マイリスト全件。created_at ASC で最大 limit 件（既定 EXPORT_WISHLIST_LIMIT）。超えたら truncated
+  exportWishlist(limit?: number): Promise<{ items: OwnExportWish[]; truncated: boolean }>
 }
 
 // P1 は箱だけ。P8 で射影を返すメソッドを足す
@@ -715,46 +715,48 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .orderBy(asc(attempt.id))
       .limit(EXPORT_PART)
       .offset(offset)
-    const [[rows, genres, sessions], spoilers] = await Promise.all([
-      db.batch([
-        db
-          .select({ ...enrichedColumns, sourceRef: v.sourceRef })
-          .from(v)
-          .where(eq(v.userId, viewerId))
-          .orderBy(asc(v.id))
-          .limit(EXPORT_PART)
-          .offset(offset),
-        db
-          .select({ attemptId: attemptGenre.attemptId, label: genre.label })
-          .from(attemptGenre)
-          .innerJoin(genre, eq(genre.id, attemptGenre.genreId))
-          .where(and(eq(attemptGenre.userId, viewerId), inArray(attemptGenre.attemptId, ids)))
-          .orderBy(asc(genre.sortOrder), asc(genre.id)),
-        db
-          .select({
-            id: session.id,
-            attemptId: session.attemptId,
-            playedOn: session.playedOn,
-            startedAt: session.startedAt,
-            endedAt: session.endedAt,
-            durationSec: session.durationSec,
-            progressNote: session.progressNote,
-            companions: session.companions,
-            memo: session.memo,
-            locationText: session.locationText,
-            createdAt: session.createdAt,
-          })
-          .from(session)
-          .where(and(eq(session.userId, viewerId), inArray(session.attemptId, ids)))
-          .orderBy(asc(session.playedOn), asc(session.createdAt), asc(session.id)),
-      ]),
-      spoiler
-        ? db
+    const rowsQ = db
+      .select({ ...enrichedColumns, sourceRef: v.sourceRef })
+      .from(v)
+      .where(eq(v.userId, viewerId))
+      .orderBy(asc(v.id))
+      .limit(EXPORT_PART)
+      .offset(offset)
+    const genresQ = db
+      .select({ attemptId: attemptGenre.attemptId, label: genre.label })
+      .from(attemptGenre)
+      .innerJoin(genre, eq(genre.id, attemptGenre.genreId))
+      .where(and(eq(attemptGenre.userId, viewerId), inArray(attemptGenre.attemptId, ids)))
+      .orderBy(asc(genre.sortOrder), asc(genre.id))
+    const sessionsQ = db
+      .select({
+        id: session.id,
+        attemptId: session.attemptId,
+        playedOn: session.playedOn,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        durationSec: session.durationSec,
+        progressNote: session.progressNote,
+        companions: session.companions,
+        memo: session.memo,
+        locationText: session.locationText,
+        createdAt: session.createdAt,
+      })
+      .from(session)
+      .where(and(eq(session.userId, viewerId), inArray(session.attemptId, ids)))
+      .orderBy(asc(session.playedOn), asc(session.createdAt), asc(session.id))
+    // spoiler でなければネタバレの文は発行しない
+    const [rows, genres, sessions, spoilers] = spoiler
+      ? await db.batch([
+          rowsQ,
+          genresQ,
+          sessionsQ,
+          db
             .select({ id: attempt.id, spoilerMemo: attempt.spoilerMemo })
             .from(attempt)
-            .where(and(eq(attempt.userId, viewerId), inArray(attempt.id, ids)))
-        : null,
-    ])
+            .where(and(eq(attempt.userId, viewerId), inArray(attempt.id, ids))),
+        ])
+      : [...(await db.batch([rowsQ, genresQ, sessionsQ])), null]
     const genresOf = Map.groupBy(genres, (g) => g.attemptId)
     const sessionsOf = Map.groupBy(sessions, (s) => s.attemptId)
     const spoilerOf = new Map(spoilers?.map((s) => [s.id, s.spoilerMemo]))
@@ -787,7 +789,8 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
     })
   },
 
-  async exportWishlist() {
+  // 1 件多く読んで上限を超えたかを判定する
+  async exportWishlist(limit = EXPORT_WISHLIST_LIMIT) {
     const rows = await db
       .select({
         workId: wishlist.workId,
@@ -803,8 +806,8 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .leftJoin(organization, eq(organization.id, work.primaryOrganizationId))
       .where(eq(wishlist.userId, viewerId))
       .orderBy(asc(wishlist.createdAt), asc(wishlist.workId))
-      .limit(EXPORT_WISHLIST_LIMIT)
-    return rows.map((r) => ({
+      .limit(limit + 1)
+    const items = rows.slice(0, limit).map((r) => ({
       work: {
         id: r.workId,
         title: r.title,
@@ -814,6 +817,7 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       memo: r.memo,
       createdAt: r.createdAt,
     }))
+    return { items, truncated: rows.length > limit }
   },
 })
 
