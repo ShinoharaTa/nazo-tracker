@@ -2,7 +2,7 @@
 // src/index.ts で csrf / attachUser より前に登録する。定義していないパスは認証後に全部 403。
 
 import { type Context, Hono } from 'hono'
-import { escapeRunUrl } from '../admin/validate'
+import { escapeRunUrl, permanentValues } from '../admin/validate'
 import { currentAgent, requireAgent, requireScope } from '../auth/agent'
 import type { Db } from '../db/client'
 import {
@@ -49,6 +49,7 @@ import {
   fingerprintOf,
   matchInputOf,
   parseProposal,
+  placeholderSchema,
   proposalFieldSchema,
   validateBundle,
 } from '../pipeline/fields'
@@ -231,7 +232,10 @@ apiAgent.get('/schema', requireScope('master:read'), (c) =>
       'run.channel': runChannels,
       'shop.kind': shopKinds,
       'venue.prefecture': prefectures,
+      // 空文字（null）は常設でない
+      'run.is_permanent': [...permanentValues, ''],
     },
+    placeholders: placeholderSchema(),
     source_methods: agentSourceMethods,
     request_statuses: requestStatuses,
     proposal_statuses: proposalStatuses,
@@ -446,7 +450,12 @@ const isProposalStatus = (v: string): v is ProposalStatus =>
 // 提案の一覧。request_id があればそのリクエストの提案、無ければこのトークンが作った提案だけ。
 // status はカンマ区切り（省略は全状態）。古い順、after（前の頁の next）で続き
 apiAgent.get('/proposals', requireScope('proposal:write'), async (c) => {
-  const requestId = c.req.query('request_id')?.trim()
+  // キーが無いときだけ自分の一覧。キーがあって空・空白だけは取り違えなので 400
+  const rawRequestId = c.req.query('request_id')
+  const requestId = rawRequestId?.trim()
+  if (rawRequestId !== undefined && !requestId) {
+    return c.json({ error: 'invalid_request_id' }, 400)
+  }
   const raw = c.req.query('status')
   const statuses = raw === undefined ? null : raw.split(',').map((s) => s.trim())
   if (statuses && !statuses.every(isProposalStatus)) {

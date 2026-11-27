@@ -54,6 +54,10 @@ const placeholders: Record<string, ProposalTable> = {
   'run.shop_id': 'shop',
 }
 
+// 束の参照に使える列と値（GET /api/agent/schema。{"<表>.<列>": "@<表>"}）
+export const placeholderSchema = (): Record<string, string> =>
+  Object.fromEntries(Object.entries(placeholders).map(([f, t]) => [f, `@${t}`]))
+
 // 項目が束の中の行を指しているなら、その表（@<表> の値のときだけ）
 export const placeholderOf = (
   i: Pick<ProposalItem, 'field' | 'newValue'>,

@@ -38,6 +38,20 @@ const send = async (method: string, path: string, body?: unknown): Promise<Res> 
 const post = (path: string, body: unknown) => send('POST', path, body)
 const get = (path: string) => send('GET', path)
 
+// 一覧を next で最後まで引いて id を並べる（提案が増えても 1 頁に収まる前提にしない）
+const listAllIds = async (path: string, as: (p: string) => Promise<Res> = get) => {
+  const out: string[] = []
+  let after = ''
+  for (;;) {
+    const sep = path.includes('?') ? '&' : '?'
+    const r = await as(`${path}${sep}limit=100${after ? `&after=${after}` : ''}`)
+    expect(r.status).toBe(200)
+    out.push(...(r.body.items as { id: string }[]).map((i) => i.id))
+    if (!r.body.next) return out
+    after = r.body.next as string
+  }
+}
+
 const fetchedAt = '2026-11-11T01:02:03Z'
 
 const okSource = {
@@ -739,9 +753,7 @@ describe('GET /api/agent/proposals と PATCH proposed', () => {
       },
     ])
     // request_id 無しはこのトークンが作った提案
-    const mine = await get('/api/agent/proposals?limit=100&status=pending')
-    expect(mine.status).toBe(200)
-    expect((mine.body.items as { id: string }[]).map((i) => i.id)).toContain(p.body.id)
+    expect(await listAllIds('/api/agent/proposals?status=pending')).toContain(p.body.id)
     expect(await send('PATCH', `/api/agent/requests/${req}`, { status: 'proposed' })).toEqual({
       status: 200,
       body: { id: req, status: 'proposed' },
@@ -786,10 +798,17 @@ describe('GET /api/agent/proposals のページング', () => {
 })
 
 describe('GET /api/agent/proposals の request_id 無し・status', () => {
+  // ほかのテストの提案が混ざらないよう、この節だけのトークンで引く
+  let mine = { id: '', token: '' }
   let other = ''
   beforeAll(async () => {
+    mine = await createToken(createDb(env.DB), 'agent-proposals-list', 90)
     other = (await createToken(createDb(env.DB), 'agent-proposals-other', 90)).id
   })
+  const getMine = async (path: string): Promise<Res> => {
+    const res = await app.request(path, { headers: { Authorization: `Bearer ${mine.token}` } }, env)
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> }
+  }
 
   const insertProposal = async (
     by: string,
@@ -815,63 +834,74 @@ describe('GET /api/agent/proposals の request_id 無し・status', () => {
   const ids = (r: Res) => (r.body.items as { id: string }[]).map((i) => i.id)
 
   it('request_id 無しはこのトークンが作った提案だけ（他トークンの提案は出ない）', async () => {
-    const a1 = await insertProposal(tokenId, 'pending', 1)
+    const a1 = await insertProposal(mine.id, 'pending', 1)
     const b1 = await insertProposal(other, 'pending', 2)
-    const a2 = await insertProposal(tokenId, 'applied', 3)
-    const r = await get('/api/agent/proposals?limit=100')
-    expect(r.status).toBe(200)
-    expect(ids(r)).toEqual(expect.arrayContaining([a1, a2]))
-    expect(ids(r)).not.toContain(b1)
+    const a2 = await insertProposal(mine.id, 'applied', 3)
+    expect(await listAllIds('/api/agent/proposals', getMine)).toEqual([a1, a2])
     // 他トークンの提案を after にしても続きは引けない
-    expect(await get(`/api/agent/proposals?after=${b1}`)).toEqual({
+    expect(await getMine(`/api/agent/proposals?after=${b1}`)).toEqual({
       status: 400,
       body: { error: 'invalid_after' },
     })
   })
 
   it('request_id 無しの頁送り（古い順、next と after）', async () => {
-    // ほかのテストの提案より新しい時刻で入れ、末尾の 3 件を見る
+    const before = await listAllIds('/api/agent/proposals', getMine)
+    // ほかのテストの提案より新しい時刻で入れる
     const x = [
-      await insertProposal(tokenId, 'pending', 30),
-      await insertProposal(tokenId, 'pending', 31),
-      await insertProposal(tokenId, 'pending', 32),
+      await insertProposal(mine.id, 'pending', 30),
+      await insertProposal(mine.id, 'pending', 31),
+      await insertProposal(mine.id, 'pending', 32),
     ]
     await insertProposal(other, 'pending', 33)
     let after = ''
     const seen: string[] = []
     for (;;) {
-      const r = await get(`/api/agent/proposals?limit=2${after ? `&after=${after}` : ''}`)
+      const r = await getMine(`/api/agent/proposals?limit=2${after ? `&after=${after}` : ''}`)
       expect(r.status).toBe(200)
+      expect((r.body.items as unknown[]).length).toBeLessThanOrEqual(2)
       seen.push(...ids(r))
       if (!r.body.next) break
       after = r.body.next as string
     }
-    expect(seen.slice(-3)).toEqual(x)
+    expect(seen).toEqual([...before, ...x])
   })
 
   it('status で絞れる（カンマ区切り）。不正値は 400 invalid_status', async () => {
-    const pending = await insertProposal(tokenId, 'pending', 10)
-    const rejected = await insertProposal(tokenId, 'rejected', 11)
-    const onlyPending = await get('/api/agent/proposals?limit=100&status=pending')
-    expect(ids(onlyPending)).toContain(pending)
-    expect(ids(onlyPending)).not.toContain(rejected)
-    expect(
-      (onlyPending.body.items as { status: string }[]).every((i) => i.status === 'pending'),
-    ).toBe(true)
-    const both = await get('/api/agent/proposals?limit=100&status=pending,rejected')
-    expect(ids(both)).toEqual(expect.arrayContaining([pending, rejected]))
+    const pending = await insertProposal(mine.id, 'pending', 10)
+    const rejected = await insertProposal(mine.id, 'rejected', 11)
+    const onlyPending = await listAllIds('/api/agent/proposals?status=pending', getMine)
+    expect(onlyPending).toContain(pending)
+    expect(onlyPending).not.toContain(rejected)
+    const statuses = await env.DB.prepare(
+      `SELECT DISTINCT status FROM proposal WHERE id IN (${onlyPending.map(() => '?').join(',')})`,
+    )
+      .bind(...onlyPending)
+      .all<{ status: string }>()
+    expect(statuses.results.map((r) => r.status)).toEqual(['pending'])
+    const both = await listAllIds('/api/agent/proposals?status=pending,rejected', getMine)
+    expect(both).toEqual(expect.arrayContaining([pending, rejected]))
     for (const q of [
       'status=nope',
       'status=',
       'status=pending,nope',
       'status=create_attempt_import',
     ]) {
-      expect(await get(`/api/agent/proposals?${q}`), q).toEqual({
+      expect(await getMine(`/api/agent/proposals?${q}`), q).toEqual({
         status: 400,
         body: { error: 'invalid_status' },
       })
     }
-    expect((await get('/api/agent/proposals?request_id=x&status=nope')).status).toBe(400)
+    expect((await getMine('/api/agent/proposals?request_id=x&status=nope')).status).toBe(400)
+  })
+
+  it('request_id が空・空白だけは 400 invalid_request_id（キーが無いときだけ自分の一覧）', async () => {
+    for (const q of ['request_id=', 'request_id=%20%20']) {
+      expect(await getMine(`/api/agent/proposals?${q}`), q).toEqual({
+        status: 400,
+        body: { error: 'invalid_request_id' },
+      })
+    }
   })
 
   it('request_id ありは作ったトークンを問わず、status も効く', async () => {

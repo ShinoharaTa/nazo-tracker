@@ -1,5 +1,15 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
+import {
+  runFields,
+  shopFields,
+  validateRun,
+  validateShop,
+  validateVenue,
+  validateWork,
+  venueFields,
+  workFields,
+} from '../src/admin/validate'
 import { createDb } from '../src/db/client'
 import {
   proposalStatuses,
@@ -418,6 +428,7 @@ describe('GET /api/agent/schema', () => {
   type Schema = {
     proposal_fields: Record<string, Record<string, string[]>>
     enums: Record<string, string[]>
+    placeholders: Record<string, string>
     source_methods: string[]
     request_statuses: string[]
     proposal_statuses: string[]
@@ -476,9 +487,87 @@ describe('GET /api/agent/schema', () => {
     expect(s.enums['run.channel']).toEqual([...runChannels])
     expect(s.enums['shop.kind']).toEqual([...shopKinds])
     expect(s.enums['venue.prefecture']).toHaveLength(47)
+    expect(s.enums['run.is_permanent']).toEqual(['1', ''])
     expect(s.source_methods).toEqual(['escape_mcp', 'webfetch', 'pds'])
     expect(s.request_statuses).toEqual([...requestStatuses])
     expect(s.proposal_statuses).toEqual([...proposalStatuses])
+  })
+
+  it('enum の各値は validator を通り、範囲外の値は落ちる', async () => {
+    const { enums } = await schema()
+    const db = createDb(env.DB)
+    const blank = (fields: readonly string[]) => Object.fromEntries(fields.map((f) => [f, '']))
+    // 列ごとに、検証する validator・ほかの列の値・エラーの見出し
+    const cases: Record<
+      string,
+      { label: string; run: (v: string) => Promise<{ ok: boolean; errors?: string[] }> }
+    > = {
+      'work.kind': {
+        label: '形式',
+        run: (v) => validateWork(db, { ...blank(workFields), title: '題', kind: v }),
+      },
+      'run.channel': {
+        label: '種別',
+        run: (v) => validateRun(db, { ...blank(runFields), channel: v }),
+      },
+      'run.is_permanent': {
+        label: '常設',
+        run: (v) =>
+          validateRun(db, { ...blank(runFields), channel: 'performance', is_permanent: v }),
+      },
+      'shop.kind': {
+        label: '種類',
+        run: (v) => validateShop(db, { ...blank(shopFields), name: '店', kind: v }),
+      },
+      'venue.prefecture': {
+        label: '都道府県',
+        run: (v) => validateVenue(db, { ...blank(venueFields), name: '会場', prefecture: v }),
+      },
+    }
+    expect(Object.keys(enums).sort()).toEqual(Object.keys(cases).sort())
+    for (const [key, c] of Object.entries(cases)) {
+      const bad = `${c.label}の値が正しくありません。`
+      for (const v of enums[key]) {
+        const r = await c.run(v)
+        expect(r.errors ?? [], `${key}=${v}`).not.toContain(bad)
+        // 販売だけは販売先が要る（値そのものは正しい）
+        if (!(key === 'run.channel' && v === 'sale')) expect(r.ok, `${key}=${v}`).toBe(true)
+      }
+      for (const v of ['nope', `${enums[key][0]}x`]) {
+        const r = await c.run(v)
+        expect(r.ok, `${key}=${v}`).toBe(false)
+        expect(r.errors, `${key}=${v}`).toContain(bad)
+      }
+    }
+  })
+
+  it('束の参照は fields.ts の placeholders と同じで、parseProposal が受け付ける', async () => {
+    const { placeholders, proposal_fields: pf } = await schema()
+    expect(placeholders).toEqual({
+      'work.primary_organization_id': '@organization',
+      'run.organization_id': '@organization',
+      'venue.organization_id': '@organization',
+      'shop.organization_id': '@organization',
+      'run.venue_id': '@venue',
+      'run.shop_id': '@shop',
+    })
+    for (const [field, ref] of Object.entries(placeholders)) {
+      const refTable = ref.slice(1)
+      const nameField = `${refTable}.name`
+      expect(pf.create.work, field).toContain(field)
+      const r = parseProposal({
+        kind: 'create',
+        target_table: 'work',
+        fields: [
+          { field: 'work.title', new_value: '題', source_id: null, confidence: 1 },
+          { field, new_value: ref, source_id: null, confidence: 1 },
+          ...(field.startsWith(`${refTable}.`)
+            ? []
+            : [{ field: nameField, new_value: '名', source_id: null, confidence: 1 }]),
+        ],
+      })
+      expect(r.ok, field).toBe(true)
+    }
   })
 })
 
