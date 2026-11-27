@@ -790,6 +790,32 @@ button.gtag.on {
   font-family: var(--mono);
   color: var(--muted);
 }
+/* 団体名・同行者名は自由入力なので、長い語でも列からはみ出さない */
+.bar > span:first-child {
+  overflow-wrap: anywhere;
+}
+/* 「得意」の印（docs/visual-design.md §4.5） */
+.bar .pen {
+  font-size: 12px;
+}
+/* 棒の下の注記（団体別の平均評価）。字は本文と同じ（.v の等幅にしない） */
+.bar-note {
+  grid-column: 2 / -1;
+  margin-top: -6px;
+  font-family: inherit;
+  color: var(--muted);
+}
+/* ラベルを棒の上の行に置く（団体別・同行者別。長い名前でも棒の幅を削らない） */
+.bars.label-top .bar {
+  grid-template-columns: minmax(0, 1fr) 88px;
+  row-gap: 4px;
+}
+.bars.label-top .bar > span:first-child {
+  grid-column: 1 / -1;
+}
+.bars.label-top .bar-note {
+  grid-column: 1 / -1;
+}
 .cols {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1058,6 +1084,28 @@ button.gtag.on {
   align-items: center;
   font-weight: 700;
 }
+/* まとめて承認の選択（承認待ちの .ticket の左に Checkbox。選べない行も同じ幅を空けて揃える） */
+.pick {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.pick > .ticket {
+  flex: 1;
+  min-width: 0;
+}
+.pick-box {
+  flex-shrink: 0;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pick-box input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
 .login {
   min-height: 80vh;
   display: flex;
@@ -1100,6 +1148,17 @@ nav.bn a,
 .idx a,
 .menu > a {
   text-decoration: none;
+}
+/* 統計の積み謎: 長い題名は折り返し、経過日数は折り返さず右端に残す */
+.menu.backlog > a {
+  overflow-wrap: anywhere;
+}
+.menu.backlog > a > * {
+  min-width: 0;
+}
+.menu.backlog > a > .note {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 a.btn,
 a.fab,

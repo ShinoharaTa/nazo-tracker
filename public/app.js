@@ -76,3 +76,38 @@ document.addEventListener('click', (e) => {
   if (toggle.getAttribute('aria-expanded') === 'true') closeSpoiler(toggle, body, veil)
   else openSpoiler(toggle, body, veil)
 })
+
+// まとめて承認の「選べる提案をすべて選ぶ」。data-check-all の件数（1 回の上限）まで先頭から入れ、外すときは全部外す（JS が無いときは hidden のまま）
+for (const all of document.querySelectorAll('[data-check-all]')) {
+  const input = all.querySelector('input')
+  const boxes = [...(all.closest('form')?.querySelectorAll('input[name="id"]') ?? [])]
+  const max = Number(all.getAttribute('data-check-all')) || boxes.length
+  all.hidden = false
+  input?.addEventListener('change', () => {
+    boxes.forEach((box, n) => {
+      box.checked = input.checked && n < max
+    })
+  })
+}
+
+// data-copy="<input の id>" のボタン。input の値をクリップボードへ。使えなければ input を選択状態にする
+document.addEventListener('click', async (e) => {
+  const target = e.target
+  if (!(target instanceof Element)) return
+  const button = target.closest('[data-copy]')
+  if (!(button instanceof HTMLButtonElement)) return
+  const input = document.getElementById(button.getAttribute('data-copy') ?? '')
+  if (!(input instanceof HTMLInputElement)) return
+  try {
+    await navigator.clipboard.writeText(input.value)
+    // 2 秒以内の連打で「コピーしました」を元の文言として覚えないよう、最初の文言を残しておく
+    const label = button.dataset.label ?? button.textContent ?? ''
+    button.dataset.label = label
+    button.textContent = 'コピーしました'
+    setTimeout(() => {
+      button.textContent = label
+    }, 2000)
+  } catch {
+    input.select()
+  }
+})

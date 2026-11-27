@@ -15,6 +15,21 @@ database_id = "3251e285-2215-4035-a29d-bd15ce49abaa"
 preview_database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
+# レート制限（docs/ops.md）。namespace_id はアカウント内で共有される番号。同じアカウントの他の Worker と重ねない
+[[ratelimits]]
+name = "AUTH_LIMITER"
+namespace_id = "29001"
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+[[ratelimits]]
+name = "AGENT_LIMITER"
+namespace_id = "29002"
+  [ratelimits.simple]
+  limit = 300
+  period = 60
+
 [assets]
 directory = "./public"
 

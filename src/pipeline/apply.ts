@@ -118,6 +118,30 @@ export const approvalChoiceOf = (
   }
 }
 
+// まとめて承認（docs/agent-pipeline.md §4）。Workers Free の D1 は 1 回の呼び出しで 50 クエリまで（batch は 1 と数える）。
+// 件数では切らず、POST の中で D1 の呼び出しを数え（src/db/d1-count.ts）、次の 1 件を最悪の見積もりで足すと
+// BULK_CALL_LIMIT を超えるならそこで打ち切って残りを「未処理」にする。test/admin-proposals-bulk.test.ts で数えている
+// 選べる件数の上限（一覧の 1 ページと同じ）
+export const BULK_MAX = 50
+// 打ち切りの線。50 から余裕 2
+export const BULK_CALL_LIMIT = 48
+// 1 件の最悪の見積もり。実測の最大は 9（販売の束 @shop + 作品 + 回 sale + escape_id_url で、団体は既存・URL も全部入り）。
+// 全部入りの束の余地と、書き込みが NOT NULL で落ちたとき（二重送信）の読み直し 2 まで見て 13
+export const BULK_ITEM_WORST = 13
+// 前段の middleware（attachUser）で使う分の見積もり。最大 3（セッション・延長・最終アクセス）。余裕 2 を足して 5
+export const BULK_PRE_CALLS = 5
+
+// まとめて承認の選択: 詳細の承認フォームを既定のまま送ったのと同じ（全項目採用、形式は提案の値、新しく作る、メモなし）
+export const bulkChoiceOf = (
+  fields: readonly Pick<AdminProposalField, 'id' | 'field' | 'newValue'>[],
+): ApprovalChoice => ({
+  accepted: new Set(fields.map((f) => f.id)),
+  kind: fields.find((f) => f.field === 'work.kind')?.newValue ?? '',
+  linkWorkId: '',
+  note: '',
+  force: false,
+})
+
 // 提案のあとで今の値が変わった項目
 export type StaleField = { field: string; current: string | null }
 
