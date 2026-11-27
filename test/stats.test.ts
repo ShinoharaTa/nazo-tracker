@@ -395,7 +395,7 @@ describe('src/lib/stats（得意傾向）', () => {
       new Map(),
     )
 
-  it('byGenre の得意: 4 件 100% には付かず、5 件以上の最初の 1 行だけに付く', () => {
+  it('byGenre の得意: 4 件 100% には付かず、5 件以上で成功率が最高の 1 行だけに付く', () => {
     const g = genreOf([
       ...genreRows('four', 4, 4),
       ...genreRows('five', 5, 4),
@@ -407,7 +407,26 @@ describe('src/lib/stats（得意傾向）', () => {
       ['six', false],
     ])
     expect(genreOf(genreRows('four', 4, 4)).some((x) => x.best)).toBe(false)
-    expect(genreOf(genreRows('five', 5, 0)).map((x) => x.best)).toEqual([true])
+  })
+
+  it('byGenre の得意: 5 件以上の最高でも成功率 50% 未満なら付けない', () => {
+    expect(genreOf(genreRows('five', 5, 0)).map((x) => x.best)).toEqual([false])
+    expect(genreOf(genreRows('five', 5, 1)).map((x) => x.best)).toEqual([false])
+    expect(genreOf(genreRows('five', 5, 3)).map((x) => x.best)).toEqual([true])
+    // A 4/4 は母数不足で対象外、B 3/5 に付く
+    expect(
+      genreOf([...genreRows('A', 4, 4), ...genreRows('B', 5, 3)]).map((x) => [x.genreId, x.best]),
+    ).toEqual([
+      ['A', false],
+      ['B', true],
+    ])
+    // 同率は並びの先頭（件数の多い方）だけ
+    expect(
+      genreOf([...genreRows('x', 5, 4), ...genreRows('y', 10, 8)]).map((x) => [x.genreId, x.best]),
+    ).toEqual([
+      ['y', true],
+      ['x', false],
+    ])
   })
 
   it('byVolume は 量 1〜量 5 の 5 行固定。volume NULL と旧ステータスは分母に入れない', () => {
@@ -591,7 +610,7 @@ describe('グラフの部品', () => {
       '<div class="bar"><span><span class="hl">論理</span> <span class="pen">得意</span></span>',
     )
     expect(html).toContain(
-      '<span class="v">100% · 3/3</span><span class="sub">平均評価 4.3</span></div>',
+      '<span class="v">100% · 3/3</span><span class="bar-note">平均評価 4.3</span></div>',
     )
     expect(html.match(/class="hl"/g)).toHaveLength(1)
   })
@@ -944,11 +963,41 @@ describe('GET /stats（得意傾向）', () => {
     expect(html).toContain(
       '<span><span class="hl">論理</span> <span class="pen">得意</span></span>',
     )
-    expect(html).toContain('<span class="v">80% · 4/5</span><span class="sub">平均評価 4.3</span>')
+    expect(html).toContain(
+      '<span class="v">80% · 4/5</span><span class="bar-note">平均評価 4.3</span>',
+    )
     expect(html).not.toContain('傾向の少ない団体')
     expect(html).toMatch(barOf('あや', '100% · 3/3'))
     expect(html).toMatch(barOf('けん', '100% · 3/3'))
     expect(html.match(/class="hl[ "]/g)).toHaveLength(2)
+    // 団体別・同行者別だけラベルを棒の上に置く
+    expect(html.match(/<div class="bars label-top">/g)).toHaveLength(2)
+  })
+
+  it('成功・失敗の記録はあるが 3 件以上の団体・同行者が無いときの文言', async () => {
+    const html = await (await get('/stats?view=visit', bob.cookie)).text()
+    expect(html).toContain('3 件以上の団体はまだありません。')
+    expect(html).toContain('3 件以上の同行者はまだありません。')
+  })
+
+  it('同行者名の <script> はエスケープされる', async () => {
+    const rows = Array.from({ length: 3 }, () =>
+      // 「/」は区切りなので閉じタグは付けない
+      row({ status: 'cleared', companions: '<script>alert(1)' }),
+    )
+    const html = String(
+      await StatsPage({
+        stats: computeStats(rows, [], new Map(), { year: 2026 }),
+        view: 'visit',
+        year: 2026,
+        thisYear: 2026,
+        minYear: 2000,
+        capped: false,
+        wishlist: { total: 0, played: 0 },
+      }),
+    )
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;alert(1)')
   })
 
   it('記録 0 件なら団体別・同行者別は Empty、「再挑戦」「得意」は出さない', async () => {
@@ -957,5 +1006,6 @@ describe('GET /stats（得意傾向）', () => {
     expect(html).not.toContain('得意')
     expect(html).not.toContain('再挑戦')
     expect(html.match(/まだデータがありません。/g)).toHaveLength(3)
+    expect(html).not.toContain('3 件以上の')
   })
 })

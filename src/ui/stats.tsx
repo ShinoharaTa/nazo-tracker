@@ -131,18 +131,27 @@ const VisitView = (p: StatsPageProps) => {
         <h2>団体別の成功率</h2>
         {byOrg.length ? (
           <RateBars
+            labelTop
             items={byOrg.map((o) => ({
               ...o,
               note: o.rating === null ? undefined : `平均評価 ${o.rating.toFixed(1)}`,
             }))}
           />
+        ) : summary.played ? (
+          <Empty>3 件以上の団体はまだありません。</Empty>
         ) : (
           noData
         )}
       </div>
       <div class="sect">
         <h2>同行者別の成功率</h2>
-        {byCompanion.length ? <RateBars items={byCompanion} /> : noData}
+        {byCompanion.length ? (
+          <RateBars labelTop items={byCompanion} />
+        ) : summary.played ? (
+          <Empty>3 件以上の同行者はまだありません。</Empty>
+        ) : (
+          noData
+        )}
       </div>
       <div class="sect">
         <MonthHead {...p} title="月別の成功・失敗" />

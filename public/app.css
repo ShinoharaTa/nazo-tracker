@@ -798,11 +798,23 @@ button.gtag.on {
 .bar .pen {
   font-size: 12px;
 }
-/* 棒の下の注記（団体別の平均評価） */
-.bar .sub {
+/* 棒の下の注記（団体別の平均評価）。字は本文と同じ（.v の等幅にしない） */
+.bar-note {
   grid-column: 2 / -1;
   margin-top: -6px;
+  font-family: inherit;
   color: var(--muted);
+}
+/* ラベルを棒の上の行に置く（団体別・同行者別。長い名前でも棒の幅を削らない） */
+.bars.label-top .bar {
+  grid-template-columns: minmax(0, 1fr) 88px;
+  row-gap: 4px;
+}
+.bars.label-top .bar > span:first-child {
+  grid-column: 1 / -1;
+}
+.bars.label-top .bar-note {
+  grid-column: 1 / -1;
 }
 .cols {
   display: grid;

@@ -60,7 +60,8 @@ export type Stats = {
     summary: VisitSummary
     // 難易度 1〜5 の 5 行固定（difficulty NULL は除外）
     byDifficulty: (RateRow & { label: string })[]
-    // total ≥ 1 のみ。成功率 DESC, total DESC, ラベル ASC。best は total ≥ 5 の最初の 1 行だけ true
+    // total ≥ 1 のみ。成功率 DESC, total DESC, ラベル ASC。
+    // best は total ≥ 5 の行のうち成功率が最高の 1 行（同率は並びの先頭）だけ、その成功率が 50% 以上のとき true
     byGenre: GenreRateRow[]
     // 物量 1〜5 の 5 行固定（volume NULL は除外）
     byVolume: (RateRow & { label: string })[]
@@ -174,8 +175,9 @@ const byLabel = (a: { label: string }, b: { label: string }) =>
 const byRate = <T extends RateRow & { label: string }>(a: T, b: T): number =>
   b.cleared / b.total - a.cleared / a.total || b.total - a.total || byLabel(a, b)
 
-// 得意の母数（docs/visual-design.md §4.5。仮の値）
+// 得意の母数と、得意と言える成功率の下限（docs/visual-design.md §4.5。仮の値）
 const bestMinTotal = 5
+const bestMinRate = 0.5
 // 団体別・同行者別に出す母数と行数
 const groupMinTotal = 3
 const groupLimit = 10
@@ -204,7 +206,9 @@ export const byGenre = (
     }))
     .filter((g) => g.total >= 1)
     .sort(byRate)
-  const best = sorted.findIndex((g) => g.total >= bestMinTotal)
+  // sorted は成功率の降順なので、total ≥ 5 の最初の行がその中の最高
+  const top = sorted.findIndex((g) => g.total >= bestMinTotal)
+  const best = top >= 0 && sorted[top].cleared / sorted[top].total >= bestMinRate ? top : -1
   return sorted.map((g, i) => ({ ...g, best: i === best }))
 }
 
