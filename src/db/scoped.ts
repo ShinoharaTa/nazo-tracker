@@ -2,7 +2,7 @@
 // own() は本人の行だけ、asFriendOf() は friendship / block を確かめてから射影だけを返す。
 // 記録系テーブルをこのファイル以外から import しないことは scripts/check-scoped.mjs で検査する。
 
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
 import { nowIso, todayJst } from '../lib/time'
 import type { Db } from './client'
@@ -13,6 +13,7 @@ import {
   type attemptStatuses,
   block,
   friendship,
+  genre,
   identity,
   image,
   organization,
@@ -133,6 +134,50 @@ export type OwnWishRow = {
   latestStatus: AttemptStatus | null
 }
 
+// エクスポート（src/lib/export.ts）の記録 1 件。spoilerMemo は exportPart の spoiler: true のときだけキーがある
+export type OwnExportAttempt = {
+  id: string
+  work: {
+    id: string
+    title: string
+    kind: (typeof workKinds)[number] | null
+    org: { id: string; name: string } | null
+  }
+  runId: string | null
+  venue: { name: string; prefecture: string | null } | null
+  status: AttemptStatus
+  attemptNo: number
+  purchasedOn: string | null
+  startedOn: string | null
+  finishedOn: string | null
+  durationSec: number | null
+  partySize: number | null
+  companions: string | null
+  rating: number | null
+  difficulty: number | null
+  volume: number | null
+  // genre.sort_order 順のラベル
+  genres: string[]
+  memo: string | null
+  spoilerMemo?: string | null
+  sourceRef: string | null
+  createdAt: string
+  updatedAt: string
+  // played_on ASC, created_at ASC
+  sessions: (OwnSession & { startedAt: string | null; endedAt: string | null })[]
+}
+
+export type OwnExportWish = {
+  work: {
+    id: string
+    title: string
+    kind: (typeof workKinds)[number] | null
+    org: { id: string; name: string } | null
+  }
+  memo: string | null
+  createdAt: string
+}
+
 export type OwnProfile = {
   id: string
   displayName: string
@@ -197,6 +242,13 @@ export type OwnRepo = {
     genres: { attemptId: string; genreId: string }[]
     capped: boolean
   }>
+  // エクスポート画面の件数
+  exportCounts(): Promise<{ attempts: number; sessions: number; wishlist: number }>
+  // 記録を attempt.id ASC で EXPORT_PART 件ずつ。part は 1 始まり（範囲の検査は呼び出し側）。
+  // spoiler: true のときだけ spoiler_memo を読み、spoilerMemo のキーを付ける
+  exportPart(part: number, opts: { spoiler: boolean }): Promise<OwnExportAttempt[]>
+  // マイリスト全件。created_at ASC で最大 EXPORT_WISHLIST_LIMIT 件
+  exportWishlist(): Promise<OwnExportWish[]>
 }
 
 // P1 は箱だけ。P8 で射影を返すメソッドを足す
@@ -296,6 +348,10 @@ const playedStatuses = ['cleared', 'failed'] as const satisfies readonly Attempt
 
 // 統計で読む記録の上限（docs/data-model.md §6）
 export const STATS_LIMIT = 5000
+
+// エクスポート 1 ファイルの記録数・マイリストの上限（docs/data-model.md §7）。CPU 時間を見て調整する
+export const EXPORT_PART = 500
+export const EXPORT_WISHLIST_LIMIT = 5000
 
 const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
   async profile() {
@@ -633,6 +689,131 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       genres,
       capped: rows.length > STATS_LIMIT,
     }
+  },
+
+  async exportCounts() {
+    const [attempts, sessions, wishes] = await db.batch([
+      db.select({ n: sql<number>`count(*)` }).from(attempt).where(eq(attempt.userId, viewerId)),
+      db.select({ n: sql<number>`count(*)` }).from(session).where(eq(session.userId, viewerId)),
+      db.select({ n: sql<number>`count(*)` }).from(wishlist).where(eq(wishlist.userId, viewerId)),
+    ])
+    return {
+      attempts: attempts[0]?.n ?? 0,
+      sessions: sessions[0]?.n ?? 0,
+      wishlist: wishes[0]?.n ?? 0,
+    }
+  },
+
+  // 進行ログ・ジャンル・ネタバレは part の記録 id を副問い合わせで絞る（id を bind すると D1 の変数上限を超える）。
+  // どの文も user_id = viewerId を入れる
+  async exportPart(part, { spoiler }) {
+    const offset = (part - 1) * EXPORT_PART
+    const ids = db
+      .select({ id: attempt.id })
+      .from(attempt)
+      .where(eq(attempt.userId, viewerId))
+      .orderBy(asc(attempt.id))
+      .limit(EXPORT_PART)
+      .offset(offset)
+    const [[rows, genres, sessions], spoilers] = await Promise.all([
+      db.batch([
+        db
+          .select({ ...enrichedColumns, sourceRef: v.sourceRef })
+          .from(v)
+          .where(eq(v.userId, viewerId))
+          .orderBy(asc(v.id))
+          .limit(EXPORT_PART)
+          .offset(offset),
+        db
+          .select({ attemptId: attemptGenre.attemptId, label: genre.label })
+          .from(attemptGenre)
+          .innerJoin(genre, eq(genre.id, attemptGenre.genreId))
+          .where(and(eq(attemptGenre.userId, viewerId), inArray(attemptGenre.attemptId, ids)))
+          .orderBy(asc(genre.sortOrder), asc(genre.id)),
+        db
+          .select({
+            id: session.id,
+            attemptId: session.attemptId,
+            playedOn: session.playedOn,
+            startedAt: session.startedAt,
+            endedAt: session.endedAt,
+            durationSec: session.durationSec,
+            progressNote: session.progressNote,
+            companions: session.companions,
+            memo: session.memo,
+            locationText: session.locationText,
+            createdAt: session.createdAt,
+          })
+          .from(session)
+          .where(and(eq(session.userId, viewerId), inArray(session.attemptId, ids)))
+          .orderBy(asc(session.playedOn), asc(session.createdAt), asc(session.id)),
+      ]),
+      spoiler
+        ? db
+            .select({ id: attempt.id, spoilerMemo: attempt.spoilerMemo })
+            .from(attempt)
+            .where(and(eq(attempt.userId, viewerId), inArray(attempt.id, ids)))
+        : null,
+    ])
+    const genresOf = Map.groupBy(genres, (g) => g.attemptId)
+    const sessionsOf = Map.groupBy(sessions, (s) => s.attemptId)
+    const spoilerOf = new Map(spoilers?.map((s) => [s.id, s.spoilerMemo]))
+    return rows.map((r) => {
+      const a = toAttemptRow(r)
+      return {
+        id: a.id,
+        work: a.work,
+        runId: a.runId,
+        venue: a.run?.venue ? { name: a.run.venue.name, prefecture: a.run.venue.prefecture } : null,
+        status: a.status,
+        attemptNo: a.attemptNo,
+        purchasedOn: a.purchasedOn,
+        startedOn: a.startedOn,
+        finishedOn: a.finishedOn,
+        durationSec: a.durationSec,
+        partySize: a.partySize,
+        companions: a.companions,
+        rating: a.rating,
+        difficulty: a.difficulty,
+        volume: a.volume,
+        genres: (genresOf.get(a.id) ?? []).map((g) => g.label),
+        memo: a.memo,
+        ...(spoiler ? { spoilerMemo: spoilerOf.get(a.id) ?? null } : {}),
+        sourceRef: r.sourceRef,
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt,
+        sessions: (sessionsOf.get(a.id) ?? []).map(({ attemptId, ...s }) => s),
+      }
+    })
+  },
+
+  async exportWishlist() {
+    const rows = await db
+      .select({
+        workId: wishlist.workId,
+        title: work.title,
+        kind: work.kind,
+        orgId: organization.id,
+        orgName: organization.name,
+        memo: wishlist.memo,
+        createdAt: wishlist.createdAt,
+      })
+      .from(wishlist)
+      .innerJoin(work, eq(work.id, wishlist.workId))
+      .leftJoin(organization, eq(organization.id, work.primaryOrganizationId))
+      .where(eq(wishlist.userId, viewerId))
+      .orderBy(asc(wishlist.createdAt), asc(wishlist.workId))
+      .limit(EXPORT_WISHLIST_LIMIT)
+    return rows.map((r) => ({
+      work: {
+        id: r.workId,
+        title: r.title,
+        kind: r.kind,
+        org: r.orgId && r.orgName ? { id: r.orgId, name: r.orgName } : null,
+      },
+      memo: r.memo,
+      createdAt: r.createdAt,
+    }))
   },
 })
 
