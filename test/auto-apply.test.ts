@@ -296,6 +296,32 @@ describe('自動反映', () => {
     expect(r.body.status).toBe('auto_applied')
   })
 
+  it('hold: true の後に同じ本文を hold 無しで送ると 409 duplicate_pending（hold は fingerprint に含めない）', async () => {
+    await setAuto(true)
+    const body = createWorkBody(`hold dup ${uniq()}`)
+    const first = await propose({ ...body, hold: true })
+    expect(first.status, JSON.stringify(first.body)).toBe(201)
+    expect(first.body.status).toBe('pending')
+    const second = await propose(body)
+    expect(second).toEqual({
+      status: 409,
+      body: { error: 'duplicate_pending', proposal_id: first.body.id },
+    })
+  })
+
+  it('hold: true なら kind 0.7 でも follow-up を作らず pending', async () => {
+    await setAuto(true)
+    const r = await propose(
+      createWorkBody(`hold kind ${uniq()}`, [f('work.kind', 'room', 0.7)], { hold: true }),
+    )
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    expect(r.body).toMatchObject({ status: 'pending', follow_ups: [] })
+    expect((await proposalOf(r.body.id as string))?.status).toBe('pending')
+    expect(
+      await count('SELECT COUNT(*) AS n FROM proposal WHERE follow_up_of_id = ?', r.body.id),
+    ).toBe(0)
+  })
+
   it('hold が true / false 以外は 400 invalid_hold（行を作らない）', async () => {
     await setAuto(true)
     for (const hold of [1, 0, 'true', null, {}]) {

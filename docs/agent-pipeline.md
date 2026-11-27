@@ -66,6 +66,8 @@ A-3 自動反映ルール（Worker 側、`src/pipeline/auto.ts`。`/admin/propos
 7. Worker の完全一致候補（`worker:`）が 0 件、かつ agent の候補に score ≥ 0.8 が無い。同じ `run.escape_id_url` で回を作る承認待ちも無い（`pending_same_url`。どちらを採るかは人が決める）
 8. リクエストがあるなら kind = `new_work`
 
+`hold: true` の提案は条件判定の対象外（常に pending。§5 の `POST /api/agent/proposals`）。
+
 `update` / `merge` / `link` / 参加記録インポートは常に pending。
 
 反映は `POST /api/agent/proposals` の 1 batch: 提案（`auto_applied`・`revert_until`・`applied_json`、項目の `accepted` は入れた項目 1 / 入れなかった kind・is_permanent 0）→ 作品 → 回（change_log は actor = トークン、`proposal_id`）→ follow-up → リクエストの自動 done。応答は 201 `{"status":"auto_applied","revert_until":ISO,"follow_ups":[id…]}`。書き込みの UNIQUE 違反は 409（同じ fingerprint の pending → `duplicate_pending`、同じ escape.id URL の回 → `duplicate_escape_id_url`、ほか → `conflict`）。一覧の期限は JST の「M/D HH:mm まで」。
