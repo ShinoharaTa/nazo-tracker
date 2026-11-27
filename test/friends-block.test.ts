@@ -115,12 +115,10 @@ describe('ブロック', () => {
     expect(html).not.toContain('届いた申請（')
   })
 
-  it('届いた申請からブロック → 申請は canceled、block が入る。他人の申請 id は 404', async () => {
+  it('POST /settings/friends/requests/:id/block → 申請は canceled、block が入る。他人の申請 id は 404', async () => {
     const me = await member('fb-req', 'わたし')
     const from = await member('fb-req-from', 'しつこい')
     const id = await insertRequest(from.userId, me.userId, 'pending')
-    const html = await settingsHtml(me.cookie)
-    expect(html).toContain(`action="/settings/friends/requests/${id}/block"`)
 
     const other = await member('fb-req-other', 'たにん')
     expect((await post(`/settings/friends/requests/${id}/block`, other.cookie)).status).toBe(404)
@@ -132,6 +130,72 @@ describe('ブロック', () => {
     expect(res.status).toBe(302)
     expect(await statusOf(id)).toBe('canceled')
     expect(await blockRows(me.userId, from.userId)).toHaveLength(1)
+  })
+
+  it('届いた申請の「ブロック」は確認画面へ。送り主（まだフレンドでない）にはブロックだけ出し、戻るは /settings/friends', async () => {
+    const me = await member('fb-confirm', 'わたし')
+    const from = await member('fb-confirm-from', 'しつこい')
+    const id = await insertRequest(from.userId, me.userId, 'pending')
+    const html = await settingsHtml(me.cookie)
+    expect(html).toContain(`href="/friends/${from.userId}/manage"`)
+    expect(html).not.toContain(`action="/settings/friends/requests/${id}/block"`)
+    // 断るは 1 タップのまま
+    expect(html).toContain(`action="/settings/friends/requests/${id}/decline"`)
+
+    const page = await get(`/friends/${from.userId}/manage`, me.cookie)
+    expect(page.status).toBe(200)
+    const body = await page.text()
+    expect(body).toContain(`action="/friends/${from.userId}/block"`)
+    expect(body).not.toContain(`action="/friends/${from.userId}/remove"`)
+    expect(body).toContain('フレンドも解除されます。ブロックを解除しても元には戻りません。')
+    expect(body).toContain('class="back" href="/settings/friends"')
+    // 確認画面を開いただけでは何も変わらない
+    expect(await statusOf(id)).toBe('pending')
+    expect(await blockRows(me.userId, from.userId)).toEqual([])
+
+    const res = await post(`/friends/${from.userId}/block`, me.cookie)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/settings/friends')
+    expect(await statusOf(id)).toBe('canceled')
+    expect(await blockRows(me.userId, from.userId)).toHaveLength(1)
+    // ブロック後は確認画面も 404
+    expect((await get(`/friends/${from.userId}/manage`, me.cookie)).status).toBe(404)
+  })
+
+  it('フレンドの確認画面: 解除とブロックの両方、注記、戻るは記録一覧', async () => {
+    const me = await member('fb-manage', 'わたし')
+    const f = await member('fb-manage-f', 'ともだち')
+    await makeFriends(me.userId, f.userId)
+    const body = await (await get(`/friends/${f.userId}/manage`, me.cookie)).text()
+    expect(body).toContain(`action="/friends/${f.userId}/remove"`)
+    expect(body).toContain(`action="/friends/${f.userId}/block"`)
+    expect(body).toContain('フレンドも解除されます。ブロックを解除しても元には戻りません。')
+    expect(body).toContain(`class="back" href="/friends/${f.userId}"`)
+  })
+
+  it('ブロックできない相手（関係なし・断った・期限切れ・自分から申請中・自分・無い id）は確認画面も同じ 404', async () => {
+    const me = await member('fb-manage-404', 'わたし')
+    const stranger = await member('fb-manage-404-s', 'しらない')
+    const declined = await member('fb-manage-404-d', 'ことわった')
+    const old = await member('fb-manage-404-o', 'ふるい')
+    const outgoing = await member('fb-manage-404-g', 'しんせいちゅう')
+    await insertRequest(declined.userId, me.userId, 'declined')
+    await insertRequest(old.userId, me.userId, 'pending', addDays(nowIso(), -31))
+    await insertRequest(me.userId, outgoing.userId, 'pending')
+    const bodies: string[] = []
+    for (const id of [
+      stranger.userId,
+      declined.userId,
+      old.userId,
+      outgoing.userId,
+      me.userId,
+      ulid(),
+    ]) {
+      const res = await get(`/friends/${id}/manage`, me.cookie)
+      expect(res.status).toBe(404)
+      bodies.push(await res.text())
+    }
+    expect(new Set(bodies).size).toBe(1)
   })
 
   it('30 日を過ぎた申請・断った申請からはブロックできない（404）', async () => {

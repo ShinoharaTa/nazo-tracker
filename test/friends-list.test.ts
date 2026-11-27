@@ -146,7 +146,7 @@ describe('/settings/friends の一覧', () => {
 })
 
 describe('承認・断る・取り消す', () => {
-  it('承認 → friendship が user_lo < user_hi の 1 行、申請は accepted。二重承認は 404 で 1 行のまま', async () => {
+  it('承認 → friendship が user_lo < user_hi の 1 行、申請は accepted。二重承認は /settings/friends へ 302 で 1 行のまま', async () => {
     const me = await member('fl-accept', 'わたし')
     const from = await member('fl-accept-from', 'しんせい')
     const id = await insertRequest(from.userId, me.userId, 'pending')
@@ -160,7 +160,8 @@ describe('承認・断る・取り消す', () => {
     expect(rows[0].user_lo < rows[0].user_hi).toBe(true)
 
     const again = await post(`/settings/friends/requests/${id}/accept`, me.cookie)
-    expect(again.status).toBe(404)
+    expect(again.status).toBe(302)
+    expect(again.headers.get('location')).toBe('/settings/friends')
     expect(await friendshipOf(me.userId, from.userId)).toHaveLength(1)
 
     // 両方の一覧にフレンドとして出る
@@ -346,5 +347,46 @@ describe('認証・CSRF・agent', () => {
         })
       ).status,
     ).toBe(403)
+  })
+})
+
+describe('断った相手からの申請を承認', () => {
+  it('A→B を B が断る → B が A のリンクから申請 → A が承認。A の「送った申請」に B は出ず、解除後も戻らない', async () => {
+    const a = await member('fl-redo-a', 'えーさん')
+    const b = await member('fl-redo-b', 'びーさん')
+    const codeA = randomCode(16)
+    const codeB = randomCode(16)
+    await env.DB.prepare('UPDATE user SET friend_code = ? WHERE id = ?').bind(codeA, a.userId).run()
+    await env.DB.prepare('UPDATE user SET friend_code = ? WHERE id = ?').bind(codeB, b.userId).run()
+
+    expect((await post(`/f/${codeB}/request`, a.cookie)).status).toBe(302)
+    const ab = await env.DB.prepare(
+      'SELECT id FROM friend_request WHERE from_user_id = ? AND to_user_id = ?',
+    )
+      .bind(a.userId, b.userId)
+      .first<{ id: string }>()
+    if (!ab) throw new Error('A→B の申請が無い')
+    expect((await post(`/settings/friends/requests/${ab.id}/decline`, b.cookie)).status).toBe(302)
+
+    expect((await post(`/f/${codeA}/request`, b.cookie)).status).toBe(302)
+    const ba = await env.DB.prepare(
+      "SELECT id FROM friend_request WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'",
+    )
+      .bind(b.userId, a.userId)
+      .first<{ id: string }>()
+    if (!ba) throw new Error('B→A の申請が無い')
+    expect((await post(`/settings/friends/requests/${ba.id}/accept`, a.cookie)).status).toBe(302)
+    expect(await statusOf(ab.id)).toBe('canceled')
+
+    const html = await settingsHtml(a.cookie)
+    expect(html).toContain('フレンド（1）')
+    expect(html).toContain('<span>びーさん</span>')
+    expect(html).not.toContain('送った申請（')
+
+    expect((await post(`/friends/${b.userId}/remove`, a.cookie)).status).toBe(302)
+    const after = await settingsHtml(a.cookie)
+    expect(after).not.toContain('びーさん')
+    expect(after).not.toContain('送った申請（')
+    expect(await (await get(`/f/${codeB}`, a.cookie)).text()).not.toContain('申請を送ってあります')
   })
 })

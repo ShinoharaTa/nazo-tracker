@@ -213,6 +213,8 @@ export type FriendAttemptStatus = {
 // v1 は level = 'status' だけ（Rating / Memo の射影は P11 で足す）
 export type FriendRepo = {
   readonly targetUserId: string
+  // 相手の表示名（asFriendOf の判定と同じ問い合わせで読む）
+  readonly displayName: string
   readonly level: 'status'
   // COALESCE(finished_on, started_on) DESC（NULL は最後）, created_at DESC。50 件ずつ
   listAttempts(opts: { page: number }): Promise<{ items: FriendAttemptStatus[]; hasNext: boolean }>
@@ -652,9 +654,16 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
 const fv = vFriendAttempt
 
 // フレンドの記録を読む唯一のクエリ。v_friend_attempt だけを読み、相手の user_id と共有範囲で必ず絞る
-// （default_share_level / share_override は v1 では常に通るが、P11 で設定を出したときに穴にならないよう今から入れる）
-const friendRepo = (db: Db, targetUserId: string): FriendRepo => ({
+// （default_share_level / share_override は v1 では常に通るが、P11 で設定を出したときに穴にならないよう今から入れる）。
+// asFriendOf の判定のあとに解除・ブロックされても読めないよう、friendship / 双方向の block もこのクエリの WHERE に入れる
+const friendRepo = (
+  db: Db,
+  viewerId: string,
+  targetUserId: string,
+  displayName: string,
+): FriendRepo => ({
   targetUserId,
+  displayName,
   level: 'status',
   async listAttempts({ page }) {
     const date = sql`COALESCE(${fv.finishedOn}, ${fv.startedOn})`
@@ -673,6 +682,12 @@ const friendRepo = (db: Db, targetUserId: string): FriendRepo => ({
         and(
           eq(fv.userId, targetUserId),
           isNull(user.deletedAt),
+          sql`EXISTS (SELECT 1 FROM ${friendship}
+            WHERE ${friendship.userLo} = MIN(${viewerId}, ${fv.userId})
+              AND ${friendship.userHi} = MAX(${viewerId}, ${fv.userId}))`,
+          sql`NOT EXISTS (SELECT 1 FROM ${block}
+            WHERE (${block.userId} = ${viewerId} AND ${block.blockedUserId} = ${fv.userId})
+               OR (${block.userId} = ${fv.userId} AND ${block.blockedUserId} = ${viewerId}))`,
           ne(user.defaultShareLevel, 'none'),
           sql`COALESCE(${fv.shareOverride}, '') <> 'hidden'`,
         ),
@@ -710,12 +725,12 @@ export const scopedTo = (db: Db, viewerId: string): Scoped => ({
         )
         .limit(1),
       db
-        .select({ id: user.id })
+        .select({ displayName: user.displayName })
         .from(user)
         .where(and(eq(user.id, targetUserId), isNull(user.deletedAt)))
         .limit(1),
     ])
     if (friend.length === 0 || blocked.length > 0 || target.length === 0) return null
-    return friendRepo(db, targetUserId)
+    return friendRepo(db, viewerId, targetUserId, target[0].displayName)
   },
 })

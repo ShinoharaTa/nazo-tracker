@@ -485,14 +485,19 @@ describe('acceptRequest（直接）', () => {
     expect(await friendshipOf(a.userId, b.userId)).toHaveLength(0)
   })
 
-  it('二重に承認しても friendship は 1 行で、2 回目は false', async () => {
+  it('二重に承認しても friendship は 1 行。2 回目もすでにフレンドなので true、解除後は false', async () => {
     const a = await loginAs(env, { subject: 'ar-dup-a' })
     const b = await loginAs(env, { subject: 'ar-dup-b' })
     const rid = await insertRequest(a.userId, b.userId, 'pending')
     expect(await acceptRequest(db(), b.userId, rid)).toBe(true)
+    expect(await acceptRequest(db(), b.userId, rid)).toBe(true)
+    expect(await friendshipOf(a.userId, b.userId)).toHaveLength(1)
+    await env.DB.prepare('DELETE FROM friendship WHERE user_lo = ? AND user_hi = ?')
+      .bind(a.userId < b.userId ? a.userId : b.userId, a.userId < b.userId ? b.userId : a.userId)
+      .run()
     expect(await acceptRequest(db(), b.userId, rid)).toBe(false)
     expect(await statusOf(rid)).toBe('accepted')
-    expect(await friendshipOf(a.userId, b.userId)).toHaveLength(1)
+    expect(await friendshipOf(a.userId, b.userId)).toHaveLength(0)
   })
 
   it('block（どちらの向きでも）があれば accepted にならず friendship も無い', async () => {

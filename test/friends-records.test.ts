@@ -370,6 +370,62 @@ describe('GET /friends/:userId の認可', () => {
     expect((await get(`/friends/${me.userId}`, fr.cookie)).status).toBe(404)
   })
 
+  it('asFriendOf で repo を得たあとに解除・ブロックされると listAttempts は 0 件（読み出しの WHERE でも確かめる）', async () => {
+    const me = await member('fr-late-me', 'わたし')
+    const fr = await member('fr-late-fr', 'ともだち')
+    await makeFriends(me.userId, fr.userId)
+    await insertAttempt(env, {
+      userId: fr.userId,
+      workId: await insertWork(env, { title: '遅れて読む作品' }),
+      status: 'cleared',
+    })
+    const scoped = scopedTo(db, me.userId)
+    const removed = await scoped.asFriendOf(fr.userId)
+    if (!removed) throw new Error('asFriendOf が null')
+    expect(removed.displayName).toBe('ともだち')
+    expect((await removed.listAttempts({ page: 1 })).items).toHaveLength(1)
+    expect((await post(`/friends/${fr.userId}/remove`, me.cookie)).status).toBe(302)
+    expect((await removed.listAttempts({ page: 1 })).items).toEqual([])
+
+    // ブロック（どちらの向きでも）。friendship の行が残っていても block が勝つ
+    for (const [from, to] of [
+      [me.userId, fr.userId],
+      [fr.userId, me.userId],
+    ]) {
+      await makeFriends(me.userId, fr.userId)
+      const repo = await scoped.asFriendOf(fr.userId)
+      if (!repo) throw new Error('asFriendOf が null')
+      await blockUser(from, to)
+      expect((await repo.listAttempts({ page: 1 })).items).toEqual([])
+      await env.DB.prepare('DELETE FROM block WHERE user_id = ? AND blocked_user_id = ?')
+        .bind(from, to)
+        .run()
+      await post(`/friends/${fr.userId}/remove`, me.cookie)
+    }
+  })
+
+  it('断った相手・断られた相手への /friends/:userId も同じ 404', async () => {
+    const me = await member('fr-dec-me', 'わたし')
+    const declinedByMe = await member('fr-dec-a', 'ことわった')
+    const declinedMe = await member('fr-dec-b', 'ことわられた')
+    const stranger = await member('fr-dec-s', 'しらない')
+    const req = (from: string, to: string) =>
+      env.DB.prepare(
+        "INSERT INTO friend_request (id, from_user_id, to_user_id, status, created_at, responded_at) VALUES (?, ?, ?, 'declined', ?, ?)",
+      )
+        .bind(ulid(), from, to, nowIso(), nowIso())
+        .run()
+    await req(declinedByMe.userId, me.userId)
+    await req(me.userId, declinedMe.userId)
+    const bodies: string[] = []
+    for (const u of [declinedByMe, declinedMe, stranger]) {
+      const res = await get(`/friends/${u.userId}`, me.cookie)
+      expect(res.status).toBe(404)
+      bodies.push(await res.text())
+    }
+    expect(new Set(bodies).size).toBe(1)
+  })
+
   it('オーナーでもフレンドでなければ 404', async () => {
     const owner = await member('fr-owner', 'おーなー', true)
     const fr = await member('fr-owner-target', 'だれか')
@@ -409,5 +465,47 @@ describe('/friends/:userId への導線', () => {
     const to = res.headers.get('location') ?? ''
     expect(to).toBe(`/friends/${fr.userId}`)
     expect((await get(to, me.cookie)).status).toBe(200)
+  })
+})
+
+describe('表示名のエスケープ', () => {
+  const names = ['<script>alert(1)', `"'><img src=x>`]
+
+  it('届いた申請・フレンド・ブロック中・記録一覧・確認画面に表示名が生で出ない', async () => {
+    const me = await member('fr-xss-me', 'わたし')
+    const pages: string[] = []
+    for (const [i, name] of names.entries()) {
+      const incoming = await member(`fr-xss-in-${i}`, name)
+      const fr = await member(`fr-xss-fr-${i}`, name)
+      const blocked = await member(`fr-xss-bk-${i}`, name)
+      await env.DB.prepare(
+        "INSERT INTO friend_request (id, from_user_id, to_user_id, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
+      )
+        .bind(ulid(), incoming.userId, me.userId, nowIso())
+        .run()
+      await makeFriends(me.userId, fr.userId)
+      await blockUser(me.userId, blocked.userId)
+      for (const path of [
+        `/friends/${fr.userId}`,
+        `/friends/${fr.userId}/manage`,
+        `/friends/${incoming.userId}/manage`,
+      ]) {
+        const res = await get(path, me.cookie)
+        expect(res.status).toBe(200)
+        pages.push(await res.text())
+      }
+    }
+    const settings = await (await get('/settings/friends', me.cookie)).text()
+    expect(settings).toContain('届いた申請（2）')
+    expect(settings).toContain('フレンド（2）')
+    expect(settings).toContain('ブロック中（2）')
+    pages.push(settings)
+    for (const html of pages) {
+      for (const name of names) expect(html).not.toContain(name)
+      expect(html).not.toContain('<script>alert')
+      expect(html).not.toContain('<img src=x')
+    }
+    // エスケープされた形では出ている
+    expect(settings.split('&lt;script&gt;alert(1)').length - 1).toBe(3)
   })
 })
