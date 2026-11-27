@@ -3,12 +3,12 @@
 // 記録の射影（フレンドの記録を読むこと）は src/db/scoped.ts の asFriendOf だけが行う。
 // 退会済み（deleted_at あり）の行は書き換えない（退会でセッションは消えるので保険）。
 
-const self = (viewerId: string) => and(eq(user.id, viewerId), isNull(user.deletedAt))
-
 import { and, eq, isNull } from 'drizzle-orm'
 import { FRIEND_CODE_LENGTH, randomCode } from '../lib/random'
 import type { Db } from './client'
 import { user } from './schema'
+
+const self = (viewerId: string) => and(eq(user.id, viewerId), isNull(user.deletedAt))
 
 const isUniqueViolation = (e: unknown) =>
   String((e as { cause?: unknown })?.cause ?? e).includes('UNIQUE constraint failed')
