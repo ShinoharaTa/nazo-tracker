@@ -55,10 +55,11 @@ export type InviterState =
   | { kind: 'not_found' }
   | { kind: 'self' }
   | { kind: 'friends'; userId: string }
+  // 相手からの pending（30 日以内）が届いている。outgoing より先に判定する
+  // （自分の申請が断られて残っていても、届いた申請をリンクから承認できるように）
+  | { kind: 'incoming'; userId: string; displayName: string; requestId: string }
   // 自分の申請が pending / declined で 30 日以内（断られたことは「申請中」と同じに見せる）
   | { kind: 'outgoing'; userId: string; displayName: string }
-  // 相手からの pending（30 日以内）が届いている
-  | { kind: 'incoming'; userId: string; displayName: string; requestId: string }
   | { kind: 'can_request'; userId: string; displayName: string }
 
 // drizzle の batch は引数付きの生 SQL（db.run(sql`…`)）を受けられないので、条件付き INSERT を含む batch は
@@ -115,8 +116,8 @@ export const findInviter = async (
   if (row.id === viewerId) return { kind: 'self' }
   if (row.friends) return { kind: 'friends', userId: row.id }
   const who = { userId: row.id, displayName: row.display_name }
-  if (row.outgoing) return { kind: 'outgoing', ...who }
   if (row.incoming_id) return { kind: 'incoming', ...who, requestId: row.incoming_id }
+  if (row.outgoing) return { kind: 'outgoing', ...who }
   return { kind: 'can_request', ...who }
 }
 
@@ -124,7 +125,9 @@ export type SendResult = { ok: true } | { ok: false; reason: 'receiver_full' | '
 
 // 申請を送る。条件は全部 1 文の INSERT ... SELECT ... WHERE に入れ、入った行数で成否を決める
 // （同時に押されても判定と INSERT の間に割り込まれない）。
-// 0 行なら理由を読み直す。特定できるのは受け側の上限だけで、それ以外は unknown
+// 相手から自分への有効な pending があるときも入れない（両方向の pending を作らない）。
+// 0 行なら状態を引き直し、相手からの申請が届いていれば承認として扱う（同時に申請し合った場合）。
+// それ以外で特定できる理由は受け側の上限だけで、残りは unknown
 export const sendRequest = async (db: Db, viewerId: string, code: string): Promise<SendResult> => {
   const now = nowIso()
   const expire = addDays(now, -REQUEST_EXPIRE_DAYS)
@@ -137,6 +140,9 @@ export const sendRequest = async (db: Db, viewerId: string, code: string): Promi
       AND NOT EXISTS (SELECT 1 FROM friend_request r
         WHERE r.from_user_id = ${viewerId} AND r.to_user_id = u.id
           AND r.created_at > ${addDays(now, -REQUEST_RETRY_DAYS)})
+      AND NOT EXISTS (SELECT 1 FROM friend_request r
+        WHERE r.from_user_id = u.id AND r.to_user_id = ${viewerId}
+          AND r.status = 'pending' AND r.created_at > ${expire})
       AND (SELECT COUNT(*) FROM friend_request r
         WHERE r.from_user_id = ${viewerId} AND r.created_at > ${addDays(now, -1)})
         < ${REQUEST_DAILY_LIMIT}
@@ -156,6 +162,10 @@ export const sendRequest = async (db: Db, viewerId: string, code: string): Promi
     if (!isUniqueViolation(e)) throw e
   }
   if (inserted > 0) return { ok: true }
+  const state = await findInviter(db, viewerId, code)
+  if (state.kind === 'incoming' && (await acceptRequest(db, viewerId, state.requestId))) {
+    return { ok: true }
+  }
   const full = await db.get<{ n: number }>(sql`SELECT COUNT(*) AS n
     FROM friend_request r JOIN user u ON u.id = r.to_user_id
     WHERE u.friend_code = ${code} AND u.id <> ${viewerId}
@@ -166,7 +176,8 @@ export const sendRequest = async (db: Db, viewerId: string, code: string): Promi
   }
 }
 
-// 届いた申請を承認する（1 回の batch）。(1) 自分宛ての有効な pending を accepted に、
+// 届いた申請を承認する（1 回の batch）。(1) 自分宛ての有効な pending を、送り主が退会しておらず
+// 双方向に block が無いときだけ accepted に、
 // (2) その行が今の時刻で accepted になっていて双方向に block が無ければ friendship を作り、
 // (3) 自分から相手への pending があれば canceled に。friendship が出来なければ false（呼び出し側で 404）
 export const acceptRequest = async (
@@ -184,6 +195,9 @@ export const acceptRequest = async (
       sql`UPDATE friend_request SET status = 'accepted', responded_at = ${now}
         WHERE id = ${requestId} AND to_user_id = ${viewerId} AND status = 'pending'
           AND created_at > ${addDays(now, -REQUEST_EXPIRE_DAYS)}
+          AND EXISTS (SELECT 1 FROM user u
+            WHERE u.id = friend_request.from_user_id AND u.deleted_at IS NULL
+              AND ${noBlock(viewerId)})
         RETURNING id`,
     ),
     stmt(

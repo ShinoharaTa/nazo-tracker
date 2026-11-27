@@ -1,5 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
+import { createDb } from '../src/db/client'
+import { acceptRequest, sendRequest } from '../src/db/friends'
 import app from '../src/index'
 import { ulid } from '../src/lib/id'
 import { randomCode } from '../src/lib/random'
@@ -9,13 +11,13 @@ import { loginAs, ORIGIN } from './helpers/auth'
 const get = (path: string, cookie?: string, e: Cloudflare.Env = env) =>
   app.request(path, { headers: cookie ? { Cookie: cookie } : {} }, e)
 
-const post = (path: string, cookie?: string) =>
+const post = (path: string, cookie?: string, extra: Record<string, string> = { Origin: ORIGIN }) =>
   app.request(
     path,
     {
       method: 'POST',
       headers: {
-        Origin: ORIGIN,
+        ...extra,
         'Content-Type': 'application/x-www-form-urlencoded',
         ...(cookie ? { Cookie: cookie } : {}),
       },
@@ -400,5 +402,178 @@ describe('after_login（ログイン後の戻り先）', () => {
     expect(afterLoginCookieOf(first.res)).toBeUndefined()
     const { res } = await loginAs(env, { subject: 'fi-al-none' })
     expect(res.headers.get('location')).toBe('/records')
+  })
+})
+
+const db = () => createDb(env.DB)
+
+const allRequestsOf = (a: string, b: string) =>
+  env.DB.prepare(
+    `SELECT from_user_id, status FROM friend_request
+     WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)`,
+  )
+    .bind(a, b, b, a)
+    .all<{ from_user_id: string; status: string }>()
+    .then((r) => r.results)
+
+const statusOf = (id: string) =>
+  env.DB.prepare('SELECT status FROM friend_request WHERE id = ?')
+    .bind(id)
+    .first<{ status: string }>()
+    .then((r) => r?.status)
+
+describe('sendRequest（直接）', () => {
+  it('双方向の block・フレンド済み・退会済み・自分自身では行が増えない', async () => {
+    const me = await loginAs(env, { subject: 'sr-me' })
+
+    const b1 = await inviter('sr-b1')
+    await blockOf(me.userId, b1.userId)
+    expect(await sendRequest(db(), me.userId, b1.code)).toMatchObject({ ok: false })
+    expect(await allRequestsOf(me.userId, b1.userId)).toHaveLength(0)
+
+    const b2 = await inviter('sr-b2')
+    await blockOf(b2.userId, me.userId)
+    expect(await sendRequest(db(), me.userId, b2.code)).toMatchObject({ ok: false })
+    expect(await allRequestsOf(me.userId, b2.userId)).toHaveLength(0)
+
+    const fr = await inviter('sr-friend')
+    await makeFriends(me.userId, fr.userId)
+    expect(await sendRequest(db(), me.userId, fr.code)).toMatchObject({ ok: false })
+    expect(await allRequestsOf(me.userId, fr.userId)).toHaveLength(0)
+
+    const gone = await inviter('sr-gone')
+    await env.DB.prepare('UPDATE user SET deleted_at = ? WHERE id = ?')
+      .bind(nowIso(), gone.userId)
+      .run()
+    expect(await sendRequest(db(), me.userId, gone.code)).toMatchObject({ ok: false })
+    expect(await allRequestsOf(me.userId, gone.userId)).toHaveLength(0)
+
+    const self = await inviter('sr-self')
+    expect(await sendRequest(db(), self.userId, self.code)).toMatchObject({ ok: false })
+    expect(await requestsBetween(self.userId, self.userId)).toHaveLength(0)
+  })
+
+  it('相手からの有効な pending があれば新しい行は作らず、承認になる', async () => {
+    const me = await loginAs(env, { subject: 'sr-rev' })
+    const inv = await inviter('sr-rev-inv')
+    const rid = await insertRequest(inv.userId, me.userId, 'pending')
+    expect(await sendRequest(db(), me.userId, inv.code)).toEqual({ ok: true })
+    expect(await requestsBetween(me.userId, inv.userId)).toHaveLength(0)
+    expect(await statusOf(rid)).toBe('accepted')
+    expect(await friendshipOf(me.userId, inv.userId)).toHaveLength(1)
+  })
+})
+
+describe('acceptRequest（直接）', () => {
+  it('他人宛て・送った本人からは承認できず、状態は変わらない', async () => {
+    const a = await loginAs(env, { subject: 'ar-a' })
+    const b = await loginAs(env, { subject: 'ar-b' })
+    const c = await loginAs(env, { subject: 'ar-c' })
+    const rid = await insertRequest(a.userId, b.userId, 'pending')
+    expect(await acceptRequest(db(), c.userId, rid)).toBe(false)
+    expect(await acceptRequest(db(), a.userId, rid)).toBe(false)
+    expect(await statusOf(rid)).toBe('pending')
+    expect(await friendshipOf(a.userId, b.userId)).toHaveLength(0)
+  })
+
+  it('30 日を過ぎた申請は承認できない', async () => {
+    const a = await loginAs(env, { subject: 'ar-exp-a' })
+    const b = await loginAs(env, { subject: 'ar-exp-b' })
+    const rid = await insertRequest(a.userId, b.userId, 'pending', addDays(nowIso(), -31))
+    expect(await acceptRequest(db(), b.userId, rid)).toBe(false)
+    expect(await statusOf(rid)).not.toBe('accepted')
+    expect(await friendshipOf(a.userId, b.userId)).toHaveLength(0)
+  })
+
+  it('二重に承認しても friendship は 1 行で、2 回目は false', async () => {
+    const a = await loginAs(env, { subject: 'ar-dup-a' })
+    const b = await loginAs(env, { subject: 'ar-dup-b' })
+    const rid = await insertRequest(a.userId, b.userId, 'pending')
+    expect(await acceptRequest(db(), b.userId, rid)).toBe(true)
+    expect(await acceptRequest(db(), b.userId, rid)).toBe(false)
+    expect(await statusOf(rid)).toBe('accepted')
+    expect(await friendshipOf(a.userId, b.userId)).toHaveLength(1)
+  })
+
+  it('block（どちらの向きでも）があれば accepted にならず friendship も無い', async () => {
+    for (const dir of ['by-receiver', 'by-sender'] as const) {
+      const a = await loginAs(env, { subject: `ar-blk-a-${dir}` })
+      const b = await loginAs(env, { subject: `ar-blk-b-${dir}` })
+      const rid = await insertRequest(a.userId, b.userId, 'pending')
+      if (dir === 'by-receiver') await blockOf(b.userId, a.userId)
+      else await blockOf(a.userId, b.userId)
+      expect(await acceptRequest(db(), b.userId, rid)).toBe(false)
+      expect(await statusOf(rid)).toBe('pending')
+      expect(await friendshipOf(a.userId, b.userId)).toHaveLength(0)
+    }
+  })
+
+  it('送り主が退会済みなら accepted にならない', async () => {
+    const a = await loginAs(env, { subject: 'ar-gone-a' })
+    const b = await loginAs(env, { subject: 'ar-gone-b' })
+    const rid = await insertRequest(a.userId, b.userId, 'pending')
+    await env.DB.prepare('UPDATE user SET deleted_at = ? WHERE id = ?')
+      .bind(nowIso(), a.userId)
+      .run()
+    expect(await acceptRequest(db(), b.userId, rid)).toBe(false)
+    expect(await statusOf(rid)).toBe('pending')
+  })
+})
+
+describe('申請し合い・過去の declined', () => {
+  it('A・B が同時に申請し合っても、friendship 1 行か片方向の pending だけ', async () => {
+    const a = await inviter('race2-a')
+    const b = await inviter('race2-b')
+    await Promise.all([
+      post(`/f/${b.code}/request`, a.cookie),
+      post(`/f/${a.code}/request`, b.cookie),
+    ])
+    const rows = await allRequestsOf(a.userId, b.userId)
+    const pending = rows.filter((r) => r.status === 'pending')
+    const friends = await friendshipOf(a.userId, b.userId)
+    expect(pending.length).toBeLessThanOrEqual(1)
+    if (friends.length === 1) expect(pending).toHaveLength(0)
+    else expect(pending).toHaveLength(1)
+  })
+
+  it('同じ順で続けて申請し合うと、2 本目が承認になり friendship が出来る', async () => {
+    const a = await inviter('race3-a')
+    const b = await inviter('race3-b')
+    expect((await post(`/f/${b.code}/request`, a.cookie)).status).toBe(302)
+    expect(await sendRequest(db(), b.userId, a.code)).toEqual({ ok: true })
+    expect(await friendshipOf(a.userId, b.userId)).toHaveLength(1)
+    expect(
+      (await allRequestsOf(a.userId, b.userId)).filter((r) => r.status === 'pending'),
+    ).toHaveLength(0)
+  })
+
+  it('自分の申請が断られて残っていても、相手から届いた申請をリンクから承認できる', async () => {
+    const me = await loginAs(env, { subject: 'dec-me' })
+    const inv = await inviter('dec-inv', 'あとから')
+    await insertRequest(me.userId, inv.userId, 'declined')
+    const rid = await insertRequest(inv.userId, me.userId, 'pending')
+    const html = await (await get(`/f/${inv.code}`, me.cookie)).text()
+    expect(html).toContain('あとからさんから申請が届いています。')
+    const res = await post(`/f/${inv.code}/request`, me.cookie)
+    expect(res.status).toBe(302)
+    expect(await statusOf(rid)).toBe('accepted')
+    expect(await friendshipOf(me.userId, inv.userId)).toHaveLength(1)
+  })
+})
+
+describe('POST /f/:code/request の CSRF・agent', () => {
+  it('Origin 無しは 403、Bearer は 403。どちらも行が増えない', async () => {
+    const me = await loginAs(env, { subject: 'csrf-me' })
+    const inv = await inviter('csrf-inv')
+    expect((await post(`/f/${inv.code}/request`, me.cookie, {})).status).toBe(403)
+    expect(
+      (
+        await post(`/f/${inv.code}/request`, undefined, {
+          Origin: ORIGIN,
+          Authorization: 'Bearer nzt_dummy',
+        })
+      ).status,
+    ).toBe(403)
+    expect(await requestsBetween(me.userId, inv.userId)).toHaveLength(0)
   })
 })
