@@ -234,10 +234,10 @@ flowchart LR
 
 後の Phase（P11）で入れる候補: ユーザー既定の share level（`none` / `status` / `rating` / `memo`）+ 記録ごとの `hidden` 上書き。フレンドごとの個別設定・グループは更に後。
 
-データモデルの扱い（決定: **列は v1 から持つ**）: `user.default_share_level`（既定 `status`、v1 は UI 無しで固定値）と `attempt.share_override`（v1 は常に NULL）を最初から定義し、`asFriendOf` の射影も level 別の型で作っておく。v1 では status 以外の分岐を UI から到達不能にする。
+データモデルの扱い（決定: **列は v1 から持つ**）: `user.default_share_level`（既定 `status`、v1 は UI 無しで固定値）と `attempt.share_override`（v1 は常に NULL）を最初から定義する。`asFriendOf` の射影は v1 では `FriendAttemptStatus` だけを作り、level は `FriendRepo.level` に持つ（Rating / Memo の型は P11 で作る）。v1 では status 以外の分岐を UI から到達不能にする。
 
 ### 6.4 認可の実装
-- 記録系ルートは HTML の `/records/*`（本人）、`/api/me/*`（本人、JSON を出す段階で足す）と `/api/friends/:userId/*`（フレンド閲覧）のみ。後者は **friendship(accepted) かつ block 無し** を必ず確認し、満たさなければ 404。v1 は `status` 射影のみ返す。
+- 記録系ルートは HTML の `/records/*`（本人）、HTML の `/friends/:userId`（フレンドの記録一覧）、`/api/me/*`（本人、JSON を出す段階で足す）と `/api/friends/:userId/*`（フレンド閲覧）のみ。後者は **friendship(accepted) かつ block 無し** を必ず確認し、満たさなければ 404。v1 は `status` 射影のみ返す。
 - リポジトリ層: `scopedTo(viewerId)` が返すハンドルに `own()` と `asFriendOf(targetUserId)` の 2 口。`asFriendOf` は friendship を検証し、level 別の列セットしか返せない型にする。**`spoiler_memo` と `spoiler=1` の画像は `own()` の型にしか存在しない**。ネタバレの応答（`spoilerResponse`）は `own()` だけが返す brand 付きの `OwnAttempt` しか受けない（auth.md §6）。これ以外に attempt / session / image を読む経路を作らない。
 - **オーナー**: 承認 UI・マスタ編集（`/admin/*`）・リクエスト一覧・通報対応・genre 管理。他人の記録を見る画面・API・集計ビューは作らない。フレンドとしてのオーナーは一般ユーザーと同じ扱い。
 - **agent トークン**: マスタ読、リクエスト読、提案・出典書き。記録系・フレンド系・画像は 403。

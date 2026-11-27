@@ -95,10 +95,11 @@ describe('/settings/friends の一覧', () => {
     expect(html).toContain(`action="/settings/friends/requests/${inId}/decline"`)
     expect(html).toContain('送った申請（1）')
     expect(html).toContain(`action="/settings/friends/requests/${outId}/cancel"`)
-    // フレンドは表示名の昇順。/friends/:userId はまだ無いのでリンクにしない
+    // フレンドは表示名の昇順。表示名はその人の記録一覧（/friends/:userId）へのリンク
     expect(html).toContain('フレンド（2）')
     expect(html.indexOf('<span>あー</span>')).toBeLessThan(html.indexOf('<span>びー</span>'))
-    expect(html).not.toContain(`href="/friends/`)
+    expect(html).toContain(`<a href="/friends/${fa.userId}"><span>あー</span>`)
+    expect(html).toContain(`<a href="/friends/${fb.userId}"><span>びー</span>`)
     // 並びは 招待リンク → 届いた申請 → フレンド → 送った申請
     const order = ['招待リンク', '届いた申請（', 'フレンド（', '送った申請（'].map((s) =>
       html.indexOf(s),

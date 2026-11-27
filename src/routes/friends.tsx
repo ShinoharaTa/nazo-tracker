@@ -26,12 +26,23 @@ import {
   setFriendCode,
   unblock,
 } from '../db/friends'
+import { type FriendAttemptStatus, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
 import { FRIEND_CODE_RE } from '../lib/random'
 import { isoToJstDate } from '../lib/time'
-import { Empty, Menu, MenuItem, TopBar } from '../ui/components'
+import {
+  Empty,
+  Menu,
+  MenuItem,
+  Pager,
+  StatusChip,
+  StubDate,
+  Ticket,
+  TopBar,
+} from '../ui/components'
 import { Layout } from '../ui/Layout'
-import { NotFound, SettingsList, settingsState } from './ui'
+import { workKindLabels } from '../ui/labels'
+import { NotFound, SettingsList, settingsState, toPage } from './ui'
 
 const friends = new Hono<AppEnv>({ strict: false })
 
@@ -139,13 +150,13 @@ const IncomingList = ({ rows }: { rows: RequestRow[] }) => (
   </div>
 )
 
-// フレンド一覧。/friends/:userId はまだ無いので表示名はリンクにしない
+// フレンド一覧。表示名はその人の記録一覧へ
 const FriendList = ({ rows }: { rows: FriendPerson[] }) => (
   <div class="sect">
     <h2>フレンド（{rows.length}）</h2>
     <Menu>
       {rows.map((f) => (
-        <MenuItem label={f.displayName} />
+        <MenuItem label={f.displayName} href={`/friends/${f.userId}`} />
       ))}
     </Menu>
   </div>
@@ -272,6 +283,68 @@ friends.post('/settings/friends/blocks/:userId/delete', async (c) => {
     return friendNotFound(c)
   }
   return c.redirect('/settings/friends', 302)
+})
+
+// フレンドの記録 1 行。作品・形式・ステータス・日付（finished_on → started_on）だけ。記録詳細へのリンクは無い
+const FriendAttemptTicket = ({ a }: { a: FriendAttemptStatus }) => (
+  <Ticket
+    href={`/works/${a.workId}`}
+    stub={<StubDate date={a.finishedOn ?? a.startedOn} />}
+    meta={a.workKind ? workKindLabels[a.workKind] : '—'}
+    title={a.workTitle}
+    chip={<StatusChip status={a.status} kind={a.workKind} />}
+  />
+)
+
+// フレンドの記録一覧。読むのは asFriendOf だけ（フレンドでない・ブロック・退会は 404）
+friends.get('/friends/:userId', async (c) => {
+  const user = currentUser(c)
+  const db = c.get('db')
+  const userId = c.req.param('userId')
+  const [repo, friend] = await Promise.all([
+    scopedTo(db, user.id).asFriendOf(userId),
+    findFriend(db, user.id, userId),
+  ])
+  if (!repo || !friend) return friendNotFound(c)
+  const page = toPage(c.req.query('page'))
+  const [state, { items, hasNext }] = await Promise.all([
+    settingsState(db, user),
+    repo.listAttempts({ page }),
+  ])
+  const label = `${friend.displayName}さんの記録`
+  return c.html(
+    <Layout
+      title={label}
+      tab="settings"
+      left={<SettingsList user={user} state={state} />}
+      right={
+        <>
+          <TopBar
+            back="/settings/friends"
+            label={label}
+            action={
+              <a
+                class="btn ghost"
+                style="min-height:40px"
+                href={`/friends/${friend.userId}/manage`}
+                aria-label="フレンドの解除・ブロック"
+              >
+                …
+              </a>
+            }
+          />
+          <div class="list">
+            {items.length ? (
+              items.map((a) => <FriendAttemptTicket a={a} />)
+            ) : (
+              <Empty>まだ記録はありません。</Empty>
+            )}
+          </div>
+          <Pager base={`/friends/${friend.userId}`} page={page} hasNext={hasNext} />
+        </>
+      }
+    />,
+  )
 })
 
 // 解除・ブロックの確認画面

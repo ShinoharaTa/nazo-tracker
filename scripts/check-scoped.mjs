@@ -3,6 +3,7 @@
 // `import * as` と `export *` は全テーブルを持ち出せるので、許可リスト外なら名前に関係なく違反。
 // ネタバレ部品（src/ui/spoiler.tsx の SpoilerFragment / SpoilerPage / spoilerHeaders）の import と、
 // `as OwnAttempt` / `<OwnAttempt>` のキャスト（src/db/scoped.ts 以外）も違反。
+// フレンドの射影（vFriendAttempt）は許可リストのファイルでも src/db/scoped.ts 以外は違反。
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -19,7 +20,10 @@ const forbidden = new Set([
   'wishlist',
   'marketVisit',
   'vAttemptEnriched',
+  'vFriendAttempt',
 ])
+// フレンドの射影は asFriendOf だけが読む。許可リスト（counts.ts など）でも import させない
+const friendOnly = new Set(['vFriendAttempt'])
 const allowed = new Set([
   'src/db/scoped.ts',
   'src/db/counts.ts',
@@ -121,6 +125,9 @@ for (const file of walk(join(root, 'src'))) {
     if (star) violations.push(`${rel}: *（schema 全体）`)
     const hit = names.filter((n) => forbidden.has(n))
     if (hit.length > 0) violations.push(`${rel}: ${hit.join(', ')}`)
+  } else if (rel !== 'src/db/scoped.ts') {
+    const hit = importsOf(file, src, schemaPath).names.filter((n) => friendOnly.has(n))
+    if (hit.length > 0) violations.push(`${rel}: ${hit.join(', ')}（asFriendOf だけが読む）`)
   }
   if (!spoilerAllowed.has(rel)) {
     const { star, names } = importsOf(file, src, spoilerPath)
