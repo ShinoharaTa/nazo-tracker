@@ -111,7 +111,7 @@
 - オーナー用の画面・API にオーナー以外が来たら 404（存在を漏らさない）。
 
 ### レート制限
-- `GET /auth/:provider` と `GET /auth/:provider/callback` は、IP（`CF-Connecting-IP`）ごとに 60 秒 10 回まで（Workers の Rate Limiting binding `AUTH_LIMITER`）。開始は存在しない provider の 404・準備中の 503・ログイン済みの 302 より後、`beginOAuth` の直前で判定し、超えたら 429（`Retry-After: 60`）で `oauth_state` に書かない。callback は provider の 404 より後、`completeOAuth` の直前で判定し、超えたら既存の失敗と同じ `/login?error=failed` へ送る（`oauth_state` も token endpoint も触らない）。`/_dev/login` には掛けない。値・確認手順は `docs/ops.md`「レート制限」。
+- `GET /auth/:provider` と `GET /auth/:provider/callback` は、IP（`CF-Connecting-IP`）ごとに 60 秒 10 回まで（Workers の Rate Limiting binding `AUTH_LIMITER`）。開始は存在しない provider の 404・準備中の 503・ログイン済みの 302 より後、`beginOAuth` の直前で判定し、超えたら `/login?error=busy` へ 302 で戻し（ログイン画面に「アクセスが集中しています。1 分ほど待ってからもう一度お試しください。」）、`oauth_state` に書かない。callback は provider の 404 より後、`completeOAuth` の直前で判定し、超えたら同じく `/login?error=busy` へ戻す（`oauth_state` も token endpoint も触らない）。開始と callback は key が別（`begin:` / `cb:`）で、別々に数える。`/_dev/login` には掛けない。値・確認手順は `docs/ops.md`「レート制限」。
 
 ### 仮ログイン（開発用）
 - `GET/POST /_dev/login` で `provider = 'dev'` の identity にログインできる。`AUTH_DEV_LOGIN = "1"`、`APP_ORIGIN` のホストが `127.0.0.1` / `localhost`、リクエストの `Host` が `127.0.0.1` / `localhost` の 3 条件が揃ったときだけ有効で、それ以外は 404。本番の wrangler.toml は `AUTH_DEV_LOGIN = "0"`。

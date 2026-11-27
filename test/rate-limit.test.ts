@@ -30,6 +30,36 @@ const google: Cloudflare.Env = {
   GOOGLE_CLIENT_SECRET: 'test-client-secret',
 }
 
+const b64url = (v: unknown) =>
+  btoa(JSON.stringify(v)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+// 署名は検証しない仕様なので、署名部は任意の文字列でよい（test/oauth-google.test.ts と同じ）
+const idToken = (nonce: string, sub: string) =>
+  `${b64url({ alg: 'RS256', typ: 'JWT' })}.${b64url({
+    iss: 'https://accounts.google.com',
+    aud: google.GOOGLE_CLIENT_ID,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    sub,
+    nonce,
+  })}.not-a-real-signature`
+
+// 開始はヘッダ無し（制限なし）で済ませ、正しい state・nonce を用意する
+const startGoogle = async () => {
+  const started = await app.request('/auth/google', {}, google)
+  const location = new URL(started.headers.get('location') ?? '')
+  return {
+    state: location.searchParams.get('state') ?? '',
+    nonce: location.searchParams.get('nonce') ?? '',
+  }
+}
+
+const callback = (state: string, limiter: RateLimit) =>
+  app.request(
+    `/auth/google/callback?code=c&state=${state}`,
+    { headers: { Cookie: `oauth=${state}`, 'CF-Connecting-IP': IP } },
+    { ...google, AUTH_LIMITER: limiter },
+  )
+
 const stateCount = async () =>
   (await env.DB.prepare('SELECT COUNT(*) AS n FROM oauth_state').first<{ n: number }>())?.n ?? 0
 
@@ -64,15 +94,12 @@ describe('GET /auth/:provider', () => {
   const begin = (e: Cloudflare.Env, headers: Record<string, string> = { 'CF-Connecting-IP': IP }) =>
     app.request('/auth/google', { headers }, e)
 
-  it('制限に掛かると 429・Retry-After: 60 で、oauth_state に行が増えない', async () => {
+  it('制限に掛かると 302 /login?error=busy で、oauth_state に行が増えない', async () => {
     const { limiter, keys } = fakeLimiter(false)
     const before = await stateCount()
     const res = await begin({ ...google, AUTH_LIMITER: limiter })
-    expect(res.status).toBe(429)
-    expect(res.headers.get('retry-after')).toBe('60')
-    expect(await res.text()).toBe(
-      'アクセスが続いています。1 分ほど待ってから、もう一度お試しください。',
-    )
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/login?error=busy')
     expect(await stateCount()).toBe(before)
     expect(keys).toEqual([`begin:${IP}`])
   })
@@ -115,25 +142,44 @@ describe('GET /auth/:provider', () => {
 })
 
 describe('GET /auth/:provider/callback', () => {
-  it('制限に掛かると 302 /login?error=failed で、oauth_state を消費せず外部 fetch も呼ばない', async () => {
-    // 開始はヘッダ無し（制限なし）で済ませ、正しい state と cookie を用意する
-    const started = await app.request('/auth/google', {}, google)
-    const state = new URL(started.headers.get('location') ?? '').searchParams.get('state') ?? ''
+  it('制限に掛かると 302 /login?error=busy で、oauth_state を消費せず外部 fetch も呼ばない', async () => {
+    const { state } = await startGoogle()
     expect(await stateRow(state)).not.toBeNull()
 
     const { limiter, keys } = fakeLimiter(false)
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const res = await app.request(
-      `/auth/google/callback?code=c&state=${state}`,
-      { headers: { Cookie: `oauth=${state}`, 'CF-Connecting-IP': IP } },
-      { ...google, AUTH_LIMITER: limiter },
-    )
+    const res = await callback(state, limiter)
     expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('/login?error=failed')
+    expect(res.headers.get('location')).toBe('/login?error=busy')
     expect(keys).toEqual([`cb:${IP}`])
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(await stateRow(state)).not.toBeNull()
+  })
+
+  it('制限内なら従来どおり token endpoint を呼んでログインし、oauth_state を消費する', async () => {
+    const { state, nonce } = await startGoogle()
+    const { limiter, keys } = fakeLimiter(true)
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(Response.json({ id_token: idToken(nonce, 'rate-limit-cb-allowed') }))
+    const res = await callback(state, limiter)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
+    expect(keys).toEqual([`cb:${IP}`])
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(await stateRow(state)).toBeNull()
+  })
+
+  it('limit() が throw しても素通し', async () => {
+    const { state, nonce } = await startGoogle()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({ id_token: idToken(nonce, 'rate-limit-cb-throw') }),
+    )
+    const res = await callback(state, throwingLimiter)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/settings/name?welcome=1')
   })
 
   it('存在しない provider は 404 で、limiter を呼ばない', async () => {
@@ -149,10 +195,14 @@ describe('GET /auth/:provider/callback', () => {
 })
 
 describe('/api/agent/*', () => {
-  let token = ''
+  let ownerCookie = ''
 
   beforeAll(async () => {
-    const { cookie } = await loginAs(env, { subject: 'rate-limit-owner', owner: true })
+    ownerCookie = (await loginAs(env, { subject: 'rate-limit-owner', owner: true })).cookie
+  })
+
+  // テストごとに専用のトークンを画面から発行する（last_used_at の検証を実行順に依存させない）
+  const issue = async (name: string) => {
     const res = await app.request(
       '/admin/tokens',
       {
@@ -160,47 +210,70 @@ describe('/api/agent/*', () => {
         headers: {
           Origin: ORIGIN,
           'Content-Type': 'application/x-www-form-urlencoded',
-          Cookie: cookie,
+          Cookie: ownerCookie,
         },
-        body: new URLSearchParams({ name: 'rate-limit-cli', days: '90' }).toString(),
+        body: new URLSearchParams({ name, days: '90' }).toString(),
       },
       env,
     )
-    token = /nzt_[A-Za-z0-9_-]{43}/.exec(await res.text())?.[0] ?? ''
-    expect(token).not.toBe('')
-  })
+    const token = /nzt_[A-Za-z0-9_-]{43}/.exec(await res.text())?.[0]
+    if (!token) throw new Error('平文が表示されていない')
+    return token
+  }
 
-  const lastUsedAt = async () =>
+  const lastUsedAt = async (name: string) =>
     (
       await env.DB.prepare('SELECT last_used_at FROM api_token WHERE name = ?')
-        .bind('rate-limit-cli')
+        .bind(name)
         .first<{ last_used_at: string | null }>()
     )?.last_used_at
 
-  const call = (limiter: RateLimit) =>
+  const call = (
+    token: string,
+    limiter: RateLimit,
+    headers: Record<string, string> = { 'CF-Connecting-IP': IP },
+  ) =>
     app.request(
       '/api/agent/requests',
-      { headers: { Authorization: `Bearer ${token}`, 'CF-Connecting-IP': IP } },
+      { headers: { Authorization: `Bearer ${token}`, ...headers } },
       { ...env, AGENT_LIMITER: limiter },
     )
 
   it('制限に掛かると 429 JSON・Retry-After: 60 で、requireAgent の D1 読みが走らない', async () => {
+    const token = await issue('rate-limit-denied')
     const { limiter, keys } = fakeLimiter(false)
-    const res = await call(limiter)
+    const res = await call(token, limiter)
     expect(res.status).toBe(429)
     expect(res.headers.get('retry-after')).toBe('60')
     expect(res.headers.get('cache-control')).toContain('no-store')
     expect(await res.json()).toEqual({ error: 'rate_limited' })
     expect(keys).toEqual([`agent:${IP}`])
-    expect(await lastUsedAt()).toBeNull()
+    expect(await lastUsedAt('rate-limit-denied')).toBeNull()
   })
 
   it('制限内なら従来どおり認証して 200', async () => {
+    const token = await issue('rate-limit-allowed')
     const { limiter, keys } = fakeLimiter(true)
-    const res = await call(limiter)
+    const res = await call(token, limiter)
     expect(res.status).toBe(200)
     expect(keys).toEqual([`agent:${IP}`])
-    expect(await lastUsedAt()).not.toBeNull()
+    expect(await lastUsedAt('rate-limit-allowed')).not.toBeNull()
+  })
+
+  it('CF-Connecting-IP が無ければ limiter を呼ばずに素通し', async () => {
+    const token = await issue('rate-limit-no-ip')
+    const { limiter, keys } = fakeLimiter(false)
+    const res = await call(token, limiter, {})
+    expect(res.status).toBe(200)
+    expect(keys).toEqual([])
+  })
+
+  it('limit() が throw しても素通し', async () => {
+    const token = await issue('rate-limit-throw')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await call(token, throwingLimiter)
+    expect(res.status).toBe(200)
+    expect(await lastUsedAt('rate-limit-throw')).not.toBeNull()
   })
 })
 

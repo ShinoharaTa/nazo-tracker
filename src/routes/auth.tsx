@@ -28,9 +28,9 @@ auth.get('/:provider', async (c) => {
   if (!isProviderReady(c, provider)) return c.text(`${provider.label} ログインは準備中です`, 503)
   if (c.get('user')) return c.redirect('/records', 302)
   const ip = ipOf(c)
+  // 制限に掛かったときはログイン画面に戻して「アクセスが集中しています」を出す（oauth_state に書かない）
   if (!(await allow(c.env.AUTH_LIMITER, ip ? `begin:${ip}` : null))) {
-    c.header('Retry-After', '60')
-    return c.text('アクセスが続いています。1 分ほど待ってから、もう一度お試しください。', 429)
+    return c.redirect('/login?error=busy', 302)
   }
   return beginOAuth(c, provider)
 })
@@ -38,11 +38,11 @@ auth.get('/:provider', async (c) => {
 auth.get('/:provider/callback', async (c) => {
   const provider = findOAuthProvider(c.req.param('provider'))
   if (!provider) return c.notFound()
-  // 制限に掛かったときは既存の失敗と同じ見え方にする（oauth_state も token endpoint も触らない）
+  // 制限に掛かったときは開始と同じくログイン画面に戻す（oauth_state も token endpoint も触らない）
   const ip = ipOf(c)
   if (!(await allow(c.env.AUTH_LIMITER, ip ? `cb:${ip}` : null))) {
     console.error(`OAuth ${provider.name}: レート制限`)
-    return c.redirect('/login?error=failed', 302)
+    return c.redirect('/login?error=busy', 302)
   }
   const result = await completeOAuth(c, provider)
   if (!result.ok) return c.redirect(`/login?error=${result.error}`, 302)

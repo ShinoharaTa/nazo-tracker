@@ -44,19 +44,20 @@ Workers の Rate Limiting binding（`wrangler.toml` の `[[ratelimits]]`）で�
 
 | 入口 | binding（namespace_id） | 上限 | key | 超えたとき |
 |---|---|---|---|---|
-| `GET /auth/:provider` | `AUTH_LIMITER`（29001） | 10 回 / 60 秒 | `begin:<IP>` | 429、`Retry-After: 60`、「アクセスが続いています。1 分ほど待ってから、もう一度お試しください。」 |
-| `GET /auth/:provider/callback` | `AUTH_LIMITER`（29001） | 同上（同じ数え枠） | `cb:<IP>` | 302 `/login?error=failed`（既存の失敗と同じ） |
+| `GET /auth/:provider` | `AUTH_LIMITER`（29001） | 10 回 / 60 秒 | `begin:<IP>` | 302 `/login?error=busy`（ログイン画面に「アクセスが集中しています。1 分ほど待ってからもう一度お試しください。」） |
+| `GET /auth/:provider/callback` | `AUTH_LIMITER`（29001） | 同上（開始とは別に数える） | `cb:<IP>` | 302 `/login?error=busy`（開始と同じ） |
 | `/api/agent/*`（`requireAgent` より前） | `AGENT_LIMITER`（29002） | 300 回 / 60 秒 | `agent:<IP>` | 429、`Retry-After: 60`、`{"error":"rate_limited"}` |
 
 - IP は `CF-Connecting-IP` ヘッダだけを見る。無いとき（ローカル・テスト）、binding が無いとき、`limit()` が例外を投げたときは制限しない。
 - `/_dev/login` と `POST /requests` には掛けない（`POST /requests` の 1 日 20 件は D1 の COUNT で数える）。
 - `namespace_id` はアカウント内で共有される番号。同じアカウントの他の Worker と重ねない。
+- Workers Free で deploy が拒否された場合は、`wrangler.toml` の `[[ratelimits]]` 2 ブロックを消せば戻せる（binding が無いとコードは何もしない）。
 - WAF のレート制限ルール（ダッシュボード）: 未設定。作ったらここに 1 行残す（対象パス・回数 / 10 秒・作成日）。
 
-deploy 後の確認（後半に 429 が出る）:
+deploy 後の確認（前半は Discord の認可 URL、後半は `/login?error=busy` へ戻る）:
 
 ```sh
-for i in $(seq 12); do curl -s -o /dev/null -w '%{http_code}\n' https://nazo.shino3.net/auth/discord; done
+for i in $(seq 12); do curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://nazo.shino3.net/auth/discord; done
 ```
 
 ## ローカル開発
