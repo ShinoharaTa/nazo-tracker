@@ -71,6 +71,8 @@ beforeAll(async () => {
   ids.other = await insertOrg(env, { name: 'ベツ団体' })
   ids.meigi = await insertOrg(env, { name: 'メイギ団体' })
   ids.kit = await insertWork(env, { title: '持ち帰りキット', kind: 'takeaway', orgId: ids.other })
+  ids.cafe = await insertWork(env, { title: 'カフェの謎', kind: 'cafe' })
+  ids.box = await insertWork(env, { title: '箱の謎', kind: 'box' })
   ids.shop = await insertShop(env, {
     name: 'メイギ通販',
     kind: 'official_store',
@@ -104,6 +106,17 @@ describe('GET /works', () => {
     expect(h).toContain('オンライン')
     expect(h).not.toContain('WORDEAL')
     expect(h).not.toContain('ホールの謎')
+  })
+
+  it.each([
+    ['cafe', 'カフェの謎', '箱の謎'],
+    ['box', '箱の謎', 'カフェの謎'],
+  ])('?kind=%s はその形式だけ', async (kind, shown, hidden) => {
+    const h = await html(`/works?kind=${kind}`)
+    expect(h).toContain(shown)
+    expect(h).not.toContain(hidden)
+    expect(h).not.toContain('持ち帰りキット')
+    expect(h).not.toContain('WORDEAL')
   })
 
   it('?kind=room は room だけ', async () => {

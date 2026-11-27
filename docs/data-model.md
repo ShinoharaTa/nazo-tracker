@@ -71,7 +71,7 @@ erDiagram
 |---|---|
 | id | |
 | title, title_norm | INDEX(title_norm) |
-| kind | `hall` / `room` / `stroll`(周遊) / `line` / `web` / `takeaway`(持ち帰り) / `other` |
+| kind | `hall` / `room` / `stroll`(周遊) / `line` / `web` / `takeaway`(持ち帰り) / `cafe`(カフェ謎) / `box`(箱謎) / `other` |
 | primary_organization_id FK NULL | |
 | official_url UNIQUE NULL | 正規化後 |
 | description | **画像は持たない**（escape.id `imageUrl` は保存しない） |

@@ -16,6 +16,8 @@ beforeAll(async () => {
   ids.hall = await insertWork(env, { title: '来場型の公演', kind: 'hall' })
   ids.stroll = await insertWork(env, { title: '周遊型の謎', kind: 'stroll' })
   ids.takeaway = await insertWork(env, { title: '持ち帰りの謎', kind: 'takeaway' })
+  ids.cafe = await insertWork(env, { title: 'カフェの謎', kind: 'cafe' })
+  ids.box = await insertWork(env, { title: '箱の謎', kind: 'box' })
 })
 
 const get = (path: string) => app.request(path, { headers: { Cookie: alice.cookie } }, env)
@@ -244,6 +246,26 @@ describe('持ち帰り', () => {
     expect(statusValues(h)).toEqual(['purchased', 'in_progress', 'cleared', 'failed', 'dropped'])
     expect(h).toMatch(/value="failed" checked=""\/><label for="status-failed">失敗/)
     expect((await post(`/records/${id}/status`, { status: 'failed', on: '' })).status).toBe(302)
+  })
+})
+
+describe.each([
+  ['cafe', 'カフェ'],
+  ['box', '箱'],
+])('%s は持ち帰りと同じ', (kind, label) => {
+  it('選択肢は failed を除く 4 つ、日付の注記も持ち帰りと同じ', async () => {
+    const h = await (await get(`/records/new?work=${ids[kind]}`)).text()
+    expect(statusValues(h)).toEqual(['purchased', 'in_progress', 'cleared', 'dropped'])
+    expect(h).toContain('>買った</label>')
+    expect(h).toContain(
+      '買った → 買った日、進行中 → 始めた日、クリア・断念 → 終わった日として保存します。',
+    )
+  })
+
+  it('failed の作成 → 400、形式名のエラー', async () => {
+    const res = await post('/records', { work_id: ids[kind], status: 'failed', on: '' })
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain(`${label}では選べないステータスです`)
   })
 })
 

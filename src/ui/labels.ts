@@ -32,6 +32,8 @@ export const workKindLabels: Record<WorkKind, string> = {
   line: 'LINE',
   web: 'Web',
   takeaway: '持ち帰り',
+  cafe: 'カフェ',
+  box: '箱',
   other: 'その他',
 }
 
@@ -48,7 +50,7 @@ export const isVisitKind = (kind: WorkKind | null | undefined): boolean =>
   kind === 'hall' || kind === 'room'
 
 const visitStatuses: readonly AttemptStatus[] = ['purchased', 'cleared', 'failed']
-// 持ち帰りには失敗が無い
+// 持ち帰り・カフェ・箱には失敗が無い
 const takeawayStatuses: readonly AttemptStatus[] = [
   'purchased',
   'in_progress',
@@ -58,7 +60,11 @@ const takeawayStatuses: readonly AttemptStatus[] = [
 
 // 作品の形式で選べるステータス（形式未設定は全部）
 export const statusesFor = (kind: WorkKind | null | undefined): readonly AttemptStatus[] =>
-  isVisitKind(kind) ? visitStatuses : kind === 'takeaway' ? takeawayStatuses : attemptStatuses
+  isVisitKind(kind)
+    ? visitStatuses
+    : kind === 'takeaway' || kind === 'cafe' || kind === 'box'
+      ? takeawayStatuses
+      : attemptStatuses
 
 // 来場型の purchased は「予約済み」、cleared は「成功」
 export const statusLabel = (status: AttemptStatus, kind?: WorkKind | null): string => {

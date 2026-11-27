@@ -8,7 +8,13 @@ import {
   sessionOutcomes,
 } from '../db/scoped'
 import { date, done, type Form, field, int, oneOf, str } from '../lib/form'
-import { type AttemptStatus, isVisitKind, statusesFor, type WorkKind } from '../ui/labels'
+import {
+  type AttemptStatus,
+  isVisitKind,
+  statusesFor,
+  type WorkKind,
+  workKindLabels,
+} from '../ui/labels'
 
 // q は検索語（400 で再描画したときの戻り先に引き継ぐだけ。保存しない）
 export const newRecordFields = ['work_id', 'status', 'on', 'q'] as const
@@ -30,7 +36,7 @@ const statusOf = (
     errors.push(
       isVisitKind(kind)
         ? 'ルーム・公演では選べないステータスです。'
-        : '持ち帰りでは選べないステータスです。',
+        : `${workKindLabels[kind as WorkKind]}では選べないステータスです。`,
     )
   }
   return status ?? attemptStatuses[0]

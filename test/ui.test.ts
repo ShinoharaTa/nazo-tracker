@@ -12,10 +12,12 @@ import { sessionOutcomes } from '../src/db/scoped'
 import app from '../src/index'
 import {
   attemptStatusLabels,
+  isVisitKind,
   organizationAliasKindLabels,
   outcomeLabels,
   runChannelLabels,
   shopKindLabels,
+  statusesFor,
   workAliasKindLabels,
   workKindLabels,
 } from '../src/ui/labels'
@@ -199,6 +201,17 @@ describe('ネタバレの遅延読み込み', () => {
 describe('labels', () => {
   it('workKinds の全値にラベルがある', () => {
     expect(Object.keys(workKindLabels).sort()).toEqual([...workKinds].sort())
+  })
+
+  it('カフェ・箱のラベル', () => {
+    expect(workKindLabels.cafe).toBe('カフェ')
+    expect(workKindLabels.box).toBe('箱')
+  })
+
+  it.each(['cafe', 'box'] as const)('%s のステータス候補は持ち帰りと同じ（失敗なし）', (kind) => {
+    expect(statusesFor(kind)).toEqual(statusesFor('takeaway'))
+    expect(statusesFor(kind)).not.toContain('failed')
+    expect(isVisitKind(kind)).toBe(false)
   })
 
   it('attemptStatuses の全値にラベルがある', () => {

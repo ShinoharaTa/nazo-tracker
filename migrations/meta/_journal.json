@@ -43,6 +43,13 @@
       "when": 1794366506393,
       "tag": "0005_pipeline",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795755153009,
+      "tag": "0006_work_kind_cafe_box",
+      "breakpoints": true
     }
   ]
 }
