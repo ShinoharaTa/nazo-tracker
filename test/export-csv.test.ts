@@ -1,11 +1,12 @@
 import { env } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
+import { EXPORT_WISHLIST_LIMIT } from '../src/db/scoped'
 import app from '../src/index'
 import { toCsv } from '../src/lib/export'
 import { ulid } from '../src/lib/id'
 import { todayJst } from '../src/lib/time'
 import { loginAs } from './helpers/auth'
-import { insertWork } from './helpers/master'
+import { insertOrg, insertRun, insertVenue, insertWork } from './helpers/master'
 import { insertAttempt, insertGenre, insertSession, insertWish } from './helpers/records'
 
 const get = (path: string, headers: Record<string, string> = {}) =>
@@ -96,6 +97,18 @@ describe('toCsv', () => {
     expect(csv).toBe(
       '﻿n,raw,s\r\n-1,=SUM(A1),\'=SUM(A1)\r\n,,\r\n2,"a""b,c\r\nd","a""b,c\r\nd"\r\n3,\tx,\'\tx\r\n',
     )
+  })
+
+  it.each([
+    ['LF', '\nx', '"\'\nx"'],
+    ["CR（' を足したうえで引用）", '\rx', '"\'\rx"'],
+    ['全角 ＝', '＝1+1', "'＝1+1"],
+    ['全角 ＋', '＋x', "'＋x"],
+    ['全角 －', '－x', "'－x"],
+    ['全角 ＠', '＠x', "'＠x"],
+  ])("%s で始まる text セルに ' が付く", (_, value, cell) => {
+    const csv = toCsv([{ name: 's', text: true, value: (r: { s: string }) => r.s }], [{ s: value }])
+    expect(csv).toBe(`﻿s\r\n${cell}\r\n`)
   })
 })
 
@@ -267,6 +280,47 @@ describe('/settings/export/*.csv', () => {
     }
   })
 
+  it("マスタ由来の org_name・venue_name も = 始まりなら ' が付く", async () => {
+    const { cookie, userId } = await loginAs(env, { subject: 'csv-master' })
+    const org = await insertOrg(env, { name: '=団体' })
+    const w = await insertWork(env, { title: 'CSV マスタ', kind: 'hall', orgId: org })
+    const venue = await insertVenue(env, { name: '=会場', prefecture: '東京都' })
+    const run = await insertRun(env, { workId: w, channel: 'performance', venueId: venue })
+    await insertAttempt(env, { userId, workId: w, runId: run, status: 'cleared' })
+    await insertWish(env, userId, w)
+
+    const attempts = await csvOf('/settings/export/attempts.csv?part=1', cookie)
+    expect(attempts.rows[0]).toMatchObject({ org_name: "'=団体", venue_name: "'=会場" })
+    const wishes = await csvOf('/settings/export/wishlist.csv', cookie)
+    expect(wishes.rows[0]).toMatchObject({ org_name: "'=団体" })
+  })
+
+  it('マイリストが上限を超えたら画面の件数に「先頭 5000 件まで」', async () => {
+    const { cookie, userId } = await loginAs(env, { subject: 'csv-wish-cap' })
+    const now = '2026-02-01T00:00:00.000Z'
+    const addWishes = async (n: number) => {
+      const ids = Array.from({ length: n }, () => ulid())
+      const work = env.DB.prepare(
+        'INSERT INTO work (id, title, title_norm, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      const wish = env.DB.prepare(
+        'INSERT INTO wishlist (user_id, work_id, created_at) VALUES (?, ?, ?)',
+      )
+      await env.DB.batch(ids.map((id) => work.bind(id, `上限 ${id}`, `上限 ${id}`, now, now)))
+      await env.DB.batch(ids.map((id) => wish.bind(userId, id, now)))
+    }
+    const wishNote = async () => {
+      const html = await (await get('/settings/export', { Cookie: cookie })).text()
+      return html.match(/<span>マイリスト<\/span><span class="note">([^<]*)<\/span>/)?.[1]
+    }
+    await addWishes(EXPORT_WISHLIST_LIMIT)
+    expect(await wishNote()).toBe(`${EXPORT_WISHLIST_LIMIT} 件`)
+    await addWishes(1)
+    expect(await wishNote()).toBe(
+      `${EXPORT_WISHLIST_LIMIT + 1} 件（先頭 ${EXPORT_WISHLIST_LIMIT} 件まで）`,
+    )
+  })
+
   it('画面に CSV のリンク。spoiler=1 は記録のリンクにだけ引き継ぐ', async () => {
     const { cookie, userId } = await loginAs(env, { subject: 'csv-page' })
     const w = await insertWork(env, { title: 'CSV 画面' })
@@ -279,6 +333,9 @@ describe('/settings/export/*.csv', () => {
     expect(html).toContain('href="/settings/export/sessions.csv?part=2"')
     expect(html).toContain('href="/settings/export/wishlist.csv"')
     expect(html).not.toContain('sessions.csv?part=1&amp;spoiler=1')
+    expect(html).toContain(
+      '= + - @ で始まるセルは、表計算ソフトで数式として動かないよう先頭に &#39; を付けています。元のままの値が要るときは JSON を使ってください。',
+    )
     expect(html).not.toContain('part=3')
   })
 })

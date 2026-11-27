@@ -94,8 +94,8 @@ export const buildExportJson = (input: {
 // CSV の列。text は表計算ソフトの数式実行対策をする列（数値・日付・id・列挙値は付けない）
 type CsvColumn<T> = { name: string; text?: boolean; value: (row: T) => string | number | null }
 
-// = + - @ タブ CR で始まる文字列は数式として実行され得るので、先頭に ' を足す
-const FORMULA_START = /^[=+\-@\t\r]/
+// = + - @（全角の ＝ ＋ － ＠ も）・タブ・CR・LF で始まる文字列は数式として実行され得るので、先頭に ' を足す
+const FORMULA_START = /^[=+\-@＝＋－＠\t\r\n]/
 
 // RFC 4180: , " CR LF を含むセルは " で囲み、中の " は "" にする。null は空セル
 const csvCell = (value: string | number | null, text: boolean): string => {

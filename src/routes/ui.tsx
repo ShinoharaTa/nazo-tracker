@@ -11,7 +11,7 @@ import { countsFor, type WorkCounts } from '../db/counts'
 import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
 import { countPendingProposals } from '../db/proposals'
 import { countRequests } from '../db/requests'
-import { EXPORT_PART, type OwnRepo, scopedTo } from '../db/scoped'
+import { EXPORT_PART, EXPORT_WISHLIST_LIMIT, type OwnRepo, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
 import {
   attemptsCsv,
@@ -594,7 +594,14 @@ const ExportForm = (props: {
         <Menu>
           <MenuItem label="記録" note={`${props.counts.attempts} 件`} />
           <MenuItem label="進行ログ" note={`${props.counts.sessions} 件`} />
-          <MenuItem label="マイリスト" note={`${props.counts.wishlist} 件`} />
+          <MenuItem
+            label="マイリスト"
+            note={
+              props.counts.wishlist > EXPORT_WISHLIST_LIMIT
+                ? `${props.counts.wishlist} 件（先頭 ${EXPORT_WISHLIST_LIMIT} 件まで）`
+                : `${props.counts.wishlist} 件`
+            }
+          />
         </Menu>
       </div>
       <form method="get" action="/settings/export" class="sect">
@@ -642,6 +649,10 @@ const ExportForm = (props: {
           <MenuItem label="マイリスト" href="/settings/export/wishlist.csv" />
         </Menu>
         <p class="note">進行ログは、同じ番号の記録のファイルに入っている記録の分です。</p>
+        <p class="note">
+          = + - @ で始まるセルは、表計算ソフトで数式として動かないよう先頭に '
+          を付けています。元のままの値が要るときは JSON を使ってください。
+        </p>
       </div>
     </>
   )
