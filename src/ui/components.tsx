@@ -282,7 +282,10 @@ export const Switch = (props: {
   </label>
 )
 
-export const Menu = ({ children }: { children?: Child }) => <div class="menu">{children}</div>
+// cls は修飾クラス（例: 統計の積み謎の backlog）
+export const Menu = ({ children, cls }: { children?: Child; cls?: string }) => (
+  <div class={cls ? `menu ${cls}` : 'menu'}>{children}</div>
+)
 
 // href があればリンク、action があればそこへ POST するボタン、disabled なら押しても何も起きない
 // aria-disabled のボタン、どれも無ければ表示だけ
@@ -352,14 +355,23 @@ export const Kpis = (props: {
 // 完了型の形式 → グラフの系列クラス（docs/visual-design.md §3.7）
 export const doneKindClass = (k: DoneKind): string => (k === null ? 'k-none' : `k-${k}`)
 
-// 成功率の横棒。total = 成功＋失敗、cleared = 成功。1 本に成功（.r-ok）と失敗（.r-ng）を並べる
+// 成功率の横棒。total = 成功＋失敗、cleared = 成功。1 本に成功（.r-ok）と失敗（.r-ng）を並べる。
+// best はラベルに蛍光ペン＋「得意」（画面の蛍光ペンの 2 か所目。docs/visual-design.md §4.5）。note は棒の下の注記。
+// labelTop はラベルを棒の上の行に置く（団体名・同行者名など長い自由入力向け）
 export const RateBars = (props: {
-  items: readonly { label: string; total: number; cleared: number }[]
+  items: readonly { label: string; total: number; cleared: number; best?: boolean; note?: string }[]
+  labelTop?: boolean
 }) => (
-  <div class="bars">
-    {props.items.map(({ label, total, cleared }) => (
+  <div class={props.labelTop ? 'bars label-top' : 'bars'}>
+    {props.items.map(({ label, total, cleared, best, note }) => (
       <div class="bar">
-        <span>{label}</span>
+        {best ? (
+          <span>
+            <span class="hl">{label}</span> <span class="pen">得意</span>
+          </span>
+        ) : (
+          <span>{label}</span>
+        )}
         {total ? (
           <div class="tr">
             <div class="fl r-ok" style={`width:${(cleared / total) * 100}%`} />
@@ -371,23 +383,26 @@ export const RateBars = (props: {
         <span class="v">
           {total ? `${Math.round((cleared / total) * 100)}% · ${cleared}/${total}` : '—'}
         </span>
+        {note ? <span class="bar-note">{note}</span> : null}
       </div>
     ))}
   </div>
 )
 
-// 件数の横棒。幅は最大の行を 100% とする。cls は系列のクラス
+// 件数の横棒。幅は最大の行を 100% とする。cls は系列のクラス（無ければ系列の色を付けずインクで塗る）。
+// labelTop は RateBars と同じ（ラベルを棒の上の行に置く）
 export const CountBars = (props: {
-  items: readonly { label: string; count: number; cls: string }[]
+  items: readonly { label: string; count: number; cls?: string }[]
+  labelTop?: boolean
 }) => {
   const max = Math.max(1, ...props.items.map((i) => i.count))
   return (
-    <div class="bars">
+    <div class={props.labelTop ? 'bars label-top' : 'bars'}>
       {props.items.map(({ label, count, cls }) => (
         <div class="bar">
           <span>{label}</span>
           <div class="tr">
-            <div class={`fl ${cls}`} style={`width:${(count / max) * 100}%`} />
+            <div class={cls ? `fl ${cls}` : 'fl'} style={`width:${(count / max) * 100}%`} />
           </div>
           <span class="v">{count} 件</span>
         </div>

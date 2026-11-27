@@ -252,6 +252,48 @@ describe('POST /requests', () => {
       (await post('/requests', { kind: 'other', note: 'オーナー' }, owner.cookie)).status,
     ).toBe(302)
   })
+
+  it('19 件ある状態で 5 本同時に送っても 20 件ちょうど（#96）', async () => {
+    const { cookie, userId } = await loginAs(env, { subject: 'requests-race-limit' })
+    for (let i = 0; i < 19; i++) await insertRequest(userId)
+    const res = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        post('/requests', { kind: 'other', note: `同時 ${i}` }, cookie),
+      ),
+    )
+    expect(res.filter((r) => r.status === 302)).toHaveLength(1)
+    for (const r of res.filter((r) => r.status !== 302)) {
+      expect(r.status).toBe(400)
+      expect(await r.text()).toContain(
+        'リクエストは 1 日 20 件までです。時間をおいてからお願いします。',
+      )
+    }
+    const row = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM request WHERE requester_user_id = ?',
+    )
+      .bind(userId)
+      .first<{ n: number }>()
+    expect(row?.n).toBe(20)
+  })
+
+  it('同じ URL を 5 本同時に送っても 1 件だけ（#96）', async () => {
+    const { cookie, userId } = await loginAs(env, { subject: 'requests-race-dup' })
+    const url = 'https://escape.id/events/race'
+    const res = await Promise.all(
+      Array.from({ length: 5 }, () => post('/requests', { kind: 'new_work', url }, cookie)),
+    )
+    expect(res.filter((r) => r.status === 302)).toHaveLength(1)
+    for (const r of res.filter((r) => r.status !== 302)) {
+      expect(r.status).toBe(400)
+      expect(await r.text()).toContain('同じ URL のリクエストを受け付けています。')
+    }
+    const row = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM request WHERE requester_user_id = ? AND json_extract(payload_json, '$.url') = ?",
+    )
+      .bind(userId, url)
+      .first<{ n: number }>()
+    expect(row?.n).toBe(1)
+  })
 })
 
 describe('GET /requests/new', () => {

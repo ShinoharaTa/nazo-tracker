@@ -315,6 +315,9 @@ export const runFields = [
   'note',
 ] as const
 
+// 常設の値（チェックボックス。空なら常設でない）
+export const permanentValues = ['1'] as const
+
 export type RunInput = {
   channel: (typeof runChannels)[number]
   organizationId: string | null
@@ -342,7 +345,7 @@ export const validateRun = async (db: Db, f: Form, selfId?: string) => {
   const shopId = await refId(errors, '販売先', f.shop_id, (id) => shopExists(db, id))
   const startOn = field(errors, '開始日', f.start_on, date())
   const endOn = field(errors, '終了日', f.end_on, date())
-  const permanent = field(errors, '常設', f.is_permanent, oneOf(['1']))
+  const permanent = field(errors, '常設', f.is_permanent, oneOf(permanentValues))
   const escapeIdUrl = field(errors, 'escape.id の URL', f.escape_id_url, escapeRunUrl())
   const ticketUrl = field(errors, 'チケットの URL', f.ticket_url, url())
   const priceYen = field(errors, '価格', f.price_yen, int(0, PRICE_MAX))

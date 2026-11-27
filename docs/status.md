@@ -13,6 +13,7 @@
 | P1 認証 | セッション（ハッシュ保存・延長・固定化対策）、仮ログイン、オーナー判定、`scopedTo`、表示名、退会、Google / Discord OAuth | #2, #17〜#21 → #24〜#28 |
 | LINE ログイン | LINE ログイン（OIDC + PKCE、scope `openid`）、ID トークン検証を Google と共通化 | #107 → #109 |
 | 運用 docs | デプロイ手順・ローカル開発手順 | #31 → #32 |
+| レート制限 | ログイン入口（`/auth/:provider`・callback）と `/api/agent/*` に Workers の Rate Limiting binding（`docs/ops.md`） | #29 |
 | P4 補完パイプライン | リクエスト投稿・選別、agent トークン、`/api/agent`、source / proposal API、承認 UI（部分承認・却下記憶）、自動反映（既定 OFF）・7 日間の取り消し | #5（#47, #85〜#103） |
 
 ## 進行中
@@ -31,7 +32,7 @@
 | P5 | #6 | `nazo-admin` CLI、`/process-queue`、escape MCP 手順、trailcast インポート | P4 |
 | P6 | #7 | Bluesky ログイン、複数プロバイダ紐付け（`oauth_state.mode='link'`）、復旧コード | P1 |
 | P7 | #8 | 出店（market / edition / booth）、gamemarket.jp 取り込み、得意傾向の統計、エクスポート | P3 |
-| P8 | #9 | フレンド（招待リンク・申請・承認・ブロック）、`asFriendOf` の status 射影、作品ページの「フレンド n 人」 | P3 |
+| P8 | #9 | フレンド（招待リンク・申請・承認・ブロック）、`asFriendOf` の status 射影、作品ページの「フレンド n 人」。B-PR1〜5（招待コード・招待リンク・申請一覧・ブロック・フレンドの記録一覧、#128 → #134 → #139 → #142 → #146）は実装済み・未マージ。B-PR6（作品ページの「フレンド n 人」）は未着手 | P3 |
 | P9 | #10 | 画像（R2、クライアント縮小、EXIF 検査、ネタバレ写真は本人のみ、通報・削除、容量上限）。退会時の R2 実体削除 `TODO(P9)` もここ | P3 |
 | P10 | #11 | ルーム型一覧（都道府県 → 店舗 → 作品）、常設 run、kind / is_permanent の推定 → 承認 | P2, P4 |
 | P11 | #12 | フレンド公開範囲設定（既定 share level、記録ごと hidden、写真の表示）、Bluesky フォローからの候補 | P8, P9 |
@@ -47,7 +48,6 @@
 | 区分 | 内容 | issue |
 |---|---|---|
 | DB | D1 ビュー（`v_*`）の作成 | #14 |
-| 認証まわり | ログイン系エンドポイントのレート制限（`oauth_state` の掃除は P1 で対応済み） | #29 |
 | 認証まわり | 「すべての端末からログアウト」 | #30 |
 | 本番デプロイ | D1 作成 → `database_id` 置換、`db:migrate:remote`、secret 4 つ（`SESSION_SECRET`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_SECRET`・`LINE_CLIENT_SECRET`）、Google / Discord の OAuth アプリ登録・LINE ログインチャネルの作成と公開、CLIENT_ID、`OWNER_IDENTITIES`、`AUTH_DEV_LOGIN=0` / `UI_GALLERY=0` 確認、カスタムドメイン nazo.shino3.net + `workers_dev = false` | `docs/ops.md`（ユーザー作業） |
 | 実機確認 | Google 初回ログイン、Discord 初回の同意画面、Discord が PKCE（`code_verifier`）を受理するか、LINE 初回ログイン | `docs/ops.md` |

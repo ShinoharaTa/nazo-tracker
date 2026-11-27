@@ -772,12 +772,12 @@ export const appSetting = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// ビュー（migrations/0004_v_attempt_enriched.sql で手書き。.existing() なので drizzle-kit は生成しない）
+// ビュー（migrations/0004_v_attempt_enriched.sql・0008_v_friend_attempt.sql で手書き。.existing() なので drizzle-kit は生成しない）
 // ---------------------------------------------------------------------------
 
 // attempt ⋈ work ⋈ run ⋈ venue ⋈ organization。spoiler_memo は含めない。読むのは src/db/scoped.ts だけ
 // attempt / work / run / organization / venue / session を作り直す migration（drizzle-kit の __new_x）を書くときは、
-// 先に DROP VIEW v_attempt_enriched → 表の作り直し → CREATE VIEW を同じ migration に入れる
+// 先に DROP VIEW v_attempt_enriched → 表の作り直し → CREATE VIEW を同じ migration に入れる（attempt / work なら v_friend_attempt も）
 export const vAttemptEnriched = sqliteView('v_attempt_enriched', {
   id: text('id').notNull(),
   userId: text('user_id').notNull(),
@@ -813,4 +813,18 @@ export const vAttemptEnriched = sqliteView('v_attempt_enriched', {
   venueId: text('venue_id'),
   venueName: text('venue_name'),
   venuePrefecture: text('venue_prefecture'),
+}).existing()
+
+// フレンドに見せる記録の射影。attempt ⋈ work の列を絞ったもの（spoiler_memo・memo・rating・companions・purchased_on・
+// attempt の id・session 由来の列は無い）。share_override と created_at は絞り込みと並び順にだけ使う。読むのは src/db/scoped.ts だけ
+export const vFriendAttempt = sqliteView('v_friend_attempt', {
+  userId: text('user_id').notNull(),
+  workId: text('work_id').notNull(),
+  status: text('status', { enum: attemptStatuses }).notNull(),
+  startedOn: text('started_on'),
+  finishedOn: text('finished_on'),
+  shareOverride: text('share_override', { enum: shareOverrides }),
+  createdAt: text('created_at').notNull(),
+  workTitle: text('work_title').notNull(),
+  workKind: text('work_kind', { enum: workKinds }),
 }).existing()
