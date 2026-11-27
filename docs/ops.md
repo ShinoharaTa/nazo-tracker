@@ -2,7 +2,7 @@
 
 ## 本番デプロイ
 
-初回だけ 1〜8 を行う。2 回目以降は 2（新しい migration があるとき）と 9。
+初回だけ 1〜9 を行う。2 回目以降は 2（新しい migration があるとき）と 10。
 
 1. D1 を作る: `npx wrangler d1 create nazo-tracker`。出力された ID で `wrangler.toml` の `database_id` を置き換える。
 2. migration を当てる: `npm run db:migrate:remote`
@@ -15,10 +15,15 @@
    - Redirects: `https://nazo.shino3.net/auth/discord/callback` と `http://127.0.0.1:8787/auth/discord/callback`
    - scope は `identify` のみ
    - `DISCORD_CLIENT_ID` は `wrangler.toml` の `[vars]`、シークレットは `npx wrangler secret put DISCORD_CLIENT_SECRET`
-6. オーナー: `wrangler.toml` の `OWNER_IDENTITIES = "discord:<自分の Discord ユーザー ID>"`。反映は次回ログイン時（既にログイン中なら一度ログアウトして再ログイン）。
-7. `wrangler.toml` の `AUTH_DEV_LOGIN = "0"`、`UI_GALLERY = "0"` を確認する。
-8. カスタムドメインは `wrangler.toml` の `routes = [{ pattern = "nazo.shino3.net", custom_domain = true }]` と `workers_dev = false` で設定済み。`shino3.net` の DNS ゾーンが同じ Cloudflare アカウントにあれば、`npm run deploy` で DNS レコードと証明書が自動で作られる（ダッシュボードでの操作は不要。既に同名の DNS レコードがあると deploy が失敗するので、その場合は先に消す）。
-9. `npm run deploy` のあと確認する:
+6. LINE: LINE Developers コンソール（https://developers.line.biz/console/）でプロバイダを作り、その下に「LINE ログイン」チャネルを作る（アプリタイプ: ウェブアプリ）。
+   - コールバック URL: `https://nazo.shino3.net/auth/line/callback` と `http://127.0.0.1:8787/auth/line/callback`
+   - scope は `openid` のみ
+   - チャネル ID を `wrangler.toml` の `[vars]` の `LINE_CLIENT_ID`、チャネルシークレットは `npx wrangler secret put LINE_CLIENT_SECRET`
+   - チャネルを「公開済み」にする（「開発中」のままだと、チャネルに開発者ロールで登録した人しかログインできない）
+7. オーナー: `wrangler.toml` の `OWNER_IDENTITIES = "discord:<自分の Discord ユーザー ID>"`（provider は `google` / `discord` / `line` を使える。LINE なら `line:<sub>`）。反映は次回ログイン時（既にログイン中なら一度ログアウトして再ログイン）。
+8. `wrangler.toml` の `AUTH_DEV_LOGIN = "0"`、`UI_GALLERY = "0"` を確認する。
+9. カスタムドメインは `wrangler.toml` の `routes = [{ pattern = "nazo.shino3.net", custom_domain = true }]` と `workers_dev = false` で設定済み。`shino3.net` の DNS ゾーンが同じ Cloudflare アカウントにあれば、`npm run deploy` で DNS レコードと証明書が自動で作られる（ダッシュボードでの操作は不要。既に同名の DNS レコードがあると deploy が失敗するので、その場合は先に消す）。
+10. `npm run deploy` のあと確認する:
    - `curl -I https://nazo.shino3.net/healthz` が 200
    - `curl -I https://nazo.shino3.net/records` が 302、`location: /login`
 
@@ -29,6 +34,7 @@
 - Discord の初回ログインで同意画面が出る（`prompt=none` は認可済みユーザーの同意画面を省くだけ）
 - Discord が PKCE（`code_verifier`）を受理する（token 交換が通り、`/login?error=failed` にならない）
 - Google の初回ログインが通り、`/settings/name?welcome=1` に着く
+- LINE の初回ログインが通り、`/settings/name?welcome=1` に着く（チャネルが「公開済み」なら開発者ロール以外のアカウントでも通る）
 
 ## ローカル開発
 
@@ -54,4 +60,4 @@ AUTH_DEV_HOSTS=<IP>
 
 `http://<IP>:8787/_dev/login` で仮ログインできる。起動中は同じ LAN の誰でもオーナーで入れるので、確認が終わったら止める。
 
-OAuth を試すときは `.dev.vars` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`（または `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET`）を入れる。リダイレクト URI は手順 4・5 の `http://127.0.0.1:8787/...` を使う。
+OAuth を試すときは `.dev.vars` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`（または `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET`、`LINE_CLIENT_ID` / `LINE_CLIENT_SECRET`）を入れる。リダイレクト URI は手順 4〜6 の `http://127.0.0.1:8787/...` を使う。

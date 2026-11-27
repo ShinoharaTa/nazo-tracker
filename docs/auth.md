@@ -1,30 +1,31 @@
 # 認証・認可
 
 ## 1. 方針
-- OAuth / OIDC のみ。パスワード無し。**メール・氏名・アバターは保存しない。** 保存するのは `provider + subject`（Google `sub` / Discord user id / Bluesky DID / X user id）と、ユーザーが自分で付ける表示名。
-- 要求スコープは最小: Google `openid`（email/profile 要求しない）、Discord `identify`、Bluesky `atproto`、X `users.read tweet.read`（X は最小でもこの 2 つが必要、2025 年時点）。
+- OAuth / OIDC のみ。パスワード無し。**メール・氏名・アバターは保存しない。** 保存するのは `provider + subject`（Google `sub` / Discord user id / LINE `sub` / Bluesky DID / X user id）と、ユーザーが自分で付ける表示名。
+- 要求スコープは最小: Google `openid`（email/profile 要求しない）、Discord `identify`、LINE `openid`（profile/email 要求しない）、Bluesky `atproto`、X `users.read tweet.read`（X は最小でもこの 2 つが必要、2025 年時点）。
 - プロバイダのアクセストークン／リフレッシュトークンは**ログイン完了後に破棄**（後で呼ぶ用事がない）。
 
 ## 2. テーブル
 - `user(id, display_name, role(member / owner), friend_code NULL, default_share_level(none / status / rating / memo; 既定 status、v1 は固定で UI 無し), exclude_from_counts INT 既定 0, created_at, last_seen_at, deleted_at)`
 - `identity(provider, subject, user_id, created_at, last_login_at)` PK(provider, subject)
 - `session_token(id, user_id, expires_at, created_at, ua_hint)` — ログインセッション（進行ログの `session` とは別）。Cookie は署名付き session token、30 日。属性は §7 を参照（Secure は APP_ORIGIN が https のときのみ）。`id` には token の SHA-256 を入れる（§7）
-- `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at, nonce NULL)` — PKCE、10 分、1 回限り（callback で DELETE RETURNING で取り出す）。`state` は cookie `oauth` とも照合する。`nonce` は OIDC（Google）の ID トークンと照合する値で、Discord では NULL
+- `oauth_state(state, provider, code_verifier, mode(login / link), user_id NULL, expires_at, nonce NULL)` — PKCE、10 分、1 回限り（callback で DELETE RETURNING で取り出す）。`state` は cookie `oauth` とも照合する。`nonce` は OIDC（Google / LINE）の ID トークンと照合する値で、Discord では NULL
 - `recovery_code(user_id, code_hash, used_at)` PK(user_id, code_hash) — 復旧コード（決定）
 
 ## 3. プロバイダ別
 
-| | Google | Discord | Bluesky (AT Protocol) | X |
-|---|---|---|---|---|
-| 方式 | OIDC + PKCE | OAuth2 + PKCE | AT Proto OAuth（PAR + DPoP + PKCE、`client-metadata.json` を公開 URL で配信、ES256 鍵を Worker secret に） | OAuth 2.0 + PKCE |
-| subject | `sub` | user id | DID（ハンドル→DID 解決、PDS 発見が必要） | user id |
-| 費用 | ¥0 | ¥0 | ¥0 | Free tier ¥0（ログイン可は要確認）/ Basic $200/月 |
-| 実装 | 小 | 小 | **中〜大**（Workers 向けライブラリの成熟度要確認。state/DPoP nonce を D1 に） | 小（審査あり） |
-| リスク | 低 | 低 | 仕様変化の追従 | 規約・料金変更が頻繁。開発者契約で用途申告が要る |
+| | Google | Discord | LINE | Bluesky (AT Protocol) | X |
+|---|---|---|---|---|---|
+| 方式 | OIDC + PKCE | OAuth2 + PKCE | OIDC + PKCE | AT Proto OAuth（PAR + DPoP + PKCE、`client-metadata.json` を公開 URL で配信、ES256 鍵を Worker secret に） | OAuth 2.0 + PKCE |
+| subject | `sub` | user id | `sub` | DID（ハンドル→DID 解決、PDS 発見が必要） | user id |
+| 費用 | ¥0 | ¥0 | ¥0 | ¥0 | Free tier ¥0（ログイン可は要確認）/ Basic $200/月 |
+| 実装 | 小 | 小 | 小 | **中〜大**（Workers 向けライブラリの成熟度要確認。state/DPoP nonce を D1 に） | 小（審査あり） |
+| リスク | 低 | 低 | 低（チャネルを「公開済み」にしないと開発者しかログインできない） | 仕様変化の追従 | 規約・料金変更が頻繁。開発者契約で用途申告が要る |
 
-決定: Google + Discord から開始 → Bluesky は P6 → X は見送り。
+決定: Google + Discord から開始 → LINE を追加 → Bluesky は P6 → X は見送り。
 
-- ID トークンの署名（JWKS）は検証しない。token endpoint から TLS で直接受け取るため（OIDC Core 3.1.3.7）。iss / aud / exp / nonce は照合する。
+- ID トークンの署名（JWKS）は検証しない。token endpoint から TLS で直接受け取るため（OIDC Core 3.1.3.7）。iss / aud / exp / nonce は照合する（Google と LINE で共通の `src/auth/providers/id-token.ts`）。
+- LINE: LINE ログイン v2.1。scope は `openid` のみ（`profile` / `email` は要求しない）。認可 URL は `https://access.line.me/oauth2/v2.1/authorize`、token は `https://api.line.me/oauth2/v2.1/token`。ID トークンの iss は `https://access.line.me` のみ受け付け、aud はチャネル ID、`sub` を subject にする。nonce は Google と同じく `oauth_state.nonce` と照合する。
 - Discord: scope は `identify` のみ、認可 URL に `prompt=none`（`prompt=none` は既に認可済みのユーザーの同意画面を省略するだけで、初回は同意画面が出る（Discord 公式 docs））。API は v10 に固定（`/api/v10/oauth2/token`・`/api/v10/users/@me`）。token 応答の `token_type` が `Bearer`（大文字小文字は区別しない）で `scope` に `identify` を含むことを確かめ、`GET /api/v10/users/@me` の `id` を subject にする。`username` 等は読まない・保存しない。access_token は `/users/@me` を呼んだら捨てる。OIDC ではないので nonce は使わない（`oauth_state.nonce` は NULL）。
 - `<PROVIDER>_CLIENT_ID` と `<PROVIDER>_CLIENT_SECRET` のどちらかが空なら、そのプロバイダは「準備中」（`/login` のボタンは無効、`/auth/<provider>` は 503）。
 
@@ -104,7 +105,7 @@
 - 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない）。
 
 ### オーナー
-- 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。
+- 環境変数 `OWNER_IDENTITIES`（wrangler.toml `[vars]`）に `provider:subject` をカンマ区切りで書く（空白は trim）。例: `discord:123456789012345678`。provider は `google` / `discord` / `line` を使える（LINE は `line:<sub>`、sub は `U` で始まる 33 文字）。
 - ログイン時にその identity が含まれていれば `user.role = 'owner'` にする。照合は完全一致（部分一致・大文字小文字の緩和はしない）。**自動降格はしない**（外したいときは D1 を直接更新する）。
 - オーナー昇格はログイン時に判定。値を変えたら一度ログアウトして再ログイン。
 - オーナー用の画面・API にオーナー以外が来たら 404（存在を漏らさない）。

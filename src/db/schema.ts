@@ -337,7 +337,7 @@ export const oauthState = sqliteTable(
     mode: text('mode', { enum: oauthStateModes }).notNull(),
     userId: text('user_id').references(() => user.id),
     expiresAt: text('expires_at').notNull(),
-    // OIDC の nonce（Google のみ）。ID トークンの nonce と照合する
+    // OIDC の nonce（Google / LINE のみ）。ID トークンの nonce と照合する
     nonce: text('nonce'),
   },
   () => [check('oauth_state_mode_check', oneOf('mode', oauthStateModes))],

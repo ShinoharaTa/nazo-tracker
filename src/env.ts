@@ -24,6 +24,10 @@ export type Bindings = {
   DISCORD_CLIENT_ID?: string
   // Discord の OAuth クライアントシークレット（secret）
   DISCORD_CLIENT_SECRET?: string
+  // LINE ログインのチャネル ID。空なら LINE ログインは「準備中」
+  LINE_CLIENT_ID?: string
+  // LINE ログインのチャネルシークレット（secret）
+  LINE_CLIENT_SECRET?: string
   // "1" のときだけ部品見本 GET /_ui を有効にする
   UI_GALLERY?: string
 }
