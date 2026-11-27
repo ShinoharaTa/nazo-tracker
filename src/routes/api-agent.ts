@@ -26,7 +26,7 @@ import {
   getTargetRow,
   hasPendingWithEscapeUrl,
   isLiveRow,
-  listProposalsByRequest,
+  listAgentProposals,
   pendingIdByFingerprint,
   runByEscapeIdUrl,
 } from '../db/proposals'
@@ -36,15 +36,22 @@ import {
   type OwnRequest,
   setRequestStatus,
 } from '../db/requests'
-import { requestStatuses } from '../db/schema'
+import { proposalStatuses, requestStatuses, runChannels, shopKinds, workKinds } from '../db/schema'
 import { getAutoApply } from '../db/settings'
 import type { AppEnv } from '../env'
 import { url as urlParser } from '../lib/form'
 import { hasUserinfo } from '../lib/match'
+import { prefectures } from '../lib/prefectures'
 import { isEscapeIdMyPage } from '../lib/url'
 import { buildAutoApply } from '../pipeline/apply'
 import { autoApplyDecision } from '../pipeline/auto'
-import { fingerprintOf, matchInputOf, parseProposal, validateBundle } from '../pipeline/fields'
+import {
+  fingerprintOf,
+  matchInputOf,
+  parseProposal,
+  proposalFieldSchema,
+  validateBundle,
+} from '../pipeline/fields'
 import { canTransition } from '../requests/transitions'
 import type { RequestStatus } from '../ui/labels'
 import { matchHandler } from './match-handler'
@@ -214,6 +221,22 @@ apiAgent.get('/index/:table', requireScope('master:read'), async (c) => {
     ),
   )
 })
+
+// 提案で書ける項目と値の一覧（MCP のツール説明の元。fields.ts の表と validators の enum から作る）
+apiAgent.get('/schema', requireScope('master:read'), (c) =>
+  c.json({
+    proposal_fields: proposalFieldSchema(),
+    enums: {
+      'work.kind': workKinds,
+      'run.channel': runChannels,
+      'shop.kind': shopKinds,
+      'venue.prefecture': prefectures,
+    },
+    source_methods: agentSourceMethods,
+    request_statuses: requestStatuses,
+    proposal_statuses: proposalStatuses,
+  }),
+)
 
 // ---- 出典（source）。Worker は外部へ取りに行かず、agent が取った記録だけを受け取る（docs/sources.md §4）
 
@@ -416,13 +439,28 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   )
 })
 
-// リクエストに紐付く提案（request_id 必須）。古い順、after（前の頁の next）で続き
+type ProposalStatus = (typeof proposalStatuses)[number]
+const isProposalStatus = (v: string): v is ProposalStatus =>
+  (proposalStatuses as readonly string[]).includes(v)
+
+// 提案の一覧。request_id があればそのリクエストの提案、無ければこのトークンが作った提案だけ。
+// status はカンマ区切り（省略は全状態）。古い順、after（前の頁の next）で続き
 apiAgent.get('/proposals', requireScope('proposal:write'), async (c) => {
   const requestId = c.req.query('request_id')?.trim()
-  if (!requestId) return c.json({ error: 'request_id_required' }, 400)
+  const raw = c.req.query('status')
+  const statuses = raw === undefined ? null : raw.split(',').map((s) => s.trim())
+  if (statuses && !statuses.every(isProposalStatus)) {
+    return c.json({ error: 'invalid_status' }, 400)
+  }
   const after = c.req.query('after') || null
   const limit = limitOf(c.req.query('limit'), PROPOSALS_LIMIT)
-  const r = await listProposalsByRequest(c.get('db'), requestId, after, limit)
+  const r = await listAgentProposals(
+    c.get('db'),
+    requestId ? { requestId } : { tokenId: currentAgent(c).id },
+    statuses ? [...new Set(statuses as ProposalStatus[])] : null,
+    after,
+    limit,
+  )
   if (r === 'invalid_after') return c.json({ error: 'invalid_after' }, 400)
   return c.json(r)
 })

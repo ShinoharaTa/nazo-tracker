@@ -1,9 +1,17 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { createDb } from '../src/db/client'
+import {
+  proposalStatuses,
+  requestStatuses,
+  runChannels,
+  shopKinds,
+  workKinds,
+} from '../src/db/schema'
 import { createToken } from '../src/db/tokens'
 import app from '../src/index'
 import { ulid } from '../src/lib/id'
+import { parseProposal } from '../src/pipeline/fields'
 import { loginAs } from './helpers/auth'
 import {
   insertOrg,
@@ -406,6 +414,74 @@ describe('名寄せ候補', () => {
   })
 })
 
+describe('GET /api/agent/schema', () => {
+  type Schema = {
+    proposal_fields: Record<string, Record<string, string[]>>
+    enums: Record<string, string[]>
+    source_methods: string[]
+    request_statuses: string[]
+    proposal_statuses: string[]
+  }
+  const schema = async () => {
+    const r = await get('/api/agent/schema')
+    expect(r.status).toBe(200)
+    return r.body as unknown as Schema
+  }
+  const tryField = (kind: string, table: string, field: string) =>
+    parseProposal({
+      kind,
+      target_table: table,
+      ...(kind === 'create' ? {} : { target_id: 'x' }),
+      fields: [{ field, new_value: 'v', source_id: null, confidence: 1 }],
+    })
+
+  it('kind × 表の項目が parseProposal の許す項目と一致する', async () => {
+    const { proposal_fields: pf } = await schema()
+    expect(Object.keys(pf).sort()).toEqual(['create', 'link', 'merge', 'update'])
+    expect(Object.keys(pf.link)).toEqual(['run'])
+    expect(Object.keys(pf.merge).sort()).toEqual(['organization', 'venue', 'work'])
+    expect(pf.create.organization.sort()).toEqual([
+      'organization.escape_id_url',
+      'organization.name',
+      'organization.site_url',
+    ])
+    expect(pf.link.run).toEqual(['run.work_id'])
+    // 全 kind の項目と note を候補にして、載っているものは通り、載っていないものは unknown_field
+    const universe = new Set([
+      ...Object.values(pf).flatMap((t) => Object.values(t).flat()),
+      'work.note',
+      'run.note',
+      'organization.note',
+    ])
+    for (const [kind, tables] of Object.entries(pf)) {
+      for (const [table, fields] of Object.entries(tables)) {
+        for (const field of universe) {
+          const r = tryField(kind, table, field)
+          if (fields.includes(field)) {
+            expect(r.ok, `${kind} ${table} ${field}`).toBe(true)
+          } else {
+            expect(r, `${kind} ${table} ${field}`).toMatchObject({
+              ok: false,
+              error: { body: { error: 'unknown_field' } },
+            })
+          }
+        }
+      }
+    }
+  })
+
+  it('enum・source method・状態の一覧', async () => {
+    const s = await schema()
+    expect(s.enums['work.kind']).toEqual([...workKinds])
+    expect(s.enums['run.channel']).toEqual([...runChannels])
+    expect(s.enums['shop.kind']).toEqual([...shopKinds])
+    expect(s.enums['venue.prefecture']).toHaveLength(47)
+    expect(s.source_methods).toEqual(['escape_mcp', 'webfetch', 'pds'])
+    expect(s.request_statuses).toEqual([...requestStatuses])
+    expect(s.proposal_statuses).toEqual([...proposalStatuses])
+  })
+})
+
 describe('scope', () => {
   const allScopes = ['master:read', 'request:rw', 'source:write', 'proposal:write']
   const routes: { path: string; method: 'GET' | 'PATCH' | 'POST'; scope: string }[] = [
@@ -415,9 +491,11 @@ describe('scope', () => {
     { path: '/api/agent/match?title=x', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/rows/work/x', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/index/work', method: 'GET', scope: 'master:read' },
+    { path: '/api/agent/schema', method: 'GET', scope: 'master:read' },
     { path: '/api/agent/sources', method: 'POST', scope: 'source:write' },
     { path: '/api/agent/proposals', method: 'POST', scope: 'proposal:write' },
     { path: '/api/agent/proposals?request_id=x', method: 'GET', scope: 'proposal:write' },
+    { path: '/api/agent/proposals', method: 'GET', scope: 'proposal:write' },
     { path: '/api/agent/proposals/x', method: 'GET', scope: 'proposal:write' },
   ]
 

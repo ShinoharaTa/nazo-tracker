@@ -738,7 +738,10 @@ describe('GET /api/agent/proposals と PATCH proposed', () => {
         created_at: expect.any(String),
       },
     ])
-    expect((await get('/api/agent/proposals')).body).toEqual({ error: 'request_id_required' })
+    // request_id 無しはこのトークンが作った提案
+    const mine = await get('/api/agent/proposals?limit=100&status=pending')
+    expect(mine.status).toBe(200)
+    expect((mine.body.items as { id: string }[]).map((i) => i.id)).toContain(p.body.id)
     expect(await send('PATCH', `/api/agent/requests/${req}`, { status: 'proposed' })).toEqual({
       status: 200,
       body: { id: req, status: 'proposed' },
@@ -779,6 +782,106 @@ describe('GET /api/agent/proposals のページング', () => {
     const all = await get(`/api/agent/proposals?request_id=${req}&limit=999`)
     expect((all.body.items as unknown[]).length).toBe(3)
     expect(all.body.next).toBeNull()
+  })
+})
+
+describe('GET /api/agent/proposals の request_id 無し・status', () => {
+  let other = ''
+  beforeAll(async () => {
+    other = (await createToken(createDb(env.DB), 'agent-proposals-other', 90)).id
+  })
+
+  const insertProposal = async (
+    by: string,
+    status: string,
+    at: number,
+    requestId: string | null = null,
+  ) => {
+    const id = ulid()
+    await env.DB.prepare(
+      "INSERT INTO proposal (id, request_id, kind, target_table, status, fingerprint, created_by_token_id, created_at) VALUES (?, ?, 'create', 'organization', ?, ?, ?, ?)",
+    )
+      .bind(
+        id,
+        requestId,
+        status,
+        ulid(),
+        by,
+        new Date(Date.UTC(2030, 0, 1, 0, 0, at)).toISOString(),
+      )
+      .run()
+    return id
+  }
+  const ids = (r: Res) => (r.body.items as { id: string }[]).map((i) => i.id)
+
+  it('request_id 無しはこのトークンが作った提案だけ（他トークンの提案は出ない）', async () => {
+    const a1 = await insertProposal(tokenId, 'pending', 1)
+    const b1 = await insertProposal(other, 'pending', 2)
+    const a2 = await insertProposal(tokenId, 'applied', 3)
+    const r = await get('/api/agent/proposals?limit=100')
+    expect(r.status).toBe(200)
+    expect(ids(r)).toEqual(expect.arrayContaining([a1, a2]))
+    expect(ids(r)).not.toContain(b1)
+    // 他トークンの提案を after にしても続きは引けない
+    expect(await get(`/api/agent/proposals?after=${b1}`)).toEqual({
+      status: 400,
+      body: { error: 'invalid_after' },
+    })
+  })
+
+  it('request_id 無しの頁送り（古い順、next と after）', async () => {
+    // ほかのテストの提案より新しい時刻で入れ、末尾の 3 件を見る
+    const x = [
+      await insertProposal(tokenId, 'pending', 30),
+      await insertProposal(tokenId, 'pending', 31),
+      await insertProposal(tokenId, 'pending', 32),
+    ]
+    await insertProposal(other, 'pending', 33)
+    let after = ''
+    const seen: string[] = []
+    for (;;) {
+      const r = await get(`/api/agent/proposals?limit=2${after ? `&after=${after}` : ''}`)
+      expect(r.status).toBe(200)
+      seen.push(...ids(r))
+      if (!r.body.next) break
+      after = r.body.next as string
+    }
+    expect(seen.slice(-3)).toEqual(x)
+  })
+
+  it('status で絞れる（カンマ区切り）。不正値は 400 invalid_status', async () => {
+    const pending = await insertProposal(tokenId, 'pending', 10)
+    const rejected = await insertProposal(tokenId, 'rejected', 11)
+    const onlyPending = await get('/api/agent/proposals?limit=100&status=pending')
+    expect(ids(onlyPending)).toContain(pending)
+    expect(ids(onlyPending)).not.toContain(rejected)
+    expect(
+      (onlyPending.body.items as { status: string }[]).every((i) => i.status === 'pending'),
+    ).toBe(true)
+    const both = await get('/api/agent/proposals?limit=100&status=pending,rejected')
+    expect(ids(both)).toEqual(expect.arrayContaining([pending, rejected]))
+    for (const q of [
+      'status=nope',
+      'status=',
+      'status=pending,nope',
+      'status=create_attempt_import',
+    ]) {
+      expect(await get(`/api/agent/proposals?${q}`), q).toEqual({
+        status: 400,
+        body: { error: 'invalid_status' },
+      })
+    }
+    expect((await get('/api/agent/proposals?request_id=x&status=nope')).status).toBe(400)
+  })
+
+  it('request_id ありは作ったトークンを問わず、status も効く', async () => {
+    const req = await insertRequest('processing')
+    const a = await insertProposal(tokenId, 'pending', 20, req)
+    const b = await insertProposal(other, 'rejected', 21, req)
+    expect(ids(await get(`/api/agent/proposals?request_id=${req}`))).toEqual([a, b])
+    expect(ids(await get(`/api/agent/proposals?request_id=${req}&status=rejected`))).toEqual([b])
+    // request_id ありの after はそのリクエストの提案なら他トークンのものでもよい
+    expect(ids(await get(`/api/agent/proposals?request_id=${req}&after=${a}`))).toEqual([b])
   })
 })
 

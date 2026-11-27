@@ -108,6 +108,17 @@ const allowedFields = (kind: ProposalKind, table: ProposalTable): Set<string> =>
 const targetTablesOf = (kind: ProposalKind): readonly ProposalTable[] =>
   kind === 'link' ? ['run'] : kind === 'merge' ? mergeTables : proposalTables
 
+// kind × target_table ごとに入れてよい項目（GET /api/agent/schema。parseProposal と同じ表から作る）
+export const proposalFieldSchema = (): Record<ProposalKind, Record<string, string[]>> => {
+  const kinds = proposalKinds.filter((k): k is ProposalKind => k !== 'create_attempt_import')
+  return Object.fromEntries(
+    kinds.map((k) => [
+      k,
+      Object.fromEntries(targetTablesOf(k).map((t) => [t, [...allowedFields(k, t)]])),
+    ]),
+  ) as Record<ProposalKind, Record<string, string[]>>
+}
+
 export const MATCH_CANDIDATES_MAX = 20
 const REASON_MAX = 40
 // 候補の id の上限（存在は確かめない。承認画面で引く）
