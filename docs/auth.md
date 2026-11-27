@@ -101,6 +101,7 @@
 - 署名不一致・存在しない・期限切れ・`user.deleted_at IS NOT NULL` の cookie は未ログイン扱いにし、cookie を削除する。
 - ログイン成功時は必ず新しい token を発行し、それまでの cookie の行を削除する（セッション固定対策）。
 - ログアウトは `POST /auth/logout` のみ。状態を変える POST は `Origin` が `APP_ORIGIN` と一致するか `Sec-Fetch-Site: same-origin` のときだけ通す（CSRF）。
+- すべての端末からログアウトは `POST /auth/logout/all`。自分の `session_token` を全削除し、cookie を消して `/login` へ。agent トークン（`api_token`）は対象外。失効は `/admin/tokens`
 - hono/csrf はフォーム系 Content-Type の POST のみ Origin を検査する。JSON API は CORS preflight に依存（P2 以降の `/api/*` で注意）。
 - 初回ログインで作る user の表示名は「ななしさん」。初回は `/settings/name?welcome=1` へ送る（強制はしない）。
 - ログイン後の戻り先は cookie `after_login`（`Path=/; HttpOnly; SameSite=Lax; Max-Age=600`、`Secure` は session と同じ）だけで受ける。未ログインで招待リンク `/f/<code>` を開いたときに置き、値が `/f/<コードの書式>` に完全一致するときだけ（新規ユーザーも）そこへ 302。それ以外の値は無視する（オープンリダイレクト防止）。読んだら必ず消す（`src/auth/login.ts` の `redirectAfterLogin`）。
