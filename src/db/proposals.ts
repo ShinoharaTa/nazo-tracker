@@ -327,30 +327,35 @@ const tabWhere = (tab: AdminProposalTab, now: string) => {
   )
 }
 
-// id → 表示名（run は作品の題名）。無い id は入らない
+// namesOf の 1 文あたりの id 数（D1 は 1 文の変数が 100 個まで。まとめて承認では 1 提案あたり団体が 2 つまで入る）
+const NAMES_IDS_PER_SELECT = 50
+
+// id → 表示名（run は作品の題名）。無い id は入らない。NAMES_IDS_PER_SELECT 個ずつに分けて読む
 export const namesOf = async (
   db: Db,
   table: ProposalTable,
   ids: readonly string[],
 ): Promise<Map<string, string>> => {
   const uniq = [...new Set(ids)]
-  if (uniq.length === 0) return new Map()
-  let rows: { id: string; name: string }[]
-  if (table === 'run') {
-    rows = await db
-      .select({ id: run.id, name: work.title })
-      .from(run)
-      .innerJoin(work, eq(work.id, run.workId))
-      .where(inArray(run.id, uniq))
-  } else if (table === 'work') {
-    rows = await db
-      .select({ id: work.id, name: work.title })
-      .from(work)
-      .where(inArray(work.id, uniq))
-  } else {
+  const part = (xs: string[]): Promise<{ id: string; name: string }[]> => {
+    if (table === 'run') {
+      return db
+        .select({ id: run.id, name: work.title })
+        .from(run)
+        .innerJoin(work, eq(work.id, run.workId))
+        .where(inArray(run.id, xs))
+    }
+    if (table === 'work') {
+      return db.select({ id: work.id, name: work.title }).from(work).where(inArray(work.id, xs))
+    }
     const t = tables[table]
-    rows = await db.select({ id: t.id, name: t.name }).from(t).where(inArray(t.id, uniq))
+    return db.select({ id: t.id, name: t.name }).from(t).where(inArray(t.id, xs))
   }
+  const parts: string[][] = []
+  for (let i = 0; i < uniq.length; i += NAMES_IDS_PER_SELECT) {
+    parts.push(uniq.slice(i, i + NAMES_IDS_PER_SELECT))
+  }
+  const rows = (await Promise.all(parts.map(part))).flat()
   return new Map(rows.map((r) => [r.id, r.name]))
 }
 

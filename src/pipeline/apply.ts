@@ -126,8 +126,8 @@ export const BULK_MAX = 50
 // 打ち切りの線。50 から余裕 2
 export const BULK_CALL_LIMIT = 48
 // 1 件の最悪の見積もり。実測の最大は 9（販売の束 @shop + 作品 + 回 sale + escape_id_url で、団体は既存・URL も全部入り）。
-// 書き込みが NOT NULL で落ちたときの読み直し 2 で超える分は、BULK_CALL_LIMIT と 50 の差で吸収する
-export const BULK_ITEM_WORST = 10
+// 全部入りの束の余地と、書き込みが NOT NULL で落ちたとき（二重送信）の読み直し 2 まで見て 13
+export const BULK_ITEM_WORST = 13
 // 前段の middleware（attachUser）で使う分の見積もり。最大 3（セッション・延長・最終アクセス）。余裕 2 を足して 5
 export const BULK_PRE_CALLS = 5
 

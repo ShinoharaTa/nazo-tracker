@@ -289,14 +289,20 @@ describe('上限（クエリ数で打ち切る）', () => {
     })
   }
 
-  it('団体だけの提案 30 件は 1 回で全部承認される', async () => {
+  it('団体だけの提案 30 件を選ぶと 29 件承認・1 件未処理、続けて承認すれば残り 1 件も通る', async () => {
     const ids: string[] = []
     for (let i = 0; i < 30; i++) ids.push(await shapes.団体だけ())
     const { calls, html } = await callsOf(ids)
-    expect(html).toContain('承認 30 件 / 失敗 0 件 / 未処理 0 件')
-    expect(html).not.toContain('続けて承認する')
+    expect(html).toContain('承認 29 件 / 失敗 0 件 / 未処理 1 件')
+    expect(html).toContain('続けて承認する ›')
     expect(calls).toBeLessThan(50)
-    for (const id of ids) expect(await statusOf(id)).toBe('applied')
+    for (const id of ids.slice(0, 29)) expect(await statusOf(id)).toBe('applied')
+    expect(await statusOf(ids[29])).toBe('pending')
+
+    const rest = await callsOf([ids[29]])
+    expect(rest.html).toContain('承認 1 件 / 失敗 0 件 / 未処理 0 件')
+    expect(rest.html).not.toContain('続けて承認する')
+    expect(await statusOf(ids[29])).toBe('applied')
   })
 
   it('一番重い束を多数選ぶと 50 未満で止まり、残りは pending のまま「未処理」に出る', async () => {
@@ -334,6 +340,40 @@ describe('上限（クエリ数で打ち切る）', () => {
     // 先頭 BULK_MAX 件のうち、処理しきれなかった分は未処理
     const applied = (await Promise.all(ids.map(statusOf))).filter((s) => s === 'applied').length
     expect(html).toContain(`承認 ${applied} 件 / 失敗 0 件 / 未処理 ${BULK_MAX - applied} 件`)
+  })
+
+  it(`新しく作る団体つきの提案 ${BULK_MAX} 件を選んでも 500 にならず、48 以下に収まる`, async () => {
+    const ids: string[] = []
+    for (let i = 0; i < BULK_MAX; i++) ids.push(await shapes['@organization の束']())
+    const confirm = await get(bulkQuery(ids))
+    expect(confirm.status).toBe(200)
+    const c = counting(env.DB)
+    const res = await postBulk(ids, { e: { ...env, DB: c.db } })
+    expect(res.status).toBe(200)
+    expect(c.n.calls).toBeLessThanOrEqual(BULK_CALL_LIMIT)
+  })
+
+  it(`既存の団体を 2 つずつ指す提案 ${BULK_MAX} 件（団体名の先読みが 100 個）でも 500 にならず、48 以下に収まる`, async () => {
+    const ids: string[] = []
+    for (let i = 0; i < BULK_MAX; i++) {
+      const a = await insertOrg(env, { name: `先読み A ${uniq()}` })
+      const b = await insertOrg(env, { name: `先読み B ${uniq()}` })
+      ids.push(
+        await propose(
+          createWorkBody(`先読み ${uniq()}`, [
+            f('work.primary_organization_id', a),
+            f('run.organization_id', b),
+          ]),
+        ),
+      )
+    }
+    const confirm = await get(bulkQuery(ids))
+    expect(confirm.status).toBe(200)
+    expect(await confirm.text()).toContain(`${BULK_MAX} 件を承認して反映`)
+    const c = counting(env.DB)
+    const res = await postBulk(ids, { e: { ...env, DB: c.db } })
+    expect(res.status).toBe(200)
+    expect(c.n.calls).toBeLessThanOrEqual(BULK_CALL_LIMIT)
   })
 
   it('一覧の「すべて選ぶ」は先頭 BULK_MAX 件', async () => {
