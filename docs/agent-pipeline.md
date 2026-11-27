@@ -87,7 +87,12 @@ A-3 自動反映ルール（Worker 側、`src/pipeline/auto.ts`。`/admin/propos
 まとめて承認（`GET/POST /admin/proposals/bulk`、承認待ちタブの Checkbox → 確認ページ（題名と団体）→ 結果）:
 - 選べるのは `kind=create` で、保存された名寄せ候補（`match_candidates_json`）が 0 件の pending だけ。候補つき・update / link / merge は Checkbox を出さず、POST に混ぜても反映しない（結果に理由を出す）。非オーナーは 404（`requireOwner`）。
 - 1 件ずつ上の承認処理（全項目採用・形式は提案の値・新しく作る）に通す。1 提案 = 1 batch で、先頭の change_log で二重送信を止める仕組みもそのまま。途中で 1 件が検証・書き込みで落ちても残りは進め、件ごとに結果を出す。
-- 1 回 `BULK_MAX` = 6 件まで。根拠: Workers Free の D1 は 1 回の呼び出しで 50 クエリまで（`db.batch()` は 1 と数える。https://developers.cloudflare.com/d1/platform/limits/ ）。実測は共通 4（セッション・提案と項目の先読み・名前）+ 1 件あたり 1〜6（団体だけの束は 1、既存の団体・会場を指す作品 + 回の束が 6）。余裕 10 を残して 4 + 6N ≤ 40。上限を超えて選んだら先頭 6 件だけを対象にし、「残り M 件は、このあと続けて承認してください。」と出す。一覧の「すべて選ぶ」も先頭 6 件だけ。
+- 確認ページの団体は、束が新しく作るもの（`@organization`）を「団体（新しく作る）: 〇〇」、既存の参照先を「団体: 〇〇」と分けて出す。選んだ提案の中で新しく作る団体名（`norm` で比較）が重なるときは、上に「同じ名前の団体を新しく作る提案が複数あります。…先に団体だけを承認してください。」を出す（追加のクエリなし）。
+- 選べるのは 1 回 `BULK_MAX` = 50 件まで（一覧の 1 ページと同じ。「すべて選ぶ」も先頭 50 件）。51 件以上送られたら先頭 50 件だけを対象にし、その旨を出す。
+- 件数では切らず、実行時のクエリ数で打ち切る。根拠: Workers Free の D1 は 1 回の呼び出しで 50 クエリまで（`db.batch()` は 1 と数える。https://developers.cloudflare.com/d1/platform/limits/ ）。POST の中では `env.DB` を数える Proxy（`src/db/d1-count.ts`。prepare した文の run / all / first / raw と batch を 1 ずつ）で包んだ db を使い、前段の middleware の分は見積もり `BULK_PRE_CALLS` = 5（最大 3 + 余裕 2）を最初に足す。各提案の前に「使用数 + `BULK_ITEM_WORST`（10）> `BULK_CALL_LIMIT`（48）」なら、その件以降は処理せず「未処理」（pending のまま）にする。
+  - 実測（1 件あたり、`test/admin-proposals-bulk.test.ts`）: 団体だけ 1、`@organization` の束 2、既存の団体・会場を指す作品 + 回 6、販売の束（`@shop` + 作品 + 回 sale + escape_id_url、団体は既存・URL も全部入り）9。先読み（提案・項目・名前）は 2〜4。団体だけなら 30 件以上、一番重い束では 4 件で打ち切る。
+  - 書き込みが NOT NULL で落ちたとき（二重送信）の読み直し 2 で見積もりを超える分は、48 と 50 の差で吸収する。
+- 結果は「承認 n 件 / 失敗 m 件 / 未処理 k 件」と件ごとの行（失敗は理由つき）。未処理があれば「続けて承認する ›」（一覧へ）を出す。見つからない id の行は詳細へのリンクにしない。
 
 fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化した new_value 群)。
 

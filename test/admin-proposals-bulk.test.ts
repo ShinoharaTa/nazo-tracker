@@ -2,9 +2,11 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { createDb } from '../src/db/client'
+import { countingD1 as counting } from '../src/db/d1-count'
 import { createToken } from '../src/db/tokens'
 import app from '../src/index'
-import { BULK_MAX } from '../src/pipeline/apply'
+import { ulid } from '../src/lib/id'
+import { BULK_CALL_LIMIT, BULK_ITEM_WORST, BULK_MAX, BULK_PRE_CALLS } from '../src/pipeline/apply'
 import { loginAs, ORIGIN } from './helpers/auth'
 import { insertOrg, insertVenue, insertWork } from './helpers/master'
 
@@ -104,45 +106,6 @@ const count = async (sql: string, ...binds: unknown[]) =>
 const worksTitled = (title: string) =>
   count('SELECT COUNT(*) AS n FROM work WHERE title = ?', title)
 
-// D1 の呼び出し回数を数える（prepare した文の run / all / first / raw と batch。batch は 1 回と数える。D1 の制限と同じ数え方）
-const counting = (db: D1Database) => {
-  const n = { calls: 0 }
-  const raw = new WeakMap<object, D1PreparedStatement>()
-  const wrap = (st: D1PreparedStatement): D1PreparedStatement => {
-    const p = new Proxy(st, {
-      get(t, k) {
-        if (k === 'bind') return (...a: unknown[]) => wrap(t.bind(...a))
-        if (k === 'run' || k === 'all' || k === 'first' || k === 'raw') {
-          const fn = (t[k] as (...a: unknown[]) => unknown).bind(t)
-          return (...a: unknown[]) => {
-            n.calls++
-            return fn(...a)
-          }
-        }
-        const v = Reflect.get(t, k)
-        return typeof v === 'function' ? v.bind(t) : v
-      },
-    })
-    raw.set(p, st)
-    return p
-  }
-  const proxy = new Proxy(db, {
-    get(t, k) {
-      if (k === 'prepare') return (q: string) => wrap(t.prepare(q))
-      if (k === 'batch') {
-        // 本物の文に戻して渡す
-        return (ss: D1PreparedStatement[]) => {
-          n.calls++
-          return t.batch(ss.map((x) => raw.get(x) ?? x))
-        }
-      }
-      const v = Reflect.get(t, k)
-      return typeof v === 'function' ? v.bind(t) : v
-    },
-  })
-  return { db: proxy, n }
-}
-
 const checkboxOf = (id: string) => `name="id" value="${id}"`
 
 describe('選べる条件', () => {
@@ -201,8 +164,10 @@ describe('選べる条件', () => {
     expect(res.headers.get('Cache-Control')).toBe('private, no-store')
     const html = await res.text()
     expect(html).toContain(title)
-    expect(html).toContain(orgName)
-    expect(html).toContain(bundleOrg)
+    expect(html).toContain(`団体: ${orgName}`)
+    expect(html).toContain(`団体（新しく作る）: ${bundleOrg}`)
+    expect(html).toContain('一度に処理できる数には上限があります。')
+    expect(html).not.toContain('同じ名前の団体を新しく作る提案が複数あります。')
     expect(html).toContain('反映する提案（2 件）')
     expect(html).toContain('2 件を承認して反映')
     expect(html).toContain(`type="hidden" name="id" value="${plain}"`)
@@ -232,7 +197,7 @@ describe('選べる条件', () => {
     const res = await postBulk([withCand, plain, update])
     expect(res.status).toBe(200)
     const html = await res.text()
-    expect(html).toContain('1 件を反映しました。2 件は反映できませんでした。')
+    expect(html).toContain('承認 1 件 / 失敗 2 件 / 未処理 0 件')
     expect(html).toContain('詳細から 1 件ずつ承認してください。')
     expect(await statusOf(plain)).toBe('applied')
     expect(await statusOf(withCand)).toBe('pending')
@@ -251,52 +216,202 @@ describe('選べる条件', () => {
   })
 })
 
-describe('上限（BULK_MAX）', () => {
-  // 既存の団体・会場を指す作品 + 回の束（1 件あたりのクエリが一番多い形）
-  const heavy = async () => {
-    const org = await insertOrg(env, { name: `上限の団体 ${uniq()}` })
-    const venue = await insertVenue(env, { name: `上限の会場 ${uniq()}` })
-    return propose(
-      createWorkBody(`上限 ${uniq()}`, [
-        f('work.primary_organization_id', org),
-        f('work.official_url', `https://example.com/bulk-${uniq()}`),
-        f('run.organization_id', org),
-        f('run.venue_id', venue),
-      ]),
-    )
+describe('上限（クエリ数で打ち切る）', () => {
+  // 束の形ごとに 1 件を作る。sale は 1 件あたりのクエリが一番多い形（販売の束 @shop + 作品 + 回 sale + escape_id_url）
+  const shapes: Record<string, () => Promise<string>> = {
+    団体だけ: () => propose(createOrgBody(`形 団体 ${uniq()}`)),
+    既存の団体と会場の作品と回: async () => {
+      const org = await insertOrg(env, { name: `形の団体 ${uniq()}` })
+      const venue = await insertVenue(env, { name: `形の会場 ${uniq()}` })
+      return propose(
+        createWorkBody(`形 既存 ${uniq()}`, [
+          f('work.primary_organization_id', org),
+          f('work.official_url', `https://example.com/bulk-${uniq()}`),
+          f('run.organization_id', org),
+          f('run.venue_id', venue),
+        ]),
+      )
+    },
+    '@organization の束': () =>
+      propose(
+        createWorkBody(`形 束 ${uniq()}`, [
+          f('work.primary_organization_id', '@organization'),
+          f('organization.name', `形の束の団体 ${uniq()}`),
+        ]),
+      ),
+    sale: async () => {
+      const org = await insertOrg(env, { name: `形の販売元 ${uniq()}` })
+      return propose(
+        createWorkBody(`形 販売 ${uniq()}`, [
+          f('work.primary_organization_id', org),
+          f('work.official_url', `https://example.com/bulk-sale-${uniq()}`),
+          f('run.channel', 'sale'),
+          f('run.organization_id', org),
+          f('run.shop_id', '@shop'),
+          f('shop.name', `形の販売先 ${uniq()}`),
+          f('shop.kind', 'booth'),
+          f('shop.url', `https://example.com/bulk-shop-${uniq()}`),
+          f('shop.organization_id', org),
+        ]),
+      )
+    },
   }
 
-  it(`${BULK_MAX} 件ちょうどで D1 の呼び出し（認証などの共通分を含む）が 40 以下`, async () => {
-    const ids: string[] = []
-    for (let i = 0; i < BULK_MAX; i++) ids.push(await heavy())
+  const callsOf = async (ids: string[]) => {
     const c = counting(env.DB)
     const html = await (await postBulk(ids, { e: { ...env, DB: c.db } })).text()
-    expect(html).toContain(`${BULK_MAX} 件を反映しました。`)
-    expect(c.n.calls).toBeLessThanOrEqual(40)
+    return { calls: c.n.calls, html }
+  }
+
+  it('前段の middleware の実測が見積もり（BULK_PRE_CALLS）以内', async () => {
+    // 見つからない id だけなら、middleware + 提案・項目の先読み 2 文だけ
+    const { calls, html } = await callsOf([ulid()])
+    expect(html).toContain('承認 0 件 / 失敗 1 件 / 未処理 0 件')
+    expect(calls - 2).toBeLessThanOrEqual(BULK_PRE_CALLS)
   })
 
-  it('上限を超えて選ぶと先頭の上限件数だけを対象にし、残りは pending のまま', async () => {
+  for (const [name, make] of Object.entries(shapes)) {
+    it(`${name}: 1 件あたりの実測が BULK_ITEM_WORST 以内で、多数選んでも 1 回の呼び出しが 50 未満`, async () => {
+      // 1 件と 2 件の差が 1 件あたり（先読みの文の数は同じ）
+      const one = await callsOf([await make()])
+      const two = await callsOf([await make(), await make()])
+      expect(one.html).toContain('承認 1 件 / 失敗 0 件 / 未処理 0 件')
+      expect(two.html).toContain('承認 2 件 / 失敗 0 件 / 未処理 0 件')
+      const per = two.calls - one.calls
+      expect(per).toBeGreaterThan(0)
+      expect(per).toBeLessThanOrEqual(BULK_ITEM_WORST)
+
+      const ids: string[] = []
+      for (let i = 0; i < 12; i++) ids.push(await make())
+      const many = await callsOf(ids)
+      expect(many.calls).toBeLessThanOrEqual(BULK_CALL_LIMIT)
+      expect(many.calls).toBeLessThan(50)
+    })
+  }
+
+  it('団体だけの提案 30 件は 1 回で全部承認される', async () => {
     const ids: string[] = []
-    for (let i = 0; i < BULK_MAX + 1; i++) ids.push(await propose(createWorkBody(`超過 ${uniq()}`)))
-    const rest = `一度に承認できるのは ${BULK_MAX} 件までです。残り 1 件は、このあと続けて承認してください。`
+    for (let i = 0; i < 30; i++) ids.push(await shapes.団体だけ())
+    const { calls, html } = await callsOf(ids)
+    expect(html).toContain('承認 30 件 / 失敗 0 件 / 未処理 0 件')
+    expect(html).not.toContain('続けて承認する')
+    expect(calls).toBeLessThan(50)
+    for (const id of ids) expect(await statusOf(id)).toBe('applied')
+  })
+
+  it('一番重い束を多数選ぶと 50 未満で止まり、残りは pending のまま「未処理」に出る', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 12; i++) ids.push(await shapes.sale())
+    const { calls, html } = await callsOf(ids)
+    expect(calls).toBeLessThan(50)
+    const applied = (await Promise.all(ids.map(statusOf))).filter((s) => s === 'applied').length
+    expect(applied).toBeGreaterThan(0)
+    expect(applied).toBeLessThan(ids.length)
+    expect(html).toContain(`承認 ${applied} 件 / 失敗 0 件 / 未処理 ${ids.length - applied} 件`)
+    expect(html).toContain('未処理（承認待ちのままです）')
+    expect(html).toContain('続けて承認する ›')
+    // 先頭から順に処理し、打ち切った後ろは pending のまま
+    for (const id of ids.slice(0, applied)) expect(await statusOf(id)).toBe('applied')
+    for (const id of ids.slice(applied)) expect(await statusOf(id)).toBe('pending')
+  })
+
+  it(`${BULK_MAX + 1} 件以上選ぶと先頭 ${BULK_MAX} 件だけを対象にし、その旨を出す`, async () => {
+    const ids: string[] = []
+    for (let i = 0; i < BULK_MAX + 1; i++) ids.push(await shapes.団体だけ())
+    const over = `${BULK_MAX + 1} 件選ばれていました。一度に選べるのは ${BULK_MAX} 件までなので、先頭 ${BULK_MAX} 件だけを対象にしました。`
     const confirm = await get(bulkQuery(ids))
     expect(confirm.status).toBe(200)
     const ch = await confirm.text()
-    expect(ch).toContain(rest)
+    expect(ch).toContain(over)
     expect(ch).toContain(`${BULK_MAX} 件を承認して反映`)
     expect(ch).not.toContain(`value="${ids[BULK_MAX]}"`)
 
-    const html = await (await postBulk(ids)).text()
-    expect(html).toContain(`${BULK_MAX} 件を反映しました。`)
-    expect(html).toContain(rest)
-    expect(html).toContain('続けて承認する')
-    for (const id of ids.slice(0, BULK_MAX)) expect(await statusOf(id)).toBe('applied')
+    const { calls, html } = await callsOf(ids)
+    expect(calls).toBeLessThan(50)
+    expect(html).toContain(over)
+    expect(html).not.toContain(ids[BULK_MAX])
     expect(await statusOf(ids[BULK_MAX])).toBe('pending')
+    // 先頭 BULK_MAX 件のうち、処理しきれなかった分は未処理
+    const applied = (await Promise.all(ids.map(statusOf))).filter((s) => s === 'applied').length
+    expect(html).toContain(`承認 ${applied} 件 / 失敗 0 件 / 未処理 ${BULK_MAX - applied} 件`)
   })
 
-  it('一覧の「すべて選ぶ」は上限件数を持つ', async () => {
+  it('一覧の「すべて選ぶ」は先頭 BULK_MAX 件', async () => {
     await propose(createWorkBody(`すべて ${uniq()}`))
     expect(await (await get('/admin/proposals')).text()).toContain(`data-check-all="${BULK_MAX}"`)
+  })
+})
+
+describe('POST の中身', () => {
+  it('pending でない id・存在しない id は反映せず理由を出す。見つからない行はリンクにせずエスケープする', async () => {
+    const done = await propose(createWorkBody(`処理済み ${uniq()}`))
+    expect((await postBulk([done])).status).toBe(200)
+    expect(await statusOf(done)).toBe('applied')
+    const bogus = '<b>nope</b>'
+    const html = await (await postBulk([done, bogus])).text()
+    expect(html).toContain('承認 0 件 / 失敗 2 件 / 未処理 0 件')
+    expect(html).toContain('この提案はもう処理されています。')
+    expect(html).toContain('提案が見つかりません。')
+    expect(html).toContain('id: &lt;b&gt;nope&lt;/b&gt;')
+    expect(html).not.toContain(bogus)
+    expect(html).not.toContain(`/admin/proposals/${encodeURIComponent(bogus)}`)
+    expect(html).toContain(`/admin/proposals/${done}`)
+  })
+
+  it('@organization の束を反映できる（作った団体を作品が指す）', async () => {
+    const orgName = `POST の束の団体 ${uniq()}`
+    const title = `POST の束 ${uniq()}`
+    const id = await propose(
+      createWorkBody(title, [
+        f('work.primary_organization_id', '@organization'),
+        f('organization.name', orgName),
+      ]),
+    )
+    expect(await (await postBulk([id])).text()).toContain('承認 1 件 / 失敗 0 件 / 未処理 0 件')
+    const org = await env.DB.prepare('SELECT id FROM organization WHERE name = ?')
+      .bind(orgName)
+      .first<string>('id')
+    expect(org).toBeTruthy()
+    expect(
+      await env.DB.prepare('SELECT primary_organization_id FROM work WHERE title = ?')
+        .bind(title)
+        .first('primary_organization_id'),
+    ).toBe(org)
+  })
+
+  it('request_id つきの提案をまとめて承認すると、リクエストが自動で done になる', async () => {
+    const req = ulid()
+    const at = new Date().toISOString()
+    await env.DB.prepare(
+      "INSERT INTO request (id, requester_user_id, kind, payload_json, status, created_at, updated_at) VALUES (?, ?, 'new_work', '{}', 'processing', ?, ?)",
+    )
+      .bind(req, member.userId, at, at)
+      .run()
+    const ids = [
+      await propose(createWorkBody(`依頼 1 ${uniq()}`, [], { request_id: req })),
+      await propose(createWorkBody(`依頼 2 ${uniq()}`, [], { request_id: req })),
+    ]
+    expect(await (await postBulk(ids)).text()).toContain('承認 2 件 / 失敗 0 件 / 未処理 0 件')
+    expect(
+      await env.DB.prepare('SELECT status FROM request WHERE id = ?').bind(req).first('status'),
+    ).toBe('done')
+  })
+
+  it('新しく作る団体名（norm で比べる）が重なると確認ページに注意を出す', async () => {
+    const name = `重なる団体 ${uniq()}`
+    const ids = [
+      await propose(createOrgBody(name)),
+      await propose(
+        createWorkBody(`重なる束 ${uniq()}`, [
+          f('work.primary_organization_id', '@organization'),
+          f('organization.name', `${name}！`),
+        ]),
+      ),
+    ]
+    const html = await (await get(bulkQuery(ids))).text()
+    expect(html).toContain(
+      '同じ名前の団体を新しく作る提案が複数あります。まとめて承認すると同名の団体が複数できます。先に団体だけを承認してください。',
+    )
   })
 })
 
@@ -307,7 +422,7 @@ describe('反映', () => {
     const title = `全項目 ${uniq()}`
     const w = await propose(createWorkBody(title, [f('work.description', '説明')]))
     const html = await (await postBulk([org, w])).text()
-    expect(html).toContain('2 件を反映しました。')
+    expect(html).toContain('承認 2 件 / 失敗 0 件 / 未処理 0 件')
     expect(await statusOf(org)).toBe('applied')
     expect(await statusOf(w)).toBe('applied')
     const row = await env.DB.prepare('SELECT id, kind, description FROM work WHERE title = ?')
@@ -353,7 +468,7 @@ describe('反映', () => {
     const res = await postBulk(ids)
     expect(res.status).toBe(200)
     const html = await res.text()
-    expect(html).toContain('2 件を反映しました。1 件は反映できませんでした。')
+    expect(html).toContain('承認 2 件 / 失敗 1 件 / 未処理 0 件')
     expect(html).toContain('role="alert"')
     expect(await statusOf(ids[0])).toBe('applied')
     expect(await statusOf(ids[1])).toBe('pending')
@@ -381,7 +496,7 @@ describe('反映', () => {
       },
     })
     const html = await (await postBulk(ids, { e: { ...env, DB: db } })).text()
-    expect(html).toContain('1 件を反映しました。1 件は反映できませんでした。')
+    expect(html).toContain('承認 1 件 / 失敗 1 件 / 未処理 0 件')
     expect(html).toContain('書き込めませんでした。')
     expect(await statusOf(ids[0])).toBe('pending')
     expect(await worksTitled(a)).toBe(0)
@@ -394,9 +509,9 @@ describe('二重送信・権限・CSRF', () => {
   it('同じ id を 2 回送っても 1 つしか作らない（2 回目は「もう処理されています」）', async () => {
     const title = `二回 ${uniq()}`
     const id = await propose(createWorkBody(title))
-    expect(await (await postBulk([id, id])).text()).toContain('1 件を反映しました。')
+    expect(await (await postBulk([id, id])).text()).toContain('承認 1 件 / 失敗 0 件 / 未処理 0 件')
     const again = await (await postBulk([id])).text()
-    expect(again).toContain('0 件を反映しました。1 件は反映できませんでした。')
+    expect(again).toContain('承認 0 件 / 失敗 1 件 / 未処理 0 件')
     expect(again).toContain('この提案はもう処理されています。')
     expect(await worksTitled(title)).toBe(1)
   })
@@ -418,7 +533,9 @@ describe('二重送信・権限・CSRF', () => {
       },
     })
     const first = await (await postBulk([id], { e: { ...env, DB: db } })).text()
-    expect(await (second as Response | null)?.text()).toContain('1 件を反映しました。')
+    expect(await (second as Response | null)?.text()).toContain(
+      '承認 1 件 / 失敗 0 件 / 未処理 0 件',
+    )
     expect(first).toContain('この提案はもう処理されています。')
     expect(await worksTitled(title)).toBe(1)
   })

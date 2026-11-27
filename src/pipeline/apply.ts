@@ -118,10 +118,18 @@ export const approvalChoiceOf = (
   }
 }
 
-// まとめて承認で 1 回に反映する件数（docs/agent-pipeline.md §4）。Workers Free の D1 は 1 回の呼び出しで 50 クエリまで
-// （batch は 1 と数える）。実測で共通 4 + 1 件あたり最大 6（既存の団体・会場を指す作品 + 回の束）なので、
-// 余裕 10 を残して 4 + 6N ≤ 40 の最大 N。test/admin-proposals-bulk.test.ts で数えている
-export const BULK_MAX = 6
+// まとめて承認（docs/agent-pipeline.md §4）。Workers Free の D1 は 1 回の呼び出しで 50 クエリまで（batch は 1 と数える）。
+// 件数では切らず、POST の中で D1 の呼び出しを数え（src/db/d1-count.ts）、次の 1 件を最悪の見積もりで足すと
+// BULK_CALL_LIMIT を超えるならそこで打ち切って残りを「未処理」にする。test/admin-proposals-bulk.test.ts で数えている
+// 選べる件数の上限（一覧の 1 ページと同じ）
+export const BULK_MAX = 50
+// 打ち切りの線。50 から余裕 2
+export const BULK_CALL_LIMIT = 48
+// 1 件の最悪の見積もり。実測の最大は 9（販売の束 @shop + 作品 + 回 sale + escape_id_url で、団体は既存・URL も全部入り）。
+// 書き込みが NOT NULL で落ちたときの読み直し 2 で超える分は、BULK_CALL_LIMIT と 50 の差で吸収する
+export const BULK_ITEM_WORST = 10
+// 前段の middleware（attachUser）で使う分の見積もり。最大 3（セッション・延長・最終アクセス）。余裕 2 を足して 5
+export const BULK_PRE_CALLS = 5
 
 // まとめて承認の選択: 詳細の承認フォームを既定のまま送ったのと同じ（全項目採用、形式は提案の値、新しく作る、メモなし）
 export const bulkChoiceOf = (

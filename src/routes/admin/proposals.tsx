@@ -3,7 +3,8 @@
 
 import { type Context, Hono } from 'hono'
 import { currentUser } from '../../auth/middleware'
-import type { Db } from '../../db/client'
+import { createDb, type Db } from '../../db/client'
+import { countingD1 } from '../../db/d1-count'
 import { runStmts } from '../../db/master-write'
 import {
   type AdminProposalField,
@@ -30,7 +31,10 @@ import {
   ALREADY_PROCESSED,
   appliedIdsOf,
   approvalChoiceOf,
+  BULK_CALL_LIMIT,
+  BULK_ITEM_WORST,
   BULK_MAX,
+  BULK_PRE_CALLS,
   buildApproval,
   buildRejection,
   buildRevert,
@@ -50,6 +54,7 @@ import {
   type BulkResult,
   BulkResults,
   bulkItemOf,
+  bulkMissingItemOf,
   headlineOf,
   ProposalDetail,
   type ProposalDetailProps,
@@ -185,7 +190,7 @@ type BulkLoaded = {
   item: BulkItem
 }
 
-// 提案・項目と、表示に使う名前（題名・団体）。提案・項目は 1 文ずつ、名前は表ごとに 1 文で引く（1 提案あたり各表 1 つまで）
+// 提案・項目と、表示に使う名前（題名・団体）。提案・項目は 1 文ずつ、名前は表ごとに 1 文で引く（1 提案あたり各表 2 つまで）
 const bulkLoad = async (db: Db, ids: string[]): Promise<BulkLoaded[]> => {
   const loaded = await getAdminProposals(db, ids)
   const ds = ids.map((id) => loaded.get(id) ?? null)
@@ -216,13 +221,7 @@ const bulkLoad = async (db: Db, ids: string[]): Promise<BulkLoaded[]> => {
   const names = Object.fromEntries(keys.map((t, n) => [t, maps[n]])) as RefNames
   return ids.map((id, n) => {
     const d = ds[n]
-    return {
-      id,
-      d,
-      item: d
-        ? bulkItemOf(d.row, d.fields, names)
-        : { id, headline: '（見つかりません）', meta: '' },
-    }
+    return { id, d, item: d ? bulkItemOf(d.row, d.fields, names) : bulkMissingItemOf(id) }
   })
 }
 
@@ -244,60 +243,67 @@ const bulkErrorPage = (c: Context<AppEnv>, error: string) =>
     400,
   )
 
-// 上限を超えて選ばれたら先頭 BULK_MAX 件だけを対象にし、残りの件数を出す
-const bulkRestNote = (rest: number) =>
-  rest > 0
-    ? `一度に承認できるのは ${BULK_MAX} 件までです。残り ${rest} 件は、このあと続けて承認してください。`
+// BULK_MAX を超えて選ばれたら先頭 BULK_MAX 件だけを対象にし、その旨を出す
+const bulkOverNote = (all: number) =>
+  all > BULK_MAX
+    ? `${all} 件選ばれていました。一度に選べるのは ${BULK_MAX} 件までなので、先頭 ${BULK_MAX} 件だけを対象にしました。`
     : undefined
 
 // 確認ページ（題名と団体の一覧）。GET なので書き込まない
 proposals.get('/proposals/bulk', async (c) => {
   const all = bulkIdsOf(c.req.queries('id'))
   if (all.length === 0) return bulkErrorPage(c, BULK_NONE)
-  const ids = all.slice(0, BULK_MAX)
-  const loaded = await bulkLoad(c.get('db'), ids)
+  const loaded = await bulkLoad(c.get('db'), all.slice(0, BULK_MAX))
   const items: BulkItem[] = []
   const skipped: BulkResult[] = []
   for (const l of loaded) {
     const block = bulkBlockOf(l)
-    if (block) skipped.push({ ...l.item, ok: false, errors: [block] })
+    if (block) skipped.push({ ...l.item, result: 'failed', errors: [block] })
     else items.push(l.item)
   }
   return c.html(
     <AdminPage title="まとめて承認">
-      <BulkConfirm items={items} skipped={skipped} rest={bulkRestNote(all.length - ids.length)} />
+      <BulkConfirm items={items} skipped={skipped} over={bulkOverNote(all.length)} />
     </AdminPage>,
   )
 })
 
-// 1 件ずつ buildApproval → write（1 提案 = 1 batch、先頭の change_log で二重送信を止める）。失敗しても残りは進める
+// 1 件ずつ buildApproval → write（1 提案 = 1 batch、先頭の change_log で二重送信を止める）。失敗しても残りは進める。
+// D1 の呼び出しを数え、次の 1 件を最悪の見積もりで足すと上限を超えるならそこで打ち切り、残りは「未処理」（pending のまま）
 proposals.post('/proposals/bulk', async (c) => {
-  const db = c.get('db')
   const all = bulkIdsOf((await c.req.parseBody({ all: true })).id)
   if (all.length === 0) return bulkErrorPage(c, BULK_NONE)
-  const ids = all.slice(0, BULK_MAX)
+  // middleware で使った分は見積もりで足しておく。write / getAdminProposal も c.get('db') を使うので差し替える
+  const d1 = countingD1(c.env.DB, BULK_PRE_CALLS)
+  const db = createDb(d1.db)
+  c.set('db', db)
   const userId = currentUser(c).id
   const results: BulkResult[] = []
-  for (const l of await bulkLoad(db, ids)) {
-    const fail = (errors: string[]) => results.push({ ...l.item, ok: false, errors })
+  for (const l of await bulkLoad(db, all.slice(0, BULK_MAX))) {
+    const push = (result: BulkResult['result'], errors: string[] = []) =>
+      results.push({ ...l.item, result, errors })
     const block = bulkBlockOf(l)
     if (block || !l.d) {
-      fail([block ?? BULK_NOT_FOUND])
+      push('failed', [block ?? BULK_NOT_FOUND])
+      continue
+    }
+    if (d1.n.calls + BULK_ITEM_WORST > BULK_CALL_LIMIT) {
+      push('unprocessed')
       continue
     }
     try {
       const r = await buildApproval(db, l.d.row, l.d.fields, bulkChoiceOf(l.d.fields), [], userId)
-      if (!r.ok) fail(r.errors)
-      else if (!(await write(c, l.id, r.stmts))) fail([ALREADY_PROCESSED])
-      else results.push({ ...l.item, ok: true, errors: [] })
+      if (!r.ok) push('failed', r.errors)
+      else if (!(await write(c, l.id, r.stmts))) push('failed', [ALREADY_PROCESSED])
+      else push('applied')
     } catch (e) {
       console.error(`まとめて承認: ${l.id}`, e)
-      fail([BULK_WRITE_FAILED])
+      push('failed', [BULK_WRITE_FAILED])
     }
   }
   return c.html(
     <AdminPage title="まとめて承認">
-      <BulkResults results={results} rest={bulkRestNote(all.length - ids.length)} />
+      <BulkResults results={results} over={bulkOverNote(all.length)} />
     </AdminPage>,
   )
 })
