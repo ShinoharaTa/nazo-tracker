@@ -2,7 +2,7 @@
 // src/index.ts で csrf / attachUser より前に登録する。定義していないパスは認証後に全部 403。
 
 import { type Context, Hono } from 'hono'
-import { escapeRunUrl } from '../admin/validate'
+import { escapeRunUrl, permanentValues } from '../admin/validate'
 import { currentAgent, requireAgent, requireScope } from '../auth/agent'
 import type { Db } from '../db/client'
 import {
@@ -26,7 +26,7 @@ import {
   getTargetRow,
   hasPendingWithEscapeUrl,
   isLiveRow,
-  listProposalsByRequest,
+  listAgentProposals,
   pendingIdByFingerprint,
   runByEscapeIdUrl,
 } from '../db/proposals'
@@ -36,15 +36,23 @@ import {
   type OwnRequest,
   setRequestStatus,
 } from '../db/requests'
-import { requestStatuses } from '../db/schema'
+import { proposalStatuses, requestStatuses, runChannels, shopKinds, workKinds } from '../db/schema'
 import { getAutoApply } from '../db/settings'
 import type { AppEnv } from '../env'
 import { url as urlParser } from '../lib/form'
 import { hasUserinfo } from '../lib/match'
+import { prefectures } from '../lib/prefectures'
 import { isEscapeIdMyPage } from '../lib/url'
 import { buildAutoApply } from '../pipeline/apply'
 import { autoApplyDecision } from '../pipeline/auto'
-import { fingerprintOf, matchInputOf, parseProposal, validateBundle } from '../pipeline/fields'
+import {
+  fingerprintOf,
+  matchInputOf,
+  parseProposal,
+  placeholderSchema,
+  proposalFieldSchema,
+  validateBundle,
+} from '../pipeline/fields'
 import { canTransition } from '../requests/transitions'
 import type { RequestStatus } from '../ui/labels'
 import { matchHandler } from './match-handler'
@@ -215,6 +223,25 @@ apiAgent.get('/index/:table', requireScope('master:read'), async (c) => {
   )
 })
 
+// 提案で書ける項目と値の一覧（MCP のツール説明の元。fields.ts の表と validators の enum から作る）
+apiAgent.get('/schema', requireScope('master:read'), (c) =>
+  c.json({
+    proposal_fields: proposalFieldSchema(),
+    enums: {
+      'work.kind': workKinds,
+      'run.channel': runChannels,
+      'shop.kind': shopKinds,
+      'venue.prefecture': prefectures,
+      // 空文字（null）は常設でない
+      'run.is_permanent': [...permanentValues, ''],
+    },
+    placeholders: placeholderSchema(),
+    source_methods: agentSourceMethods,
+    request_statuses: requestStatuses,
+    proposal_statuses: proposalStatuses,
+  }),
+)
+
 // ---- 出典（source）。Worker は外部へ取りに行かず、agent が取った記録だけを受け取る（docs/sources.md §4）
 
 const EXCERPT_MAX = 500
@@ -304,9 +331,13 @@ export const writeConflictOf = async (
 }
 
 apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
-  const parsed = parseProposal(await c.req.json())
+  const body = await c.req.json()
+  const parsed = parseProposal(body)
   if (!parsed.ok) return c.json(parsed.error.body, parsed.error.status)
   const d = parsed.value
+  // hold: true なら自動反映の判定を飛ばして必ず pending（fingerprint には含めない）
+  const { hold = false } = body as { hold?: unknown }
+  if (typeof hold !== 'boolean') return c.json({ error: 'invalid_hold' }, 400)
   const db = c.get('db')
 
   let requestKind: string | null = null
@@ -378,18 +409,22 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
     tokenId: currentAgent(c).id,
   }
   const normEscapeUrl = nd.items.find((i) => i.field === 'run.escape_id_url')?.newValue ?? null
-  const decision = autoApplyDecision({
-    enabled: await getAutoApply(db),
-    kind: nd.kind,
-    targetTable: nd.targetTable,
-    items: nd.items,
-    sourceMethods: found,
-    workerCandidates: workerCandidates.length,
-    agentScores: nd.candidates.map((x) => x.score),
-    requestKind,
-    pendingSameUrl:
-      nd.kind === 'create' && !!normEscapeUrl && (await hasPendingWithEscapeUrl(db, normEscapeUrl)),
-  })
+  const decision = hold
+    ? { apply: false, deferred: [] }
+    : autoApplyDecision({
+        enabled: await getAutoApply(db),
+        kind: nd.kind,
+        targetTable: nd.targetTable,
+        items: nd.items,
+        sourceMethods: found,
+        workerCandidates: workerCandidates.length,
+        agentScores: nd.candidates.map((x) => x.score),
+        requestKind,
+        pendingSameUrl:
+          nd.kind === 'create' &&
+          !!normEscapeUrl &&
+          (await hasPendingWithEscapeUrl(db, normEscapeUrl)),
+      })
   const s = decision.apply
     ? await buildAutoApply(db, { ...proposalInput, inputs: v.inputs, deferred: decision.deferred })
     : { ...(await createProposalStmts(db, proposalInput)), revertUntil: null, followUps: [] }
@@ -416,13 +451,33 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
   )
 })
 
-// リクエストに紐付く提案（request_id 必須）。古い順、after（前の頁の next）で続き
+type ProposalStatus = (typeof proposalStatuses)[number]
+const isProposalStatus = (v: string): v is ProposalStatus =>
+  (proposalStatuses as readonly string[]).includes(v)
+
+// 提案の一覧。request_id があればそのリクエストの提案、無ければこのトークンが作った提案だけ。
+// status はカンマ区切り（省略は全状態）。古い順、after（前の頁の next）で続き
 apiAgent.get('/proposals', requireScope('proposal:write'), async (c) => {
-  const requestId = c.req.query('request_id')?.trim()
-  if (!requestId) return c.json({ error: 'request_id_required' }, 400)
+  // キーが無いときだけ自分の一覧。キーがあって空・空白だけは取り違えなので 400
+  const rawRequestId = c.req.query('request_id')
+  const requestId = rawRequestId?.trim()
+  if (rawRequestId !== undefined && !requestId) {
+    return c.json({ error: 'invalid_request_id' }, 400)
+  }
+  const raw = c.req.query('status')
+  const statuses = raw === undefined ? null : raw.split(',').map((s) => s.trim())
+  if (statuses && !statuses.every(isProposalStatus)) {
+    return c.json({ error: 'invalid_status' }, 400)
+  }
   const after = c.req.query('after') || null
   const limit = limitOf(c.req.query('limit'), PROPOSALS_LIMIT)
-  const r = await listProposalsByRequest(c.get('db'), requestId, after, limit)
+  const r = await listAgentProposals(
+    c.get('db'),
+    requestId ? { requestId } : { tokenId: currentAgent(c).id },
+    statuses ? [...new Set(statuses as ProposalStatus[])] : null,
+    after,
+    limit,
+  )
   if (r === 'invalid_after') return c.json({ error: 'invalid_after' }, 400)
   return c.json(r)
 })

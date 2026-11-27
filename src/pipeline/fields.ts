@@ -54,6 +54,10 @@ const placeholders: Record<string, ProposalTable> = {
   'run.shop_id': 'shop',
 }
 
+// 束の参照に使える列と値（GET /api/agent/schema。{"<表>.<列>": "@<表>"}）
+export const placeholderSchema = (): Record<string, string> =>
+  Object.fromEntries(Object.entries(placeholders).map(([f, t]) => [f, `@${t}`]))
+
 // 項目が束の中の行を指しているなら、その表（@<表> の値のときだけ）
 export const placeholderOf = (
   i: Pick<ProposalItem, 'field' | 'newValue'>,
@@ -107,6 +111,17 @@ const allowedFields = (kind: ProposalKind, table: ProposalTable): Set<string> =>
 
 const targetTablesOf = (kind: ProposalKind): readonly ProposalTable[] =>
   kind === 'link' ? ['run'] : kind === 'merge' ? mergeTables : proposalTables
+
+// kind × target_table ごとに入れてよい項目（GET /api/agent/schema。parseProposal と同じ表から作る）
+export const proposalFieldSchema = (): Record<ProposalKind, Record<string, string[]>> => {
+  const kinds = proposalKinds.filter((k): k is ProposalKind => k !== 'create_attempt_import')
+  return Object.fromEntries(
+    kinds.map((k) => [
+      k,
+      Object.fromEntries(targetTablesOf(k).map((t) => [t, [...allowedFields(k, t)]])),
+    ]),
+  ) as Record<ProposalKind, Record<string, string[]>>
+}
 
 export const MATCH_CANDIDATES_MAX = 20
 const REASON_MAX = 40
