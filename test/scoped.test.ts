@@ -65,8 +65,8 @@ describe('scopedTo().asFriendOf()', () => {
     const x = (await loginAs(env, { subject: 'scoped-f1' })).userId
     const y = (await loginAs(env, { subject: 'scoped-f2' })).userId
     await befriend(x, y)
-    expect(await scopedTo(db, x).asFriendOf(y)).toEqual({ targetUserId: y, level: 'status' })
-    expect(await scopedTo(db, y).asFriendOf(x)).toEqual({ targetUserId: x, level: 'status' })
+    expect(await scopedTo(db, x).asFriendOf(y)).toMatchObject({ targetUserId: y, level: 'status' })
+    expect(await scopedTo(db, y).asFriendOf(x)).toMatchObject({ targetUserId: x, level: 'status' })
   })
 
   it('friendship があっても viewer → target の block があれば null', async () => {

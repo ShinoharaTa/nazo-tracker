@@ -381,7 +381,7 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 | 月別・年別件数 | finished_on（NULL なら started_on、さらに NULL なら created_at）の年月。来場型は成功・失敗、完了型は cleared だけを数える |
 | 形式別・団体別・会場/都道府県別 | work.kind / run.organization_id → work.primary_organization_id / venue.prefecture |
 | 合計プレイ時間 | duration_sec 合計（session があれば session 合計を優先） |
-| 同行者トップ | companions を `、,/ 空白` で分割して集計（表示のみ、保存しない） |
+| 同行者トップ | companions を `、` `,` `，` `/` `／` と空白で分割、空を捨て、1 記録内の重複は 1 回にして集計（表示のみ、保存しない。`src/lib/companions.ts` の `splitCompanions`） |
 | 再挑戦数 | attempt_no ≥ 2 |
 | 難易度別 件数・成功率 | difficulty でグループ、分母は上と同じ |
 | 物量の平均 | AVG(volume)、形式別にも |
@@ -392,25 +392,28 @@ venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` �
 
 | 指標 | 定義 |
 |---|---|
-| 得意ジャンル | ジャンル別成功率を、件数 3 件以上のジャンルで並べ替え。上位 3 つを「得意」、下位を「苦手」 |
-| 難易度帯ごとの成功率 | difficulty 1-2 / 3 / 4-5 の 3 帯で成功率。体感難易度と結果のずれ（難しいと感じたのに通る等）を見る |
+| 得意ジャンル | ジャンル別成功率の並び（成功率 → 件数の降順）で、件数 5 件以上の行のうち成功率が最高の 1 行（同率は並びの先頭）を、その成功率が 50% 以上のときだけ「得意」（visual-design.md §4.5）。「苦手」は出さない |
 | 形式別の傾向 | work.kind 別に 件数・成功率・平均難易度・平均物量 |
-| 団体別の相性 | primary_organization 別に 件数・成功率・平均評価（3 件以上のみ） |
-| 物量との相関 | volume 帯（1-2 / 3 / 4-5）別の成功率 |
-| 同行者別の成功率 | companions の分割結果ごと（表示時計算、保存しない。3 件以上のみ） |
-| 直近の推移 | 直近 12 か月の月別 件数・成功率 |
-| 積み謎の年齢 | status=purchased の `purchased_on` からの経過日数順 |
+| 団体別の相性 | work の団体（`v_attempt_enriched` の org、id でまとめる）別に成功率。3 件以上のみ、成功率 → 件数の降順 → 名前の昇順で上位 10。注記に平均評価（分母に入った記録のうち rating がある行の平均、小数 1 桁。無ければ出さない） |
+| 物量別の成功率 | volume 1〜5 の 5 行固定（NULL は除外）。帯にはまとめない |
+| 同行者別の成功率 | companions の分割結果ごと（上の「同行者トップ」と同じ分割。表示時計算、保存しない）。3 件以上のみ、並びは団体別と同じ、上位 10 |
+| 再挑戦 | attempt_no ≥ 2 かつ cleared / failed の件数。来場型の「参加」の注記に出す（0 なら出さない） |
+| 積み謎の年齢 | 完了型で status=purchased（来場型の予約済みは除く）。`purchased_on` の古い順（NULL は最後、同じ日は created_at 順）に上位 10、今日（JST）からの経過日数 |
 | マイリスト | 件数、登録からの経過日数、うちプレイ済み（cleared / failed の attempt がある）の割合 |
 
 分母は常に §6 冒頭の定義（来場型の cleared + failed）。全て `WHERE user_id = ?`。
 
 ビュー（D1 で定義、クエリ側は必ず `user_id` 条件を付ける）:
 - `v_attempt_enriched`（`migrations/0004_v_attempt_enriched.sql`、P3 で作成）: attempt ⋈ work ⋈ run(LEFT) ⋈ venue(LEFT) ⋈ organization(LEFT、`run.organization_id` → `work.primary_organization_id`)。列は attempt の `spoiler_memo` 以外の全列 + `last_played_on` / `session_count` / `session_duration_sec`（session の MAX / COUNT / SUM）+ `display_on`（§3 attempt）+ `work_title` / `work_kind` / `org_id` / `org_name` / `run_channel` / `run_start_on` / `run_end_on` / `venue_id` / `venue_name` / `venue_prefecture`。**`spoiler_memo` は含めない。** 読むのは `src/db/scoped.ts` だけ（`check:scoped` の禁止語に `vAttemptEnriched`）
+- `v_friend_attempt`（`migrations/0008_v_friend_attempt.sql`、P8 で作成）: フレンドに見せる射影。attempt ⋈ work。列は `user_id` / `work_id` / `status` / `started_on` / `finished_on` / `share_override` / `created_at` / `work_title` / `work_kind` だけ（`share_override` と `created_at` は絞り込みと並び順にだけ使う）。**`spoiler_memo`・memo・rating・companions・`purchased_on`・attempt の id・session 由来の列は含めない。** 読むのは `src/db/scoped.ts` の `asFriendOf` だけ（`check:scoped` の禁止語に `vFriendAttempt`、許可リストのファイルからも不可）。attempt / work を作り直す migration では `v_attempt_enriched` と同じく DROP VIEW → 作り直し → CREATE VIEW
 - 集計ビュー（`v_attempt_monthly` / `v_attempt_by_difficulty` / `v_attempt_by_genre`）は作らない。統計は 1 ユーザー分の `v_attempt_enriched` をアプリ側で集計する（`src/lib/stats.ts`、純関数）。読むのは `own().statsRows()`（`created_at DESC` で最大 5000 行。超えたら直近 5000 件で集計し、画面に「直近 5000 件だけを集計しています」と出す）
 
-**P3 で出す指標**（HTML の `/stats`。JSON の `/api/me/stats` は出す段階で足す）: 見方は GET パラメータ `view`（`visit` / `done`。無し・不正値は §6 冒頭の既定）。来場型（visit）: 成功率（挑戦ベース・作品ベース）、参加（成功＋失敗、内訳に成功 / 失敗）、予約済み、難易度別の成功率（1〜5 の 5 行）、ジャンル別の成功率（分母 1 以上、成功率 → 件数の降順）、形式別の成功率（公演・ルームの 2 行）、月別の成功・失敗、旧ステータスの件数の注記。完了型（done）: 完了数（内訳に断念・失敗）、進行中、積み謎（買ったのみ）、形式別の完了数（`work_kind` NULL は「形式未設定」）、月別の完了数（形式ごとの積み上げ）。月別は年ごと 12 か月。基準日は上の「月別・年別件数」、`created_at` は JST の日付にする。両方にマイリストの件数とうちプレイ済み。年は `year`（2000〜今年、不正値は今年）。「断念を失敗に含める」（`drop=fail`）は廃止し、付いていても無視する。
+**P3 で出す指標**（HTML の `/stats`。JSON の `/api/me/stats` は出す段階で足す）: 見方は GET パラメータ `view`（`visit` / `done` / `all`。無し・不正値は §6 冒頭の既定）。来場型（visit）: 成功率（挑戦ベース・作品ベース）、参加（成功＋失敗、内訳に成功 / 失敗）、予約済み、難易度別の成功率（1〜5 の 5 行）、ジャンル別の成功率（分母 1 以上、成功率 → 件数の降順）、形式別の成功率（公演・ルームの 2 行）、月別の成功・失敗、旧ステータスの件数の注記。完了型（done）: 完了数（内訳に断念・失敗）、進行中、積み謎（買ったのみ）、形式別の完了数（`work_kind` NULL は「形式未設定」）、月別の完了数（形式ごとの積み上げ）。月別は年ごと 12 か月。基準日は上の「月別・年別件数」、`created_at` は JST の日付にする。両方にマイリストの件数とうちプレイ済み。年は `year`（2000〜今年、不正値は今年）。「断念を失敗に含める」（`drop=fail`）は廃止し、付いていても無視する。
 
-**P7 に送る指標**: 年別件数、団体別・会場/都道府県別、合計プレイ時間、同行者トップ、再挑戦数、物量の平均、評価の分布、得意傾向の表すべて（マイリストの登録からの経過日数を含む）。
+**P7 で足した指標**（来場型 `?view=visit`）: ジャンル別の「得意」、物量別・団体別・同行者別の成功率、「参加」の注記の再挑戦数。難易度帯・物量帯・直近 12 か月の推移・JSON の `/api/me/stats` は作らない。
+（完了型 `?view=done`）: 積み謎の古い順（上の「積み謎の年齢」）、形式別の平均（cleared の記録を形式ごとに平均難易度・平均物量。値がある行だけ、小数 1 桁、無ければ「—」。並びは形式別の完了数と同じ）。
+
+（ふりかえり `?view=all`、来場型・完了型の両方）: 遊んだ数（来場型の cleared + failed と完了型の cleared）、合計プレイ時間（`session_duration_sec ?? duration_sec` の合計。値がある記録だけ、その件数を注記）、再挑戦（attempt_no ≥ 2 で遊んだ数に入る記録の件数。遊んだ数の内数）、年別の遊んだ数（基準日は上の「月別・年別件数」、新しい年が上）、評価の分布（1〜5 の 5 行、NULL は除外）、都道府県別（`venue_prefecture` がある記録だけ、件数の降順 → 名前の昇順で上位 10、会場が分かる記録の件数を注記）、同行者トップ（上の分割、全ステータス、並びは都道府県別と同じ）、マイリストのいちばん古い登録からの経過日数（ふりかえりだけに出す）。集計は `computeStats` に渡した見方の分だけ行う（他の見方の節は計算しない）。
 
 ### フレンド向け射影（`/api/friends/:userId/attempts`）
 | level | 返す列 |
@@ -458,7 +461,8 @@ GROUP BY w.work_id;
 - 全ての統計ビューは `user_id` 列を持ち、クエリ側が必ず `WHERE user_id = ?` を付ける（`scopedTo(viewer).own()` 経由でしか呼べない）。
 - INDEX(user_id, status) / (user_id, finished_on) / (user_id, work_id) / attempt_genre(user_id, genre_id) で 1 ユーザー数千件までは D1 の無料枠で十分。
 - `change_log` で全マスタ変更の履歴を持ち、提案由来か手編集かを追える。
-- エクスポート: 本人が `GET /api/me/export.(json|csv)` で自分の attempt / session / genre / 画像一覧（画像本体は ZIP で別途）を取得。`wrangler d1 export` は障害時のバックアップ専用（design.md §6.4）。
+- エクスポート: 本人が `GET /settings/export`（cookie 認証。`/api/me` は作らない）から自分の attempt / session / genre / マイリストを取得。`/settings/export/data.json?part=N` は記録を `attempt.id ASC` で 500 件ずつ（`EXPORT_PART`）に分け、マイリストは part 1 だけに入れる。ネタバレメモは `spoiler=1` のときだけ含める（既定は含めない）。読むのは `own().exportCounts / exportPart / exportWishlist`、直列化は `src/lib/export.ts`。CSV は `attempts.csv?part=N[&spoiler=1]` / `sessions.csv?part=N`（同じ part の記録に属する進行ログ）/ `wishlist.csv`（全件）。UTF-8（BOM 付き）・CRLF・RFC 4180 の引用、文字列セルが `=` `+` `-` `@`（全角の `＝` `＋` `－` `＠` も）・タブ・CR・LF で始まるときは先頭に `'` を足す（数値・日付・id 列には足さない。元の値は JSON にある）。マイリストが上限を超えるときはエクスポート画面の件数に「先頭 5000 件まで」と出す。genres は ` | ` 区切り。画像一覧（画像本体は ZIP で別途）は P9 で足す。
+  - 記録の `work.organization` は「回の主催 → 作品の主団体」（`v_attempt_enriched` と同じ）、マイリストの `work.organization` は作品の主団体。マイリストが上限（`EXPORT_WISHLIST_LIMIT` = 5000）で切れたときは `wishlist_truncated: true`。`wrangler d1 export` は障害時のバックアップ専用（design.md §6.4）。
 - 運用監視の総数（決定）: `COUNT(*)` だけのビュー `v_ops_totals`（users, attempts, images, image_bytes, wishlists）。ユーザー別の内訳を持たない。オーナー画面にこの値だけ出す。
 - 復旧: D1 Time Travel（30 日）。
 

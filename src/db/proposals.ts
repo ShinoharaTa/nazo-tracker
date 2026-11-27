@@ -13,6 +13,7 @@ import {
   organization,
   proposal,
   proposalField,
+  type proposalStatuses,
   rejectionMemory,
   run,
   shop,
@@ -235,19 +236,25 @@ const listCols = {
   created_at: proposal.createdAt,
 }
 
-// リクエストに紐付く提案を古い順（created_at, id）に、after（提案の id）より後を limit 件。
-// next は続きがあるときの最後の id。after がそのリクエストの提案でなければ 'invalid_after'
-export const listProposalsByRequest = async (
+// agent 用の提案一覧。request_id があればそのリクエストの提案（作ったトークンは問わない）、無ければ tokenId が作った提案。
+// statuses があればその状態だけ。古い順（created_at, id）に、after（提案の id）より後を limit 件。
+// next は続きがあるときの最後の id。after が同じ範囲（リクエスト / トークン）の提案でなければ 'invalid_after'
+export const listAgentProposals = async (
   db: Db,
-  requestId: string,
+  scope: { requestId: string } | { tokenId: string },
+  statuses: readonly (typeof proposalStatuses)[number][] | null,
   after: string | null,
   limit: number,
 ): Promise<{ items: { id: string }[]; next: string | null } | 'invalid_after'> => {
+  const owner =
+    'requestId' in scope
+      ? eq(proposal.requestId, scope.requestId)
+      : eq(proposal.createdByTokenId, scope.tokenId)
   const cur = after
     ? await db
         .select({ id: proposal.id, createdAt: proposal.createdAt })
         .from(proposal)
-        .where(and(eq(proposal.id, after), eq(proposal.requestId, requestId)))
+        .where(and(eq(proposal.id, after), owner))
         .get()
     : undefined
   if (after && !cur) return 'invalid_after'
@@ -256,7 +263,8 @@ export const listProposalsByRequest = async (
     .from(proposal)
     .where(
       and(
-        eq(proposal.requestId, requestId),
+        owner,
+        statuses ? inArray(proposal.status, [...statuses]) : undefined,
         cur
           ? or(
               gt(proposal.createdAt, cur.createdAt),
