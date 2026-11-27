@@ -6,10 +6,12 @@ import type { Db } from '../db/client'
 import {
   isLiveOrg,
   isLiveVenue,
+  orgAliasNormTaken,
   orgUniqueTaken,
   runEscapeUrlTaken,
   shopExists,
   shopUrlTaken,
+  workAliasNormTaken,
   workOfficialUrlTaken,
 } from '../db/master'
 import {
@@ -32,6 +34,7 @@ import {
   str,
   url,
 } from '../lib/form'
+import { norm } from '../lib/norm'
 import { prefectures } from '../lib/prefectures'
 
 export {
@@ -138,6 +141,9 @@ export const validateOrg = async (db: Db, f: Form, selfId?: string) => {
 
 export const orgAliasFields = ['name', 'kind', 'since', 'until'] as const
 
+// 別名の追加で、同じ親に同じ表記（*_norm）の別名があるとき（団体・作品共通）
+export const ALIAS_TAKEN = '同じ別名がすでにあります。'
+
 export type OrgAliasInput = {
   name: string
   kind: (typeof organizationAliasKinds)[number]
@@ -145,13 +151,16 @@ export type OrgAliasInput = {
   until: string | null
 }
 
-export const validateOrgAlias = (f: Form) => {
+export const validateOrgAlias = async (db: Db, f: Form, organizationId: string) => {
   const errors: string[] = []
   const name = field(errors, '別名', f.name, str(NAME_MAX), true)
   const kind = field(errors, '種類', f.kind, oneOf(organizationAliasKinds), true)
   const since = field(errors, '開始日', f.since, date())
   const until = field(errors, '終了日', f.until, date())
   if (since && until && since > until) errors.push('開始日は終了日より前にしてください。')
+  if (name && (await orgAliasNormTaken(db, organizationId, norm(name)))) {
+    errors.push(ALIAS_TAKEN)
+  }
   return done<OrgAliasInput>(errors, {
     name: name ?? '',
     kind: kind ?? organizationAliasKinds[0],
@@ -278,10 +287,11 @@ export type WorkAliasInput = {
   kind: (typeof workAliasKinds)[number]
 }
 
-export const validateWorkAlias = (f: Form) => {
+export const validateWorkAlias = async (db: Db, f: Form, workId: string) => {
   const errors: string[] = []
   const title = field(errors, '別名', f.title, str(NAME_MAX), true)
   const kind = field(errors, '種類', f.kind, oneOf(workAliasKinds), true)
+  if (title && (await workAliasNormTaken(db, workId, norm(title)))) errors.push(ALIAS_TAKEN)
   return done<WorkAliasInput>(errors, { title: title ?? '', kind: kind ?? workAliasKinds[0] })
 }
 

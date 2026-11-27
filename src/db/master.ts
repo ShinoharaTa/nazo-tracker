@@ -821,6 +821,35 @@ export const orgNameNormTaken = async (
   return !!(o || a)
 }
 
+// 作品 workId に同じ title_norm の別名があるか（UNIQUE(work_id, title_norm)）
+export const workAliasNormTaken = async (
+  db: Db,
+  workId: string,
+  titleNorm: string,
+): Promise<boolean> =>
+  !!(await db
+    .select({ id: workAlias.id })
+    .from(workAlias)
+    .where(and(eq(workAlias.workId, workId), eq(workAlias.titleNorm, titleNorm)))
+    .get())
+
+// 団体版（UNIQUE(organization_id, name_norm)）
+export const orgAliasNormTaken = async (
+  db: Db,
+  organizationId: string,
+  nameNorm: string,
+): Promise<boolean> =>
+  !!(await db
+    .select({ id: organizationAlias.id })
+    .from(organizationAlias)
+    .where(
+      and(
+        eq(organizationAlias.organizationId, organizationId),
+        eq(organizationAlias.nameNorm, nameNorm),
+      ),
+    )
+    .get())
+
 // ---- agent 用（/api/agent/rows・/api/agent/index）。マスタだけを DB 列名（snake_case）のキーで返す
 
 export const agentRowTables = ['work', 'run', 'organization', 'venue', 'shop'] as const
