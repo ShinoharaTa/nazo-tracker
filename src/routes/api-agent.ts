@@ -304,9 +304,13 @@ export const writeConflictOf = async (
 }
 
 apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
-  const parsed = parseProposal(await c.req.json())
+  const body = await c.req.json()
+  const parsed = parseProposal(body)
   if (!parsed.ok) return c.json(parsed.error.body, parsed.error.status)
   const d = parsed.value
+  // hold: true なら自動反映の判定を飛ばして必ず pending（fingerprint には含めない）
+  const { hold = false } = body as { hold?: unknown }
+  if (typeof hold !== 'boolean') return c.json({ error: 'invalid_hold' }, 400)
   const db = c.get('db')
 
   let requestKind: string | null = null
@@ -378,18 +382,22 @@ apiAgent.post('/proposals', requireScope('proposal:write'), async (c) => {
     tokenId: currentAgent(c).id,
   }
   const normEscapeUrl = nd.items.find((i) => i.field === 'run.escape_id_url')?.newValue ?? null
-  const decision = autoApplyDecision({
-    enabled: await getAutoApply(db),
-    kind: nd.kind,
-    targetTable: nd.targetTable,
-    items: nd.items,
-    sourceMethods: found,
-    workerCandidates: workerCandidates.length,
-    agentScores: nd.candidates.map((x) => x.score),
-    requestKind,
-    pendingSameUrl:
-      nd.kind === 'create' && !!normEscapeUrl && (await hasPendingWithEscapeUrl(db, normEscapeUrl)),
-  })
+  const decision = hold
+    ? { apply: false, deferred: [] }
+    : autoApplyDecision({
+        enabled: await getAutoApply(db),
+        kind: nd.kind,
+        targetTable: nd.targetTable,
+        items: nd.items,
+        sourceMethods: found,
+        workerCandidates: workerCandidates.length,
+        agentScores: nd.candidates.map((x) => x.score),
+        requestKind,
+        pendingSameUrl:
+          nd.kind === 'create' &&
+          !!normEscapeUrl &&
+          (await hasPendingWithEscapeUrl(db, normEscapeUrl)),
+      })
   const s = decision.apply
     ? await buildAutoApply(db, { ...proposalInput, inputs: v.inputs, deferred: decision.deferred })
     : { ...(await createProposalStmts(db, proposalInput)), revertUntil: null, followUps: [] }

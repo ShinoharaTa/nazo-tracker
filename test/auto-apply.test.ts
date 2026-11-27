@@ -279,6 +279,33 @@ describe('自動反映', () => {
     expect((await proposalOf(r.body.id as string))?.status).toBe('pending')
   })
 
+  it('hold: true なら ON で条件を満たしても pending（work・run は作らない）', async () => {
+    await setAuto(true)
+    const title = `hold ${uniq()}`
+    const r = await propose(createWorkBody(title, [], { hold: true }))
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    expect(r.body).toMatchObject({ status: 'pending', revert_until: null, follow_ups: [] })
+    expect((await proposalOf(r.body.id as string))?.status).toBe('pending')
+    expect(await count('SELECT COUNT(*) AS n FROM work WHERE title = ?', title)).toBe(0)
+  })
+
+  it('hold: false は従来どおり ON で auto_applied', async () => {
+    await setAuto(true)
+    const r = await propose(createWorkBody(`hold false ${uniq()}`, [], { hold: false }))
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    expect(r.body.status).toBe('auto_applied')
+  })
+
+  it('hold が true / false 以外は 400 invalid_hold（行を作らない）', async () => {
+    await setAuto(true)
+    for (const hold of [1, 0, 'true', null, {}]) {
+      const title = `hold bad ${uniq()}`
+      const r = await propose(createWorkBody(title, [], { hold }))
+      expect(r, JSON.stringify(hold)).toEqual({ status: 400, body: { error: 'invalid_hold' } })
+      expect(await count('SELECT COUNT(*) AS n FROM work WHERE title = ?', title)).toBe(0)
+    }
+  })
+
   it('ON で auto_applied、revert_until が 7 日後、work・run ができ change_log が actor_token_id', async () => {
     const title = `ON ${uniq()}`
     await setAuto(true)
