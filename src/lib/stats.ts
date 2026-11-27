@@ -4,6 +4,7 @@
 import { workKinds } from '../db/schema'
 import type { OwnAttemptRow } from '../db/scoped'
 import { isVisitKind } from '../ui/labels'
+import { splitCompanions } from './companions'
 import { isoToJstDate } from './time'
 
 type Kind = OwnAttemptRow['work']['kind']
@@ -32,6 +33,8 @@ export type VisitSummary = {
   rate: number | null
   // 作品ごとの代表（cleared / failed の記録のうち attempt_no 最大、同値なら created_at 最大）だけで同じ式
   rateByWork: number | null
+  // attempt_no >= 2 の cleared + failed
+  retries: number
 }
 
 export type DoneSummary = {
@@ -44,6 +47,11 @@ export type DoneSummary = {
   backlog: number
 }
 
+export type GenreRateRow = RateRow & { genreId: string; label: string; best: boolean }
+
+// rating は分母に入った記録（成功・失敗）のうち rating がある行の平均。1 件も無ければ null
+export type OrgRateRow = RateRow & { orgId: string; label: string; rating: number | null }
+
 // 月別の系列。counts は 1〜12 月の 12 要素
 export type MonthSeries<K> = { key: K; counts: number[] }[]
 
@@ -52,8 +60,15 @@ export type Stats = {
     summary: VisitSummary
     // 難易度 1〜5 の 5 行固定（difficulty NULL は除外）
     byDifficulty: (RateRow & { label: string })[]
-    // total ≥ 1 のみ。成功率 DESC, total DESC, ラベル ASC
-    byGenre: (RateRow & { genreId: string; label: string })[]
+    // total ≥ 1 のみ。成功率 DESC, total DESC, ラベル ASC。
+    // best は total ≥ 5 の行のうち成功率が最高の 1 行（同率は並びの先頭）だけ、その成功率が 50% 以上のとき true
+    byGenre: GenreRateRow[]
+    // 物量 1〜5 の 5 行固定（volume NULL は除外）
+    byVolume: (RateRow & { label: string })[]
+    // work.org ごと。total ≥ 3 のみ、成功率 DESC, total DESC, 名前 ASC、上位 10
+    byOrg: OrgRateRow[]
+    // 同行者（splitCompanions で分割）ごと。total ≥ 3 のみ、並びは byOrg と同じ、上位 10
+    byCompanion: (RateRow & { label: string })[]
     // hall, room の 2 行固定
     byKind: (RateRow & { kind: VisitKind })[]
     // 常に成功・失敗の 2 系列、この順
@@ -127,6 +142,7 @@ export const summarizeVisit = (rows: readonly OwnAttemptRow[]): VisitSummary => 
     excluded: countBy(rows, 'in_progress') + countBy(rows, 'dropped'),
     rate: ratio(rateOf(rows)),
     rateByWork: ratio(rateOf(latestPerWork(rows))),
+    retries: rows.filter((r) => isResult(r) && r.attemptNo >= 2).length,
   }
 }
 
@@ -146,13 +162,33 @@ export const byDifficulty = (rows: readonly OwnAttemptRow[]): (RateRow & { label
     ...rateOf(rows.filter((r) => r.difficulty === n)),
   }))
 
+export const byVolume = (rows: readonly OwnAttemptRow[]): (RateRow & { label: string })[] =>
+  [1, 2, 3, 4, 5].map((n) => ({
+    label: `量 ${n}`,
+    ...rateOf(rows.filter((r) => r.volume === n)),
+  }))
+
+const byLabel = (a: { label: string }, b: { label: string }) =>
+  a.label < b.label ? -1 : a.label > b.label ? 1 : 0
+
+// 成功率 DESC, total DESC, ラベル ASC（total ≥ 1 の行だけを渡す）
+const byRate = <T extends RateRow & { label: string }>(a: T, b: T): number =>
+  b.cleared / b.total - a.cleared / a.total || b.total - a.total || byLabel(a, b)
+
+// 得意の母数と、得意と言える成功率の下限（docs/visual-design.md §4.5。仮の値）
+const bestMinTotal = 5
+const bestMinRate = 0.5
+// 団体別・同行者別に出す母数と行数
+const groupMinTotal = 3
+const groupLimit = 10
+
 // genres に rows に無い記録が混じっていても無視する（上限で切った分・完了型の記録など）。
 // labels は genre.id → 表示名（無い id は id のまま）
 export const byGenre = (
   rows: readonly OwnAttemptRow[],
   genres: readonly { attemptId: string; genreId: string }[],
   labels: ReadonlyMap<string, string>,
-): (RateRow & { genreId: string; label: string })[] => {
+): GenreRateRow[] => {
   const byId = new Map(rows.map((r) => [r.id, r]))
   const grouped = new Map<string, OwnAttemptRow[]>()
   for (const g of genres) {
@@ -162,19 +198,59 @@ export const byGenre = (
     list.push(r)
     grouped.set(g.genreId, list)
   }
-  return [...grouped]
+  const sorted = [...grouped]
     .map(([genreId, list]) => ({
       genreId,
       label: labels.get(genreId) ?? genreId,
       ...rateOf(list),
     }))
     .filter((g) => g.total >= 1)
-    .sort(
-      (a, b) =>
-        b.cleared / b.total - a.cleared / a.total ||
-        b.total - a.total ||
-        (a.label < b.label ? -1 : a.label > b.label ? 1 : 0),
-    )
+    .sort(byRate)
+  // sorted は成功率の降順なので、total ≥ 5 の最初の行がその中の最高
+  const top = sorted.findIndex((g) => g.total >= bestMinTotal)
+  const best = top >= 0 && sorted[top].cleared / sorted[top].total >= bestMinRate ? top : -1
+  return sorted.map((g, i) => ({ ...g, best: i === best }))
+}
+
+// 団体は id でまとめる（名前は最初に出た行のもの）。団体が無い作品の記録は数えない
+export const byOrg = (rows: readonly OwnAttemptRow[]): OrgRateRow[] => {
+  const grouped = new Map<string, { label: string; rows: OwnAttemptRow[] }>()
+  for (const r of rows) {
+    const org = r.work.org
+    if (!org) continue
+    const g = grouped.get(org.id) ?? { label: org.name, rows: [] }
+    g.rows.push(r)
+    grouped.set(org.id, g)
+  }
+  return [...grouped]
+    .map(([orgId, g]) => {
+      const rated = g.rows.filter(isResult).flatMap((r) => (r.rating === null ? [] : [r.rating]))
+      return {
+        orgId,
+        label: g.label,
+        ...rateOf(g.rows),
+        rating: rated.length ? rated.reduce((a, b) => a + b, 0) / rated.length : null,
+      }
+    })
+    .filter((g) => g.total >= groupMinTotal)
+    .sort(byRate)
+    .slice(0, groupLimit)
+}
+
+export const byCompanion = (rows: readonly OwnAttemptRow[]): (RateRow & { label: string })[] => {
+  const grouped = new Map<string, OwnAttemptRow[]>()
+  for (const r of rows) {
+    for (const name of splitCompanions(r.companions)) {
+      const list = grouped.get(name) ?? []
+      list.push(r)
+      grouped.set(name, list)
+    }
+  }
+  return [...grouped]
+    .map(([label, list]) => ({ label, ...rateOf(list) }))
+    .filter((g) => g.total >= groupMinTotal)
+    .sort(byRate)
+    .slice(0, groupLimit)
 }
 
 const visitKinds: readonly VisitKind[] = ['hall', 'room']
@@ -263,6 +339,9 @@ export const computeStats = (
       byDifficulty: byDifficulty(visit),
       // visit 側の rows だけを渡すので、完了型の記録に付いたジャンルは落ちる
       byGenre: byGenre(visit, genres, genreLabels),
+      byVolume: byVolume(visit),
+      byOrg: byOrg(visit),
+      byCompanion: byCompanion(visit),
       byKind: visitByKind(visit),
       monthly: visitMonthly(visit, year),
     },

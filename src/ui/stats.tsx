@@ -79,8 +79,10 @@ const Wishlist = ({ wishlist }: StatsPageProps) => (
 )
 
 const VisitView = (p: StatsPageProps) => {
-  const { summary, byDifficulty, byGenre, byKind, monthly } = p.stats.visit
+  const { summary, byDifficulty, byVolume, byGenre, byKind, byOrg, byCompanion, monthly } =
+    p.stats.visit
   const noResult = <Empty>ルーム・公演の結果はまだありません。</Empty>
+  const noData = <Empty>まだデータがありません。</Empty>
   return (
     <>
       <Kpis
@@ -95,7 +97,7 @@ const VisitView = (p: StatsPageProps) => {
           {
             label: '参加',
             value: summary.played,
-            note: `成功 ${summary.cleared} / 失敗 ${summary.failed}`,
+            note: `成功 ${summary.cleared} / 失敗 ${summary.failed}${summary.retries ? ` · 再挑戦 ${summary.retries}` : ''}`,
           },
           { label: '予約済み', value: summary.reserved, note: '参加予定' },
         ]}
@@ -110,8 +112,12 @@ const VisitView = (p: StatsPageProps) => {
         {summary.played ? <RateBars items={byDifficulty} /> : noResult}
       </div>
       <div class="sect">
+        <h2>物量別の成功率</h2>
+        {summary.played ? <RateBars items={byVolume} /> : noResult}
+      </div>
+      <div class="sect">
         <h2>ジャンル別の成功率</h2>
-        {byGenre.length ? <RateBars items={byGenre} /> : <Empty>まだデータがありません。</Empty>}
+        {byGenre.length ? <RateBars items={byGenre} /> : noData}
       </div>
       <div class="sect">
         <h2>形式別の成功率</h2>
@@ -119,6 +125,32 @@ const VisitView = (p: StatsPageProps) => {
           <RateBars items={byKind.map((k) => ({ ...k, label: visitKindLabel(k.kind) }))} />
         ) : (
           noResult
+        )}
+      </div>
+      <div class="sect">
+        <h2>団体別の成功率</h2>
+        {byOrg.length ? (
+          <RateBars
+            labelTop
+            items={byOrg.map((o) => ({
+              ...o,
+              note: o.rating === null ? undefined : `平均評価 ${o.rating.toFixed(1)}`,
+            }))}
+          />
+        ) : summary.played ? (
+          <Empty>3 件以上の団体はまだありません。</Empty>
+        ) : (
+          noData
+        )}
+      </div>
+      <div class="sect">
+        <h2>同行者別の成功率</h2>
+        {byCompanion.length ? (
+          <RateBars labelTop items={byCompanion} />
+        ) : summary.played ? (
+          <Empty>3 件以上の同行者はまだありません。</Empty>
+        ) : (
+          noData
         )}
       </div>
       <div class="sect">
