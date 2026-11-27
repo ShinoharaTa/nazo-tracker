@@ -11,7 +11,12 @@ import type {
 } from '../db/proposals'
 import { workKinds } from '../db/schema'
 import { isoToJstDate } from '../lib/time'
-import type { ApprovalChoice, RejectionChoice, StaleField } from '../pipeline/apply'
+import {
+  type ApprovalChoice,
+  BULK_MAX,
+  type RejectionChoice,
+  type StaleField,
+} from '../pipeline/apply'
 import { nameColumn, type ProposalTable, placeholderOf, workOnlySections } from '../pipeline/fields'
 import {
   Checkbox,
@@ -164,6 +169,163 @@ const AutoApplyForm = ({ on, saved }: { on: boolean; saved?: boolean }) => (
   </form>
 )
 
+// ---- まとめて承認（create で候補 0 件の承認待ちだけ。src/routes/admin/proposals.tsx の /proposals/bulk）
+
+// 承認待ちタブの一覧。選べる行の左に Checkbox（選べない行は同じ幅を空ける）。確認ページへは GET
+const BulkPickForm = ({ items }: { items: AdminProposalRow[] }) => (
+  <form method="get" action="/admin/proposals/bulk" class="list">
+    <p class="note" style="margin:0">
+      候補の無い新しい提案は、チェックしてまとめて承認できます（1 回 {BULK_MAX}{' '}
+      件まで）。候補つき・更新・紐付け・統合は 1 件ずつ開いて確かめてください。
+    </p>
+    <label hidden data-check-all>
+      <input type="checkbox" /> 選べる提案をすべて選ぶ
+    </label>
+    {items.map((r) => (
+      <div class="pick">
+        {r.bulkable ? (
+          <label class="pick-box">
+            <input
+              type="checkbox"
+              name="id"
+              value={r.id}
+              aria-label={`まとめて承認: ${r.headline}`}
+            />
+          </label>
+        ) : (
+          <span class="pick-box" aria-hidden="true" />
+        )}
+        <ProposalTicket r={r} />
+      </div>
+    ))}
+    <button type="submit" class="btn pri">
+      選んだ提案をまとめて承認
+    </button>
+  </form>
+)
+
+export type BulkItem = {
+  id: string
+  headline: string
+  // 種類 · 対象 · 団体
+  meta: string
+}
+
+export type BulkResult = BulkItem & { ok: boolean; errors: string[] }
+
+// 一覧の 1 行の題名と meta（種類 · 対象 · 団体）。団体は束の団体（@organization）か、参照先の名前
+export const bulkItemOf = (
+  p: ProposalRow,
+  fields: AdminProposalField[],
+  names: RefNames,
+): BulkItem => {
+  const t = p.targetTable
+  const orgField = fields.find(
+    (f) => f.field === `${t}.primary_organization_id` || f.field === `${t}.organization_id`,
+  )
+  const org = !orgField?.newValue
+    ? t === 'work'
+      ? '団体未設定'
+      : null
+    : placeholderOf(orgField)
+      ? (fields.find((f) => f.field === 'organization.name')?.newValue ?? null)
+      : (names.organization.get(orgField.newValue) ?? NOT_FOUND)
+  return {
+    id: p.id,
+    headline: headlineOf(p, fields, names),
+    meta: [kindLabelOf(p), org].filter(Boolean).join(' · '),
+  }
+}
+
+const BulkRow = ({ item, children }: { item: BulkItem; children?: Child }) => (
+  <div class="cand">
+    <span class="title">{item.headline}</span>
+    <span class="meta">
+      {item.meta} · <a href={`/admin/proposals/${item.id}`}>開く</a>
+    </span>
+    {children}
+  </div>
+)
+
+// 確認ページ。items は反映する提案、skipped はまとめて承認できない提案（理由つき）
+export const BulkConfirm = (props: {
+  items: BulkItem[]
+  skipped: BulkResult[]
+  errors?: string[]
+}) => (
+  <>
+    <TopBar back="/admin/proposals" label="まとめて承認" />
+    {props.errors?.length ? (
+      <div class="sect">
+        <FormErrors errors={props.errors} />
+      </div>
+    ) : null}
+    {props.items.length ? (
+      <form method="post" action="/admin/proposals/bulk" class="sect">
+        <h2>反映する提案（{props.items.length} 件）</h2>
+        <p class="note">
+          全項目を採用して、1 件ずつ反映します。形式などを選び直すときは、詳細から 1
+          件ずつ承認してください。
+        </p>
+        <div class="list">
+          {props.items.map((i) => (
+            <BulkRow item={i}>
+              <input type="hidden" name="id" value={i.id} />
+            </BulkRow>
+          ))}
+        </div>
+        <button type="submit" class="btn pri">
+          {props.items.length} 件を承認して反映
+        </button>
+      </form>
+    ) : null}
+    {props.skipped.length ? (
+      <div class="sect">
+        <h2>まとめて承認できない提案（{props.skipped.length} 件）</h2>
+        <div class="list">
+          {props.skipped.map((i) => (
+            <BulkRow item={i}>
+              <p class="note" style="margin:0">
+                {i.errors.join(' ')}
+              </p>
+            </BulkRow>
+          ))}
+        </div>
+      </div>
+    ) : null}
+  </>
+)
+
+// 結果。件ごとに反映した / できなかった（理由）
+export const BulkResults = ({ results }: { results: BulkResult[] }) => {
+  const ok = results.filter((r) => r.ok).length
+  const ng = results.length - ok
+  return (
+    <>
+      <TopBar back="/admin/proposals" label="まとめて承認" />
+      <div class="list">
+        <p class="note" role="status">
+          {ok} 件を反映しました。{ng ? `${ng} 件は反映できませんでした。` : ''}
+        </p>
+        {results.map((r) => (
+          <BulkRow item={r}>
+            {r.ok ? (
+              <p class="note" style="margin:0">
+                反映しました
+              </p>
+            ) : (
+              <FormErrors errors={r.errors} />
+            )}
+          </BulkRow>
+        ))}
+        <p class="note" style="margin:0">
+          <a href="/admin/proposals">承認待ちの一覧へ ›</a>
+        </p>
+      </div>
+    </>
+  )
+}
+
 export const ProposalsList = (props: {
   tab: AdminProposalTab
   pendingCount: number
@@ -185,15 +347,23 @@ export const ProposalsList = (props: {
       current={props.tab}
       label="提案の状態"
     />
-    <div class="list">
-      {props.items.length ? (
-        props.items.map((r) => (
-          <ProposalTicket r={r} chip={props.tab !== 'pending'} revertUntil={props.tab === 'auto'} />
-        ))
-      ) : (
-        <Empty>{emptyText[props.tab]}</Empty>
-      )}
-    </div>
+    {props.tab === 'pending' && props.items.some((r) => r.bulkable) ? (
+      <BulkPickForm items={props.items} />
+    ) : (
+      <div class="list">
+        {props.items.length ? (
+          props.items.map((r) => (
+            <ProposalTicket
+              r={r}
+              chip={props.tab !== 'pending'}
+              revertUntil={props.tab === 'auto'}
+            />
+          ))
+        ) : (
+          <Empty>{emptyText[props.tab]}</Empty>
+        )}
+      </div>
+    )}
     <Pager
       base="/admin/proposals"
       page={props.page}

@@ -76,3 +76,13 @@ document.addEventListener('click', (e) => {
   if (toggle.getAttribute('aria-expanded') === 'true') closeSpoiler(toggle, body, veil)
   else openSpoiler(toggle, body, veil)
 })
+
+// まとめて承認の「選べる提案をすべて選ぶ」（JS が無いときは hidden のまま）
+for (const all of document.querySelectorAll('[data-check-all]')) {
+  const input = all.querySelector('input')
+  const boxes = all.closest('form')?.querySelectorAll('input[name="id"]') ?? []
+  all.hidden = false
+  input?.addEventListener('change', () => {
+    for (const box of boxes) box.checked = input.checked
+  })
+}

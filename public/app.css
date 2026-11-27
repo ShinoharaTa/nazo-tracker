@@ -1058,6 +1058,28 @@ button.gtag.on {
   align-items: center;
   font-weight: 700;
 }
+/* まとめて承認の選択（承認待ちの .ticket の左に Checkbox。選べない行も同じ幅を空けて揃える） */
+.pick {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.pick > .ticket {
+  flex: 1;
+  min-width: 0;
+}
+.pick-box {
+  flex-shrink: 0;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pick-box input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
 .login {
   min-height: 80vh;
   display: flex;

@@ -118,6 +118,20 @@ export const approvalChoiceOf = (
   }
 }
 
+// まとめて承認（P5 計画 §4）で 1 回に送れる件数
+export const BULK_MAX = 50
+
+// まとめて承認の選択: 詳細の承認フォームを既定のまま送ったのと同じ（全項目採用、形式は提案の値、新しく作る、メモなし）
+export const bulkChoiceOf = (
+  fields: readonly Pick<AdminProposalField, 'id' | 'field' | 'newValue'>[],
+): ApprovalChoice => ({
+  accepted: new Set(fields.map((f) => f.id)),
+  kind: fields.find((f) => f.field === 'work.kind')?.newValue ?? '',
+  linkWorkId: '',
+  note: '',
+  force: false,
+})
+
 // 提案のあとで今の値が変わった項目
 export type StaleField = { field: string; current: string | null }
 

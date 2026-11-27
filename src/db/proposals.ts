@@ -367,13 +367,37 @@ export type AdminProposalRow = {
   headline: string
   // 出典のドメイン（重複なし）
   domains: string[]
+  // まとめて承認に入れられるか（bulkApprovable）
+  bulkable: boolean
 }
 
 const NOT_FOUND_NAME = '（見つかりません）'
 
+// まとめて承認に入れられる提案: 承認待ちの create で、保存された名寄せ候補が 0 件（壊れた JSON は候補ありとみなす）。
+// 候補つき・update / link / merge は詳細で 1 件ずつ見る
+export const bulkApprovable = (
+  p: Pick<ProposalRow, 'status' | 'kind' | 'matchCandidatesJson'>,
+): boolean => {
+  if (p.status !== 'pending' || p.kind !== 'create') return false
+  try {
+    const c: unknown = JSON.parse(p.matchCandidatesJson ?? '[]')
+    return Array.isArray(c) && c.length === 0
+  } catch {
+    return false
+  }
+}
+
 type ListCols = Pick<
   ProposalRow,
-  'id' | 'kind' | 'targetTable' | 'targetId' | 'status' | 'confidence' | 'createdAt' | 'revertUntil'
+  | 'id'
+  | 'kind'
+  | 'targetTable'
+  | 'targetId'
+  | 'status'
+  | 'confidence'
+  | 'createdAt'
+  | 'revertUntil'
+  | 'matchCandidatesJson'
 >
 
 // 一覧の行に見出しと出典のドメインを付ける
@@ -456,6 +480,7 @@ const decorate = async (db: Db, rows: ListCols[]): Promise<AdminProposalRow[]> =
       revertUntil: r.revertUntil,
       headline: headline ?? NOT_FOUND_NAME,
       domains: domainRows.flatMap((d) => (d.proposalId === r.id && d.domain ? [d.domain] : [])),
+      bulkable: bulkApprovable(r),
     }
   })
 }
@@ -469,6 +494,7 @@ const rowCols = {
   confidence: proposal.confidence,
   createdAt: proposal.createdAt,
   revertUntil: proposal.revertUntil,
+  matchCandidatesJson: proposal.matchCandidatesJson,
 }
 
 // 承認待ちは古い順、それ以外は新しい順。50 件ずつ
