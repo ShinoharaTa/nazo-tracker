@@ -26,7 +26,7 @@ AUTH_DEV_LOGIN = "0"
 # 仮ログインで 127.0.0.1 / localhost に加えて許可するホスト（カンマ区切り）。プライベート IPv4 だけ採用し、それ以外は無視
 AUTH_DEV_HOSTS = ""
 # オーナーにする identity（provider:subject のカンマ区切り、完全一致）。例: "discord:123456789012345678"
-OWNER_IDENTITIES = ""
+OWNER_IDENTITIES = "discord:306792752685776897"
 # Google の OAuth クライアント ID。空のあいだは Google ログインが「準備中」になる
 GOOGLE_CLIENT_ID = ""
 # Discord の OAuth クライアント ID。空のあいだは Discord ログインが「準備中」になる
