@@ -11,15 +11,16 @@ import { SettingsList, settingsState } from './ui'
 
 const friends = new Hono<AppEnv>({ strict: false })
 
-// /settings/friends 自体も含む
-friends.use('/settings/friends/*', requireUser)
-
-// 本人の関係しか出さないので共有キャッシュにも検索にも載せない
+// 本人の関係しか出さないので共有キャッシュにも検索にも載せない。
+// requireUser より先に置き、未ログインの 302 / 401 にも付ける
 friends.use('/settings/friends/*', async (c, next) => {
   await next()
   c.res.headers.set('Cache-Control', 'private, no-store')
   c.res.headers.set('X-Robots-Tag', 'noindex')
 })
+
+// /settings/friends 自体も含む
+friends.use('/settings/friends/*', requireUser)
 
 // 招待リンクの節。url は発行済みのとき https://…/f/<code>
 const InviteLink = ({ url }: { url: string | null }) => (
@@ -29,7 +30,7 @@ const InviteLink = ({ url }: { url: string | null }) => (
       <div class="list">
         {/* JS が無くても input を選択してコピーできる */}
         <label class="field">
-          招待リンク
+          リンク
           <input type="text" id="friend-invite-url" value={url} readonly />
         </label>
         <div class="btns">
@@ -42,7 +43,7 @@ const InviteLink = ({ url }: { url: string | null }) => (
             </button>
           </form>
           <form method="post" action="/settings/friends/code/delete">
-            <button type="submit" class="btn danger">
+            <button type="submit" class="btn ghost">
               招待を止める
             </button>
           </form>
