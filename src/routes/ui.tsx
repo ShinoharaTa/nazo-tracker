@@ -92,9 +92,7 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
         )
       })}
     </nav>
-    {kind === 'room' ? (
-      <p class="note">ルーム型は都道府県 → 店舗の順でも探せます（P10）。</p>
-    ) : null}
+    {kind === 'room' ? <p class="note">都道府県 → 店舗の順で探す機能は準備中です。</p> : null}
     <div class="list">
       {items.length ? (
         items.map((w) => (
