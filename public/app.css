@@ -790,6 +790,20 @@ button.gtag.on {
   font-family: var(--mono);
   color: var(--muted);
 }
+/* 団体名・同行者名は自由入力なので、長い語でも列からはみ出さない */
+.bar > span:first-child {
+  overflow-wrap: anywhere;
+}
+/* 「得意」の印（docs/visual-design.md §4.5） */
+.bar .pen {
+  font-size: 12px;
+}
+/* 棒の下の注記（団体別の平均評価） */
+.bar .sub {
+  grid-column: 2 / -1;
+  margin-top: -6px;
+  color: var(--muted);
+}
 .cols {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));

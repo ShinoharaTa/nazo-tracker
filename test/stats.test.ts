@@ -2,9 +2,13 @@ import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { OwnAttemptRow } from '../src/db/scoped'
 import app from '../src/index'
+import { splitCompanions } from '../src/lib/companions'
 import {
+  byCompanion,
   byDifficulty,
   byGenre,
+  byOrg,
+  byVolume,
   computeStats,
   defaultView,
   doneByKind,
@@ -19,7 +23,7 @@ import { isoToJstDate, todayJst } from '../src/lib/time'
 import { MonthStack, RateBars } from '../src/ui/components'
 import { StatsPage } from '../src/ui/stats'
 import { loginAs } from './helpers/auth'
-import { insertWork } from './helpers/master'
+import { insertOrg, insertWork } from './helpers/master'
 import { insertAttempt, insertGenre, insertWish } from './helpers/records'
 
 type Kind = OwnAttemptRow['work']['kind']
@@ -346,7 +350,7 @@ describe('src/lib/stats', () => {
     )
     expect(html).toContain('<b><span class="hl mk-green">—</span></b>')
     expect(html).toContain('<b>0</b><span>成功 0 / 失敗 0</span>')
-    expect(html.match(/ルーム・公演の結果はまだありません。/g)).toHaveLength(2)
+    expect(html.match(/ルーム・公演の結果はまだありません。/g)).toHaveLength(3)
     expect(html).toContain('2026 年の記録はありません。')
     expect(html).not.toContain('class="legend"')
     expect(html).not.toContain('以前の記録')
@@ -377,6 +381,185 @@ describe('src/lib/stats', () => {
   })
 })
 
+describe('src/lib/stats（得意傾向）', () => {
+  // 同じジャンルの記録を n 件（先頭 cleared 件が成功、残りは失敗）
+  const genreRows = (genreId: string, n: number, cleared: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      row: row({ status: i < cleared ? 'cleared' : 'failed' }),
+      genreId,
+    }))
+  const genreOf = (list: { row: OwnAttemptRow; genreId: string }[]) =>
+    byGenre(
+      list.map((x) => x.row),
+      list.map((x) => ({ attemptId: x.row.id, genreId: x.genreId })),
+      new Map(),
+    )
+
+  it('byGenre の得意: 4 件 100% には付かず、5 件以上の最初の 1 行だけに付く', () => {
+    const g = genreOf([
+      ...genreRows('four', 4, 4),
+      ...genreRows('five', 5, 4),
+      ...genreRows('six', 6, 3),
+    ])
+    expect(g.map((x) => [x.genreId, x.best])).toEqual([
+      ['four', false],
+      ['five', true],
+      ['six', false],
+    ])
+    expect(genreOf(genreRows('four', 4, 4)).some((x) => x.best)).toBe(false)
+    expect(genreOf(genreRows('five', 5, 0)).map((x) => x.best)).toEqual([true])
+  })
+
+  it('byVolume は 量 1〜量 5 の 5 行固定。volume NULL と旧ステータスは分母に入れない', () => {
+    const v = byVolume([
+      row({ status: 'cleared', volume: 2 }),
+      row({ status: 'failed', volume: 2 }),
+      row({ status: 'dropped', volume: 2 }),
+      row({ status: 'in_progress', volume: 2 }),
+      row({ status: 'purchased', volume: 2 }),
+      row({ status: 'cleared', volume: 5 }),
+      row({ status: 'cleared' }),
+    ])
+    expect(v).toEqual([
+      { label: '量 1', total: 0, cleared: 0 },
+      { label: '量 2', total: 2, cleared: 1 },
+      { label: '量 3', total: 0, cleared: 0 },
+      { label: '量 4', total: 0, cleared: 0 },
+      { label: '量 5', total: 1, cleared: 1 },
+    ])
+  })
+
+  const orgRow = (
+    org: { id: string; name: string } | null,
+    status: OwnAttemptRow['status'],
+    rating: number | null = null,
+  ) => {
+    const r = row({ status, rating })
+    return { ...r, work: { ...r.work, org } }
+  }
+
+  it('byOrg: 2 件は出ず 3 件から。旧ステータスは数えない。団体なしは出ない', () => {
+    const a = { id: 'oa', name: 'A' }
+    const b = { id: 'ob', name: 'B' }
+    const rows = [
+      orgRow(a, 'cleared'),
+      orgRow(a, 'failed'),
+      orgRow(a, 'dropped'),
+      orgRow(a, 'in_progress'),
+      orgRow(a, 'purchased'),
+      orgRow(b, 'cleared'),
+      orgRow(b, 'cleared'),
+      orgRow(b, 'failed'),
+      orgRow(null, 'cleared'),
+      orgRow(null, 'cleared'),
+      orgRow(null, 'cleared'),
+    ]
+    expect(byOrg(rows).map((o) => [o.orgId, o.cleared, o.total])).toEqual([['ob', 2, 3]])
+    expect(byOrg([...rows, orgRow(a, 'cleared')]).map((o) => [o.orgId, o.total])).toEqual([
+      ['oa', 3],
+      ['ob', 3],
+    ])
+  })
+
+  it('byOrg: 成功率 DESC → 件数 DESC → 名前 ASC、上位 10。平均評価は rating がある成功・失敗の平均', () => {
+    const orgs = Array.from({ length: 12 }, (_, i) => ({
+      id: `o${i}`,
+      name: `団体${String.fromCharCode(0x41 + i)}`,
+    }))
+    const rows = orgs.flatMap((o, i) => [
+      // o0 / o1 は 4 件、それ以外は 3 件。o0〜o5 は全勝、o6〜 は 1 敗
+      ...(i < 2 ? [orgRow(o, 'cleared')] : []),
+      orgRow(o, 'cleared', i === 0 ? 4 : null),
+      orgRow(o, 'cleared', i === 0 ? 5 : null),
+      orgRow(o, i < 6 ? 'cleared' : 'failed', i === 0 ? 4 : null),
+    ])
+    // 予約済みの評価は平均に入れない
+    rows.push(orgRow(orgs[0], 'purchased', 1))
+    const o = byOrg(rows)
+    expect(o.map((x) => x.orgId)).toEqual([
+      'o0',
+      'o1',
+      'o2',
+      'o3',
+      'o4',
+      'o5',
+      'o6',
+      'o7',
+      'o8',
+      'o9',
+    ])
+    expect(o[0].rating).toBeCloseTo(13 / 3)
+    expect(o[1].rating).toBeNull()
+  })
+
+  it('splitCompanions: 全角・半角の区切りと空白で分け、空と 1 記録内の重複を捨てる', () => {
+    expect(splitCompanions('あや、けん,ゆう，みき/はる／なな\u3000そら  りく')).toEqual([
+      'あや',
+      'けん',
+      'ゆう',
+      'みき',
+      'はる',
+      'なな',
+      'そら',
+      'りく',
+    ])
+    expect(splitCompanions(' 、、 あや ,, あや／けん ')).toEqual(['あや', 'けん'])
+    expect(splitCompanions('、 ／')).toEqual([])
+    expect(splitCompanions('')).toEqual([])
+    expect(splitCompanions(null)).toEqual([])
+  })
+
+  it('byCompanion: 1 記録内の重複は 1 回。3 件以上だけ、成功率の順', () => {
+    const v = byCompanion([
+      row({ status: 'cleared', companions: 'あや、あや,けん' }),
+      row({ status: 'failed', companions: 'あや／けん' }),
+      row({ status: 'cleared', companions: 'あや けん' }),
+      row({ status: 'cleared', companions: 'ゆう' }),
+      row({ status: 'cleared', companions: 'みき' }),
+      row({ status: 'cleared', companions: 'みき' }),
+      row({ status: 'cleared', companions: 'みき' }),
+      row({ status: 'dropped', companions: 'ゆう' }),
+      row({ status: 'purchased', companions: 'ゆう' }),
+    ])
+    expect(v.map((x) => [x.label, x.cleared, x.total])).toEqual([
+      ['みき', 3, 3],
+      ['あや', 2, 3],
+      ['けん', 2, 3],
+    ])
+  })
+
+  it('summarizeVisit.retries: attempt_no >= 2 の成功・失敗だけ', () => {
+    expect(
+      summarizeVisit([
+        row({ status: 'cleared', attemptNo: 2 }),
+        row({ status: 'failed', attemptNo: 3 }),
+        row({ status: 'cleared' }),
+        row({ status: 'purchased', attemptNo: 2 }),
+        row({ status: 'dropped', attemptNo: 2 }),
+      ]).retries,
+    ).toBe(2)
+  })
+
+  it('完了型の記録は visit の物量・団体・同行者・再挑戦に混ざらない', () => {
+    const org = { id: 'od', name: 'D' }
+    const done = Array.from({ length: 3 }, () => {
+      const r = row({
+        status: 'cleared',
+        kind: 'takeaway',
+        volume: 3,
+        companions: 'あや',
+        attemptNo: 2,
+      })
+      return { ...r, work: { ...r.work, org } }
+    })
+    const v = computeStats(done, [], new Map(), { year: 2026 }).visit
+    expect(v.byVolume.every((x) => x.total === 0)).toBe(true)
+    expect(v.byOrg).toEqual([])
+    expect(v.byCompanion).toEqual([])
+    expect(v.summary.retries).toBe(0)
+  })
+})
+
 describe('グラフの部品', () => {
   it('RateBars: total 0 の行は .tr が空で値 —', async () => {
     const html = String(
@@ -393,6 +576,24 @@ describe('グラフの部品', () => {
     expect(html).toContain(
       '<div class="tr"><div class="fl r-ok" style="width:75%"></div><div class="fl r-ng" style="width:25%"></div></div><span class="v">75% · 3/4</span>',
     )
+  })
+
+  it('RateBars: best はラベルに蛍光ペン＋「得意」、note は棒の下の注記', async () => {
+    const html = String(
+      await RateBars({
+        items: [
+          { label: '論理', total: 5, cleared: 5, best: true },
+          { label: '団体', total: 3, cleared: 3, note: '平均評価 4.3' },
+        ],
+      }),
+    )
+    expect(html).toContain(
+      '<div class="bar"><span><span class="hl">論理</span> <span class="pen">得意</span></span>',
+    )
+    expect(html).toContain(
+      '<span class="v">100% · 3/3</span><span class="sub">平均評価 4.3</span></div>',
+    )
+    expect(html.match(/class="hl"/g)).toHaveLength(1)
   })
 
   it('MonthStack: 各 .col に role="img" と内訳の aria-label。0 件の系列は描かない', async () => {
@@ -681,5 +882,80 @@ describe('GET /stats（カフェ・箱）', () => {
     const visit = await (await get('/stats?view=visit', dave.cookie)).text()
     expect(visit).not.toContain('k-cafe')
     expect(visit).not.toContain('k-box')
+  })
+})
+
+describe('GET /stats（得意傾向）', () => {
+  let erin = { cookie: '', userId: '' }
+  beforeAll(async () => {
+    erin = await loginAs(env, { subject: 'stats-erin' })
+    const org = await insertOrg(env, { name: '傾向の団体' })
+    const few = await insertOrg(env, { name: '傾向の少ない団体' })
+    const w = await Promise.all(
+      [1, 2, 3, 4, 5, 6].map((n) =>
+        insertWork(env, { title: `傾向の謎${n}`, kind: 'room', orgId: n <= 5 ? org : few }),
+      ),
+    )
+    const take = await insertWork(env, { title: '傾向の持ち帰り', kind: 'takeaway', orgId: few })
+    const on = `${thisYear}-09-01`
+    // 論理 5 件（成功 4・失敗 1、物量 4）。団体は 5 件、同行者「あや」「けん」は 3 件、5 件目は再挑戦
+    const results = ['cleared', 'cleared', 'cleared', 'cleared', 'failed'] as const
+    for (const [i, status] of results.entries()) {
+      const id = await insertAttempt(env, {
+        userId: erin.userId,
+        workId: w[i],
+        status,
+        finishedOn: on,
+        volume: 4,
+        rating: i < 2 ? 4 : i === 2 ? 5 : undefined,
+        companions: i < 3 ? 'あや、けん' : undefined,
+        attemptNo: i === 4 ? 2 : 1,
+      })
+      await insertGenre(env, id, erin.userId, 'g_logic')
+    }
+    // 少ない団体は 2 件（出ない。うち 1 件は再挑戦）。完了型の記録は団体別に入らない
+    await insertAttempt(env, {
+      userId: erin.userId,
+      workId: w[5],
+      status: 'cleared',
+      finishedOn: on,
+    })
+    await insertAttempt(env, {
+      userId: erin.userId,
+      workId: w[5],
+      status: 'failed',
+      attemptNo: 2,
+      finishedOn: on,
+    })
+    await insertAttempt(env, {
+      userId: erin.userId,
+      workId: take,
+      status: 'cleared',
+      attemptNo: 2,
+      finishedOn: on,
+    })
+  })
+
+  it('?view=visit: 物量・団体・同行者・再挑戦と、ジャンルの「得意」。蛍光ペンは 2 か所', async () => {
+    const html = await (await get('/stats?view=visit', erin.cookie)).text()
+    expect(html).toContain('<b>7</b><span>成功 5 / 失敗 2 · 再挑戦 2</span>')
+    expect(html).toMatch(barOf('量 4', '80% · 4/5'))
+    expect(html).toMatch(barOf('量 1', '—'))
+    expect(html).toContain(
+      '<span><span class="hl">論理</span> <span class="pen">得意</span></span>',
+    )
+    expect(html).toContain('<span class="v">80% · 4/5</span><span class="sub">平均評価 4.3</span>')
+    expect(html).not.toContain('傾向の少ない団体')
+    expect(html).toMatch(barOf('あや', '100% · 3/3'))
+    expect(html).toMatch(barOf('けん', '100% · 3/3'))
+    expect(html.match(/class="hl[ "]/g)).toHaveLength(2)
+  })
+
+  it('記録 0 件なら団体別・同行者別は Empty、「再挑戦」「得意」は出さない', async () => {
+    const html = await (await get('/stats?view=visit', carol.cookie)).text()
+    expect(html).toContain('<b>0</b><span>成功 0 / 失敗 0</span>')
+    expect(html).not.toContain('得意')
+    expect(html).not.toContain('再挑戦')
+    expect(html.match(/まだデータがありません。/g)).toHaveLength(3)
   })
 })
