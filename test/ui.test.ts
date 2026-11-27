@@ -89,6 +89,7 @@ describe('画面ルート', () => {
   it.each([
     ['?error=denied', 'ログインがキャンセルされました。'],
     ['?error=failed', 'ログインに失敗しました。もう一度お試しください。'],
+    ['?error=busy', 'アクセスが集中しています。1 分ほど待ってからもう一度お試しください。'],
     ['?deleted=1', '退会しました。'],
   ])('/login%s はメッセージを出す', async (q, message) => {
     const html = await (await app.request(`/login${q}`, {}, env)).text()

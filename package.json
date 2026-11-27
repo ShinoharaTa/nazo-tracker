@@ -14,8 +14,9 @@
     "db:migrate:remote": "wrangler d1 migrations apply nazo-tracker --remote",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check . && npm run check:scoped",
+    "lint": "biome check . && npm run check:scoped && npm run test:check-scoped",
     "check:scoped": "node scripts/check-scoped.mjs",
+    "test:check-scoped": "node test/check-scoped-negative.mjs",
     "lint:fix": "biome check --write ."
   },
   "dependencies": {

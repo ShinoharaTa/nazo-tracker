@@ -30,6 +30,11 @@ export type Bindings = {
   LINE_CLIENT_SECRET?: string
   // "1" のときだけ部品見本 GET /_ui を有効にする
   UI_GALLERY?: string
+  // レート制限（wrangler.toml の [[ratelimits]]、docs/ops.md）。未設定なら制限しない
+  // ログイン入口（/auth/:provider と callback）。10 回 / 60 秒
+  AUTH_LIMITER?: RateLimit
+  // /api/agent/*。300 回 / 60 秒
+  AGENT_LIMITER?: RateLimit
 }
 
 export type Variables = {

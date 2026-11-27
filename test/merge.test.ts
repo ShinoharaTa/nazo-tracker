@@ -245,6 +245,61 @@ describe('作品の統合', () => {
     expect(await logsOf(b)).toHaveLength(0)
   })
 
+  it('A と B に同じ表記の別名があっても統合できる（UNIQUE(work_id, title_norm)）', async () => {
+    const a = await insertWork(env, { title: '別名重なり元' })
+    const b = await insertWork(env, { title: '別名重なり先' })
+    const dup = await insertWorkAlias(env, { workId: a, title: '重なる別題', kind: 'alt_spelling' })
+    const kept = await insertWorkAlias(env, { workId: b, title: '重なる別題', kind: 'subtitle' })
+    const moved = await insertWorkAlias(env, { workId: a, title: '移る別題', kind: 'subtitle' })
+    const res = await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)
+    expect(res.status).toBe(302)
+    expect(await row('work', a)).toMatchObject({ merged_into_id: b })
+    expect(
+      await count(
+        "SELECT COUNT(*) AS n FROM work_alias WHERE work_id = ? AND title = '重なる別題'",
+        b,
+      ),
+    ).toBe(1)
+    // B 側が残り、A 側は消えて change_log に delete。重ならない別名は B に移る
+    expect(await row('work_alias', kept)).not.toBeNull()
+    expect(await row('work_alias', dup)).toBeNull()
+    expect((await row('work_alias', moved))?.work_id).toBe(b)
+    const logs = await logsOf(dup)
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toMatchObject({ table_name: 'work_alias', action: 'delete', after_json: null })
+    expect(JSON.parse(logs[0].before_json ?? '{}')).toMatchObject({ id: dup, work_id: a })
+  })
+
+  it('確認画面の別名の件数に、統合先に同じ別名があって消える分を添える', async () => {
+    const a = await insertWork(env, { title: '件数表示の元' })
+    const b = await insertWork(env, { title: '件数表示の先' })
+    await insertWorkAlias(env, { workId: a, title: '件数の重なる別題', kind: 'alt_spelling' })
+    await insertWorkAlias(env, { workId: a, title: '件数の移る別題', kind: 'alt_spelling' })
+    await insertWorkAlias(env, { workId: b, title: '件数の重なる別題', kind: 'subtitle' })
+    const page = await (await get(`/admin/works/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).toContain('別名 2 件（うち 1 件は統合先に同じ別名があるため削除）')
+  })
+
+  it('旧題の norm が B の別名と同じで A の別名も同じなら、B 側の 1 行だけ残して統合できる', async () => {
+    const a = await insertWork(env, { title: '三つ巴の題' })
+    const b = await insertWork(env, { title: '三つ巴の先' })
+    const dup = await insertWorkAlias(env, { workId: a, title: '三つ巴の題', kind: 'alt_spelling' })
+    const kept = await insertWorkAlias(env, {
+      workId: b,
+      title: '三つ巴の題',
+      kind: 'former_title',
+    })
+    const res = await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)
+    expect(res.status).toBe(302)
+    const rows = (
+      await env.DB.prepare('SELECT id FROM work_alias WHERE work_id = ? AND title = ?')
+        .bind(b, '三つ巴の題')
+        .all<{ id: string }>()
+    ).results
+    expect(rows).toEqual([{ id: kept }])
+    expect(await row('work_alias', dup)).toBeNull()
+  })
+
   it('A と B の title_norm が同じなら旧題の別名を足さず、確認画面もそう書く', async () => {
     const a = await insertWork(env, { title: '同題の謎（再演）' })
     const b = await insertWork(env, { title: '同題の謎' })
@@ -407,6 +462,40 @@ describe('団体の統合', () => {
     const pub = await get(`/orgs/${a}`)
     expect(pub.status).toBe(302)
     expect(pub.headers.get('location')).toMatch(new RegExp(`/orgs/${b}$`))
+  })
+
+  it('A と B に同じ表記の別名があっても統合できる（UNIQUE(organization_id, name_norm)）', async () => {
+    const a = await insertOrg(env, { name: '別名重なり元団体' })
+    const b = await insertOrg(env, { name: '別名重なり先団体' })
+    const dup = await insertOrgAlias(env, { organizationId: a, name: '重なる旧称', kind: 'label' })
+    const kept = await insertOrgAlias(env, {
+      organizationId: b,
+      name: '重なる旧称',
+      kind: 'former_name',
+    })
+    const res = await post(`/admin/orgs/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)
+    expect(res.status).toBe(302)
+    expect(await row('organization', a)).toMatchObject({ merged_into_id: b })
+    expect(
+      await count(
+        "SELECT COUNT(*) AS n FROM organization_alias WHERE organization_id = ? AND name = '重なる旧称'",
+        b,
+      ),
+    ).toBe(1)
+    expect(await row('organization_alias', kept)).not.toBeNull()
+    expect(await row('organization_alias', dup)).toBeNull()
+    const logs = await logsOf(dup)
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toMatchObject({ table_name: 'organization_alias', action: 'delete' })
+  })
+
+  it('確認画面の別名の件数に、統合先に同じ別名があって消える分を添える（団体）', async () => {
+    const a = await insertOrg(env, { name: '件数表示の元団体' })
+    const b = await insertOrg(env, { name: '件数表示の先団体' })
+    await insertOrgAlias(env, { organizationId: a, name: '件数の重なる旧称', kind: 'label' })
+    await insertOrgAlias(env, { organizationId: b, name: '件数の重なる旧称', kind: 'label' })
+    const page = await (await get(`/admin/orgs/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).toContain('別名 1 件（うち 1 件は統合先に同じ別名があるため削除）')
   })
 
   it('A と B の name_norm が同じなら former_name を足さず、確認画面もそう書く', async () => {

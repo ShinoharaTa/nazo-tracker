@@ -8,13 +8,23 @@ import { findOAuthProvider } from '../auth/providers/types'
 import { clearSessionCookie, type SessionUser } from '../auth/session'
 import type { Db } from '../db/client'
 import { countsFor, type WorkCounts } from '../db/counts'
+import { friendCounts } from '../db/friends'
 import { getOrg, getVenue, getWork, listGenres, listWorks, type WorkListItem } from '../db/master'
 import { countPendingProposals } from '../db/proposals'
 import { countRequests } from '../db/requests'
-import { scopedTo } from '../db/scoped'
+import { EXPORT_PART, EXPORT_WISHLIST_LIMIT, type OwnRepo, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
-import { computeStats, defaultView } from '../lib/stats'
-import { todayJst } from '../lib/time'
+import {
+  attemptsCsv,
+  buildExportJson,
+  exportFilename,
+  parsePart,
+  partsOf,
+  sessionsCsv,
+  wishlistCsv,
+} from '../lib/export'
+import { computeStats, defaultView, wishlistOldestDays } from '../lib/stats'
+import { nowIso, todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
 import { Document, Layout } from '../ui/Layout'
 import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
@@ -289,20 +299,27 @@ const toStatsYear = (v: string | undefined, thisYear: number): number => {
 ui.get('/stats', async (c) => {
   const db = c.get('db')
   const own = scopedTo(db, currentUser(c).id).own()
-  const thisYear = Number(todayJst().slice(0, 4))
+  const today = todayJst()
+  const thisYear = Number(today.slice(0, 4))
   const year = toStatsYear(c.req.query('year'), thisYear)
   const [{ rows, genres, capped }, wishlist] = await Promise.all([
     own.statsRows(),
     own.wishlistSummary(),
   ])
-  // ラベルは並び順（同率・同数ならラベル順）にも使うので集計の前に引く。archived のジャンルも出す
-  const genreRows = await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
+  // view が visit / done / all 以外（無し・不正値）ならデータ次第で決める。集計はその見方の分だけ
+  const v = c.req.query('view')
+  const view = v === 'visit' || v === 'done' || v === 'all' ? v : defaultView(rows)
+  // ラベルは並び順（同率・同数ならラベル順）にも使うので集計の前に引く。archived のジャンルも出す。
+  // ジャンル別は来場型の見方にしか無いので、それ以外では引かない
+  const genreRows =
+    view === 'visit'
+      ? await listGenres(db, { includeIds: [...new Set(genres.map((g) => g.genreId))] })
+      : []
   const stats = computeStats(rows, genres, new Map(genreRows.map((g) => [g.id, g.label])), {
     year,
+    today,
+    view,
   })
-  // view が visit / done 以外（無し・不正値）ならデータ次第で決める
-  const v = c.req.query('view')
-  const view = v === 'visit' || v === 'done' ? v : defaultView(stats)
   c.header('Cache-Control', 'private, no-store')
   return c.html(
     <Layout
@@ -312,12 +329,15 @@ ui.get('/stats', async (c) => {
       left={
         <StatsPage
           stats={stats}
-          view={view}
           year={year}
           thisYear={thisYear}
           minYear={STATS_MIN_YEAR}
           capped={capped}
-          wishlist={wishlist}
+          wishlist={{
+            total: wishlist.total,
+            played: wishlist.played,
+            oldestDays: wishlistOldestDays(wishlist.oldestCreatedAt, today),
+          }}
         />
       }
     />,
@@ -329,20 +349,26 @@ const linkNote = (linked: Set<string>, provider: string) =>
 
 // 設定一覧（左ページ）の中身。linked は連携済みの provider 名。displayName は DB の現在値（表示名フォーム用）
 // openRequests / pendingProposals はオーナーのときだけ（未選別のリクエスト・承認待ちの提案の件数）
-type SettingsState = {
+// friendCode は招待コード（NULL で招待停止。フレンド画面 src/routes/friends.tsx が使う）
+// friends / incomingRequests はフレンドの人数と届いた申請の件数（「フレンド」の note）
+export type SettingsState = {
   linked: Set<string>
   excludeFromCounts: boolean
   displayName: string
+  friendCode: string | null
+  friends: number
+  incomingRequests: number
   openRequests: number | null
   pendingProposals: number | null
 }
 
-const settingsState = async (db: Db, user: SessionUser): Promise<SettingsState> => {
+export const settingsState = async (db: Db, user: SessionUser): Promise<SettingsState> => {
   const own = scopedTo(db, user.id).own()
   const owner = user.role === 'owner'
-  const [linked, profile, openRequests, pendingProposals] = await Promise.all([
+  const [linked, profile, friend, openRequests, pendingProposals] = await Promise.all([
     own.linkedProviders(),
     own.profile(),
+    friendCounts(db, user.id),
     owner ? countRequests(db, 'open') : null,
     owner ? countPendingProposals(db) : null,
   ])
@@ -350,15 +376,18 @@ const settingsState = async (db: Db, user: SessionUser): Promise<SettingsState> 
     linked,
     excludeFromCounts: profile.excludeFromCounts,
     displayName: profile.displayName,
+    friendCode: profile.friendCode,
+    friends: friend.friends,
+    incomingRequests: friend.incoming,
     openRequests,
     pendingProposals,
   }
 }
 
 // 設定一覧（左ページ）
-const SettingsList = ({
+export const SettingsList = ({
   user,
-  state: { linked, excludeFromCounts, openRequests, pendingProposals },
+  state: { linked, excludeFromCounts, friends, incomingRequests, openRequests, pendingProposals },
 }: {
   user: SessionUser
   state: SettingsState
@@ -385,8 +414,13 @@ const SettingsList = ({
     <div class="sect">
       <h2>フレンド</h2>
       <Menu>
-        <MenuItem label="フレンド" note="P8 で実装" disabled />
-        <MenuItem label="招待リンクをコピー" note="P8 で実装" disabled />
+        <MenuItem
+          label="フレンド"
+          note={
+            incomingRequests > 0 ? `${friends} 人・申請 ${incomingRequests} 件` : `${friends} 人`
+          }
+          href="/settings/friends"
+        />
       </Menu>
       <p class="note">
         フレンドに見えるのは、作品名・ステータス・日付だけです。メモやネタバレは見えません。
@@ -400,7 +434,7 @@ const SettingsList = ({
           note={excludeFromCounts ? '含めない' : '含める'}
           href="/settings/counts"
         />
-        <MenuItem label="自分のデータをエクスポート" note="P7 で実装" disabled />
+        <MenuItem label="自分のデータをエクスポート" href="/settings/export" />
       </Menu>
     </div>
     <div class="sect">
@@ -431,6 +465,11 @@ const SettingsList = ({
     <div class="sect">
       <Menu>
         <MenuItem label="ログアウト" action="/auth/logout" />
+        <MenuItem
+          label="すべての端末からログアウト"
+          note="ほかのスマホや PC でのログインもすべて切れます。"
+          action="/auth/logout/all"
+        />
         <MenuItem label="退会" href="/settings/delete" />
       </Menu>
     </div>
@@ -569,6 +608,189 @@ ui.post('/settings/counts', async (c) => {
   return c.redirect('/settings', 302)
 })
 
+// 自分のデータのエクスポート（右ページ）。ネタバレメモは GET フォームで spoiler=1 を付けて出し直し、リンクに引き継ぐ
+const ExportForm = (props: {
+  counts: { attempts: number; sessions: number; wishlist: number }
+  parts: number
+  spoiler: boolean
+}) => {
+  const q = props.spoiler ? '&spoiler=1' : ''
+  const parts = Array.from({ length: props.parts }, (_, i) => i + 1)
+  return (
+    <>
+      <TopBar back="/settings" label="エクスポート" />
+      <div class="sect" style="margin-top:4px">
+        <h2>件数</h2>
+        <Menu>
+          <MenuItem label="記録" note={`${props.counts.attempts} 件`} />
+          <MenuItem label="進行ログ" note={`${props.counts.sessions} 件`} />
+          <MenuItem
+            label="マイリスト"
+            note={
+              props.counts.wishlist > EXPORT_WISHLIST_LIMIT
+                ? `${props.counts.wishlist} 件（先頭 ${EXPORT_WISHLIST_LIMIT} 件まで）`
+                : `${props.counts.wishlist} 件`
+            }
+          />
+        </Menu>
+      </div>
+      <form method="get" action="/settings/export" class="sect">
+        <h2>ネタバレメモ</h2>
+        <label>
+          <input type="checkbox" name="spoiler" value="1" checked={props.spoiler} />{' '}
+          ネタバレメモを含める
+        </label>
+        <p class="note">人に渡すファイルには入れないでください。</p>
+        <button type="submit" class="btn">
+          反映
+        </button>
+      </form>
+      <div class="sect">
+        <h2>JSON</h2>
+        <Menu>
+          {parts.map((p) => (
+            <MenuItem
+              label={`JSON ${p}/${props.parts}`}
+              note={props.spoiler ? 'ネタバレメモあり' : undefined}
+              href={`/settings/export/data.json?part=${p}${q}`}
+            />
+          ))}
+        </Menu>
+        <p class="note">
+          1 ファイルに記録 {EXPORT_PART} 件ずつ入ります。マイリストは 1 つ目のファイルに入ります。
+        </p>
+      </div>
+      <div class="sect">
+        <h2>CSV</h2>
+        <Menu>
+          {parts.map((p) => (
+            <MenuItem
+              label={`記録 ${p}/${props.parts}`}
+              note={props.spoiler ? 'ネタバレメモあり' : undefined}
+              href={`/settings/export/attempts.csv?part=${p}${q}`}
+            />
+          ))}
+          {parts.map((p) => (
+            <MenuItem
+              label={`進行ログ ${p}/${props.parts}`}
+              href={`/settings/export/sessions.csv?part=${p}`}
+            />
+          ))}
+          <MenuItem label="マイリスト" href="/settings/export/wishlist.csv" />
+        </Menu>
+        <p class="note">進行ログは、同じ番号の記録のファイルに入っている記録の分です。</p>
+        <p class="note">
+          = + - @ で始まるセルは、表計算ソフトで数式として動かないよう先頭に '
+          を付けています。元のままの値が要るときは JSON を使ってください。
+        </p>
+      </div>
+    </>
+  )
+}
+
+ui.get('/settings/export', async (c) => {
+  const user = currentUser(c)
+  const db = c.get('db')
+  const spoiler = c.req.query('spoiler') === '1'
+  const [state, counts] = await Promise.all([
+    settingsState(db, user),
+    scopedTo(db, user.id).own().exportCounts(),
+  ])
+  return c.html(
+    <Layout
+      title="エクスポート"
+      tab="settings"
+      left={<SettingsList user={user} state={state} />}
+      right={
+        <ExportForm
+          counts={counts}
+          parts={partsOf(counts.attempts, EXPORT_PART)}
+          spoiler={spoiler}
+        />
+      }
+    />,
+  )
+})
+
+// ?part=N を記録の件数で検査する。part は 1 始まり。整数でない・範囲外は null（呼び出し側が 404）
+const exportPartOf = async (c: Context<AppEnv>, own: OwnRepo) => {
+  const counts = await own.exportCounts()
+  const parts = partsOf(counts.attempts, EXPORT_PART)
+  const part = parsePart(c.req.query('part'), parts)
+  return part === null ? null : { part, parts }
+}
+
+const exportHeaders = (contentType: string, filename: string) => ({
+  'Content-Type': contentType,
+  'Cache-Control': 'private, no-store',
+  'X-Robots-Tag': 'noindex',
+  'Content-Disposition': `attachment; filename="${filename}"`,
+})
+
+const CSV_TYPE = 'text/csv; charset=utf-8'
+
+// wishlist は part 1 だけ
+ui.get('/settings/export/data.json', async (c) => {
+  const user = currentUser(c)
+  const own = scopedTo(c.get('db'), user.id).own()
+  const spoiler = c.req.query('spoiler') === '1'
+  const p = await exportPartOf(c, own)
+  if (p === null) return c.notFound()
+  const { part, parts } = p
+  const [attempts, wishlist] = await Promise.all([
+    own.exportPart(part, { spoiler }),
+    part === 1 ? own.exportWishlist() : null,
+  ])
+  const body = buildExportJson({ exportedAt: nowIso(), part, parts, spoiler, attempts, wishlist })
+  return c.body(
+    body,
+    200,
+    exportHeaders(
+      'application/json; charset=utf-8',
+      exportFilename('data', todayJst(), part, 'json'),
+    ),
+  )
+})
+
+ui.get('/settings/export/attempts.csv', async (c) => {
+  const user = currentUser(c)
+  const own = scopedTo(c.get('db'), user.id).own()
+  const spoiler = c.req.query('spoiler') === '1'
+  const p = await exportPartOf(c, own)
+  if (p === null) return c.notFound()
+  const attempts = await own.exportPart(p.part, { spoiler })
+  return c.body(
+    attemptsCsv(attempts, spoiler),
+    200,
+    exportHeaders(CSV_TYPE, exportFilename('attempts', todayJst(), p.part, 'csv')),
+  )
+})
+
+// part N の記録に属する進行ログ（attempts.csv と同じ区切り）。ネタバレは持たないので spoiler は見ない
+ui.get('/settings/export/sessions.csv', async (c) => {
+  const user = currentUser(c)
+  const own = scopedTo(c.get('db'), user.id).own()
+  const p = await exportPartOf(c, own)
+  if (p === null) return c.notFound()
+  const attempts = await own.exportPart(p.part, { spoiler: false })
+  return c.body(
+    sessionsCsv(attempts),
+    200,
+    exportHeaders(CSV_TYPE, exportFilename('sessions', todayJst(), p.part, 'csv')),
+  )
+})
+
+// マイリスト全件（EXPORT_WISHLIST_LIMIT まで）。part は無いのでファイル名は p1
+ui.get('/settings/export/wishlist.csv', async (c) => {
+  const user = currentUser(c)
+  const { items } = await scopedTo(c.get('db'), user.id).own().exportWishlist()
+  return c.body(
+    wishlistCsv(items),
+    200,
+    exportHeaders(CSV_TYPE, exportFilename('wishlist', todayJst(), 1, 'csv')),
+  )
+})
+
 // 退会の確認（右ページ）。オーナーは退会できない（ロックアウト防止）
 const DeleteAccount = ({ user, error }: { user: SessionUser; error?: string }) => (
   <>
@@ -641,6 +863,8 @@ const loginMessage = (error: string | undefined, deleted: string | undefined): s
   if (deleted === '1') return '退会しました。'
   if (error === 'denied') return 'ログインがキャンセルされました。'
   if (error === 'failed') return 'ログインに失敗しました。もう一度お試しください。'
+  if (error === 'busy')
+    return 'アクセスが集中しています。1 分ほど待ってからもう一度お試しください。'
   return null
 }
 

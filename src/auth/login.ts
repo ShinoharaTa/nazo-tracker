@@ -2,11 +2,13 @@
 
 import { and, eq, lt } from 'drizzle-orm'
 import type { Context } from 'hono'
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { identity, oauthState, sessionToken, user } from '../db/schema'
 import type { AppEnv } from '../env'
 import { ulid } from '../lib/id'
+import { FRIEND_CODE_RE } from '../lib/random'
 import { nowIso } from '../lib/time'
-import { createSession, deleteSession, writeSessionCookie } from './session'
+import { cookieOptions, createSession, deleteSession, writeSessionCookie } from './session'
 
 // identity.provider に CHECK は付けず、コード側で縛る
 export type Provider = 'dev' | 'google' | 'discord' | 'line'
@@ -92,6 +94,24 @@ export const loginWithIdentity = async (
   return { userId, isNew }
 }
 
-// 新規ユーザーは表示名の設定へ（強制はしない）
-export const redirectAfterLogin = (c: Context<AppEnv>, isNew: boolean) =>
-  c.redirect(isNew ? '/settings/name?welcome=1' : '/records', 302)
+// ログイン後の戻り先。受け付けるのは招待リンク /f/<code> だけ（オープンリダイレクトを作らない）
+const AFTER_LOGIN_COOKIE = 'after_login'
+const AFTER_LOGIN_SECONDS = 600
+
+const isInvitePath = (v: string | undefined): v is string =>
+  !!v && v.startsWith('/f/') && FRIEND_CODE_RE.test(v.slice(3))
+
+// 未ログインで招待リンクを開いたときに置く。path は書式どおりのときだけ受け付ける
+export const rememberInvitePath = (c: Context<AppEnv>, path: string) => {
+  if (!isInvitePath(path)) return
+  setCookie(c, AFTER_LOGIN_COOKIE, path, { ...cookieOptions(c), maxAge: AFTER_LOGIN_SECONDS })
+}
+
+// after_login が招待リンクの書式に完全一致するときだけそこへ（新規ユーザーも同じ）。読んだら必ず消す。
+// それ以外は、新規ユーザーは表示名の設定へ（強制はしない）、既存は記録へ
+export const redirectAfterLogin = (c: Context<AppEnv>, isNew: boolean) => {
+  const back = getCookie(c, AFTER_LOGIN_COOKIE)
+  if (back !== undefined) deleteCookie(c, AFTER_LOGIN_COOKIE, cookieOptions(c))
+  if (isInvitePath(back)) return c.redirect(back, 302)
+  return c.redirect(isNew ? '/settings/name?welcome=1' : '/records', 302)
+}

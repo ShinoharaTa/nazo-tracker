@@ -22,7 +22,7 @@ export const SESSION_DAYS = 30
 // 残りがこれ未満になったら SESSION_DAYS 延長する
 export const SESSION_SLIDE_DAYS = 15
 
-const cookieOptions = (c: Context<AppEnv>): CookieOptions => ({
+export const cookieOptions = (c: Context<AppEnv>): CookieOptions => ({
   path: '/',
   httpOnly: true,
   sameSite: 'Lax',
@@ -71,6 +71,11 @@ export const createSession = async (
 
 export const deleteSession = async (db: Db, id: string) => {
   await db.delete(sessionToken).where(eq(sessionToken.id, id))
+}
+
+// すべての端末からログアウト。その user の session_token を全部消す
+export const deleteUserSessions = async (db: Db, userId: string) => {
+  await db.delete(sessionToken).where(eq(sessionToken.userId, userId))
 }
 
 // session_token JOIN user の 1 クエリ

@@ -3,10 +3,12 @@
 
 import { type Context, Hono } from 'hono'
 import { currentUser, requireUser } from '../auth/middleware'
+import type { SessionUser } from '../auth/session'
+import type { Db } from '../db/client'
 import { appliedWorkOfRequest, rejectedOnlyRequests } from '../db/proposals'
 import {
   countRecentRequests,
-  createRequest,
+  createRequestIfAllowed,
   getOwnRequest,
   hasOpenRequestWithUrl,
   listOwnRequests,
@@ -30,6 +32,23 @@ import { NotFound, toPage } from './ui'
 
 // 直近 24 時間に作れる件数（オーナーは対象外）
 const DAILY_LIMIT = 20
+
+const LIMIT_MESSAGE = 'リクエストは 1 日 20 件までです。時間をおいてからお願いします。'
+
+// 上限・重複に当たっていれば文言。当たっていなければ null
+const requestLimitError = async (
+  db: Db,
+  user: SessionUser,
+  url: string | undefined,
+): Promise<string | null> => {
+  if (user.role !== 'owner' && (await countRecentRequests(db, user.id)) >= DAILY_LIMIT) {
+    return LIMIT_MESSAGE
+  }
+  if (url && (await hasOpenRequestWithUrl(db, user.id, url))) {
+    return '同じ URL のリクエストを受け付けています。'
+  }
+  return null
+}
 
 const requests = new Hono<AppEnv>({ strict: false })
 
@@ -140,19 +159,21 @@ requests.post('/', async (c) => {
   const target = await liveTarget(c, f)
   const v = parseRequest(f, { targetId: target?.id ?? null })
   if (!v.ok) return c.html(await newPage(c, f, target, v.errors), 400)
-  if (user.role !== 'owner' && (await countRecentRequests(db, user.id)) >= DAILY_LIMIT) {
-    return c.html(
-      await newPage(c, f, target, [
-        'リクエストは 1 日 20 件までです。時間をおいてからお願いします。',
-      ]),
-      400,
-    )
+  // 事前チェックは文言を出し分けるため。最終判定は条件付き INSERT（同時に送られても上限・重複を超えない）
+  const limitError = await requestLimitError(db, user, v.value.payload.url)
+  if (limitError) return c.html(await newPage(c, f, target, [limitError]), 400)
+  const id = await createRequestIfAllowed(
+    db,
+    user.id,
+    v.value.kind,
+    v.value.payload,
+    user.role === 'owner' ? null : DAILY_LIMIT,
+  )
+  if (!id) {
+    // 事前チェックと INSERT の間に他の送信が入った。もう一度見て該当する文言を出す
+    const err = (await requestLimitError(db, user, v.value.payload.url)) ?? LIMIT_MESSAGE
+    return c.html(await newPage(c, f, target, [err]), 400)
   }
-  const url = v.value.payload.url
-  if (url && (await hasOpenRequestWithUrl(db, user.id, url))) {
-    return c.html(await newPage(c, f, target, ['同じ URL のリクエストを受け付けています。']), 400)
-  }
-  const id = await createRequest(db, user.id, v.value.kind, v.value.payload)
   return c.redirect(`/requests/${id}?created=1`, 302)
 })
 

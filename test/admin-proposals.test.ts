@@ -8,7 +8,7 @@ import app from '../src/index'
 import { ulid } from '../src/lib/id'
 import { approvalChoiceOf, buildApproval } from '../src/pipeline/apply'
 import { loginAs, ORIGIN } from './helpers/auth'
-import { insertOrg, insertWork } from './helpers/master'
+import { insertOrg, insertOrgAlias, insertWork, insertWorkAlias } from './helpers/master'
 
 let token = ''
 let owner = { cookie: '', userId: '' }
@@ -381,6 +381,76 @@ describe('update / merge', () => {
     expect(
       await count(
         "SELECT COUNT(*) AS n FROM change_log WHERE proposal_id = ? AND table_name = 'work' AND action = 'merge' AND actor_user_id = ?",
+        id,
+        owner.userId,
+      ),
+    ).toBe(1)
+  })
+
+  it('merge 提案の承認で A と B の別名が重なっても成功し、A 側は delete として記録される', async () => {
+    const b = await insertWork(env, { title: `別名重なり先 ${uniq()}` })
+    const a = await insertWork(env, { title: `別名重なり元 ${uniq()}` })
+    const aliasTitle = `重なる別名 ${uniq()}`
+    const dup = await insertWorkAlias(env, { workId: a, title: aliasTitle, kind: 'alt_spelling' })
+    await insertWorkAlias(env, { workId: b, title: aliasTitle, kind: 'subtitle' })
+    const id = await propose({
+      kind: 'merge',
+      target_table: 'work',
+      target_id: a,
+      fields: [f('work.merged_into_id', b)],
+    })
+    expect((await approve(id)).status).toBe(302)
+    expect(
+      await env.DB.prepare('SELECT merged_into_id FROM work WHERE id = ?')
+        .bind(a)
+        .first('merged_into_id'),
+    ).toBe(b)
+    expect(
+      await count(
+        'SELECT COUNT(*) AS n FROM work_alias WHERE work_id = ? AND title = ?',
+        b,
+        aliasTitle,
+      ),
+    ).toBe(1)
+    expect(
+      await count(
+        "SELECT COUNT(*) AS n FROM change_log WHERE row_id = ? AND table_name = 'work_alias' AND action = 'delete' AND proposal_id = ? AND actor_user_id = ?",
+        dup,
+        id,
+        owner.userId,
+      ),
+    ).toBe(1)
+  })
+
+  it('団体の merge 提案の承認でも A と B の別名が重なって成功する', async () => {
+    const b = await insertOrg(env, { name: `別名重なり先団体 ${uniq()}` })
+    const a = await insertOrg(env, { name: `別名重なり元団体 ${uniq()}` })
+    const aliasName = `重なる団体別名 ${uniq()}`
+    const dup = await insertOrgAlias(env, { organizationId: a, name: aliasName, kind: 'label' })
+    await insertOrgAlias(env, { organizationId: b, name: aliasName, kind: 'former_name' })
+    const id = await propose({
+      kind: 'merge',
+      target_table: 'organization',
+      target_id: a,
+      fields: [f('organization.merged_into_id', b)],
+    })
+    expect((await approve(id)).status).toBe(302)
+    expect(
+      await env.DB.prepare('SELECT merged_into_id FROM organization WHERE id = ?')
+        .bind(a)
+        .first('merged_into_id'),
+    ).toBe(b)
+    expect(
+      await count(
+        'SELECT COUNT(*) AS n FROM organization_alias WHERE organization_id = ? AND name = ?',
+        b,
+        aliasName,
+      ),
+    ).toBe(1)
+    expect(
+      await count(
+        "SELECT COUNT(*) AS n FROM change_log WHERE row_id = ? AND table_name = 'organization_alias' AND action = 'delete' AND proposal_id = ? AND actor_user_id = ?",
+        dup,
         id,
         owner.userId,
       ),

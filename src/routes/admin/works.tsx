@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono'
 import {
+  ALIAS_TAKEN,
   emptyForm,
   type Form,
   formOf,
@@ -25,6 +26,7 @@ import {
 import { createWork, createWorkAlias, deleteWorkAlias, updateWork } from '../../db/master-write'
 import { findCandidates } from '../../db/match'
 import type { AppEnv } from '../../env'
+import { isUniqueViolation } from '../../lib/db-error'
 import { type Candidate, SIMILAR_MIN } from '../../lib/match'
 import { norm } from '../../lib/norm'
 import {
@@ -189,11 +191,17 @@ works.post('/works/:id/aliases', async (c) => {
   if (!w) return c.html(notFound(), 404)
   if (w.row.mergedIntoId) return c.html(mergedPage(w.mergedInto), 400)
   const form = formOf(await c.req.parseBody(), workAliasFields)
-  const v = validateWorkAlias(form)
+  const v = await validateWorkAlias(db, form, w.row.id)
   if (!v.ok) {
     return c.html(await editPage(db, { ...w, aliasValues: form, aliasErrors: v.errors }), 400)
   }
-  await createWorkAlias(db, w.row.id, v.value, { actor: { userId: currentUser(c).id } })
+  try {
+    await createWorkAlias(db, w.row.id, v.value, { actor: { userId: currentUser(c).id } })
+  } catch (e) {
+    // 検証から書き込みまでの間に同じ別名が入った（二度押しなど）
+    if (!isUniqueViolation(e)) throw e
+    return c.html(await editPage(db, { ...w, aliasValues: form, aliasErrors: [ALIAS_TAKEN] }), 400)
+  }
   return c.redirect(`/admin/works/${w.row.id}`, 302)
 })
 

@@ -8,6 +8,7 @@ import apiAdmin from './routes/api-admin'
 import apiAgent from './routes/api-agent'
 import auth from './routes/auth'
 import dev from './routes/dev'
+import friends from './routes/friends'
 import gallery from './routes/gallery'
 import records from './routes/records'
 import requests from './routes/requests'
@@ -44,6 +45,8 @@ app.route('/admin', admin)
 app.route('/api/admin', apiAdmin)
 app.route('/records', records)
 app.route('/requests', requests)
+// /settings/friends を ui の /settings/* より先に解決させる
+app.route('/', friends)
 app.route('/', ui)
 
 export default app
