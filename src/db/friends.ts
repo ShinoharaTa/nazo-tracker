@@ -377,3 +377,81 @@ export const removeFriend = async (db: Db, viewerId: string, userId: string): Pr
   )
   return rows.length > 0
 }
+
+// ブロックする（1 回の batch）。相手は「今のフレンド」か「自分に有効な pending を送ってきた人」だけで、
+// 条件は block の INSERT ... SELECT に入れる。block 行がある（今入れた・前からある）ときだけ、
+// friendship を消し、両方向の pending / declined を canceled にする。ブロックできなければ false（呼び出し側で 404）。
+// 相手には知らせない（相手からは退会したときと同じ見え方。このファイルの一覧・判定は noBlock で外す）
+const blockTarget = async (db: Db, viewerId: string, target: string): Promise<boolean> => {
+  const now = nowIso()
+  const expire = addDays(now, -REQUEST_EXPIRE_DAYS)
+  const blocked = sql`EXISTS (SELECT 1 FROM block b
+    WHERE b.user_id = ${viewerId} AND b.blocked_user_id = ${target})`
+  const [, inserted, existing] = await db.$client.batch<{ blocked_user_id?: string; ok?: number }>([
+    stmt(db, expirePending(viewerId, now)),
+    stmt(
+      db,
+      sql`INSERT OR IGNORE INTO block (user_id, blocked_user_id, created_at)
+          SELECT ${viewerId}, u.id, ${now} FROM user u
+          WHERE u.id = ${target} AND u.id <> ${viewerId} AND u.deleted_at IS NULL
+            AND (${isFriend(viewerId)}
+              OR EXISTS (SELECT 1 FROM friend_request r
+                WHERE r.from_user_id = u.id AND r.to_user_id = ${viewerId}
+                  AND r.status = 'pending' AND r.created_at > ${expire}))
+          RETURNING blocked_user_id`,
+    ),
+    stmt(db, sql`SELECT 1 AS ok WHERE ${blocked}`),
+    stmt(
+      db,
+      sql`DELETE FROM friendship
+          WHERE ${blocked}
+            AND ((user_lo = ${viewerId} AND user_hi = ${target})
+              OR (user_lo = ${target} AND user_hi = ${viewerId}))`,
+    ),
+    stmt(
+      db,
+      sql`UPDATE friend_request SET status = 'canceled', responded_at = ${now}
+          WHERE ${blocked} AND status IN ('pending', 'declined')
+            AND ((from_user_id = ${viewerId} AND to_user_id = ${target})
+              OR (from_user_id = ${target} AND to_user_id = ${viewerId}))`,
+    ),
+  ])
+  return inserted.results.length > 0 || existing.results.length > 0
+}
+
+// 届いた申請の送り主をブロックする（自分宛ての有効な pending の id）
+export const blockRequester = async (
+  db: Db,
+  viewerId: string,
+  requestId: string,
+): Promise<boolean> => {
+  const row = await db.get<{ from_user_id: string }>(
+    sql`SELECT from_user_id FROM friend_request
+      WHERE id = ${requestId} AND to_user_id = ${viewerId} AND status = 'pending'
+        AND created_at > ${addDays(nowIso(), -REQUEST_EXPIRE_DAYS)}`,
+  )
+  return row ? blockTarget(db, viewerId, row.from_user_id) : false
+}
+
+// フレンドをブロックする
+export const blockFriend = (db: Db, viewerId: string, userId: string): Promise<boolean> =>
+  blockTarget(db, viewerId, userId)
+
+// ブロック解除（自分の block 行を消すだけ。friendship は戻らない）。行が無ければ false（呼び出し側で 404）
+export const unblock = async (db: Db, viewerId: string, userId: string): Promise<boolean> => {
+  const rows = await db.all<{ blocked_user_id: string }>(
+    sql`DELETE FROM block WHERE user_id = ${viewerId} AND blocked_user_id = ${userId}
+      RETURNING blocked_user_id`,
+  )
+  return rows.length > 0
+}
+
+// 自分がブロック中の相手。表示名の昇順（退会した相手は退会処理で行ごと消える）
+export const listBlocked = async (db: Db, viewerId: string): Promise<FriendPerson[]> => {
+  const rows = await db.all<{ id: string; display_name: string }>(
+    sql`SELECT u.id, u.display_name FROM block b JOIN user u ON u.id = b.blocked_user_id
+      WHERE b.user_id = ${viewerId} AND u.deleted_at IS NULL
+      ORDER BY u.display_name, u.id`,
+  )
+  return rows.map((r) => ({ userId: r.id, displayName: r.display_name }))
+}
