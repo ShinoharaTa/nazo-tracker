@@ -6,10 +6,22 @@ import { ng, ok, type Parser, url } from './form'
 import { hasUserinfo } from './match'
 import { isEscapeIdMyPage, isXHost } from './url'
 
-// 画像の URL に使えるホスト。dropQuery: 保存時に query を落とす（縮小版の指定 ?t= は表示側で付ける）
-export const IMAGE_HOSTS: readonly { host: string; dropQuery: boolean }[] = [
-  { host: 'static.escape.id', dropQuery: true },
+// 画像の URL に使えるホスト。dropQuery: 保存時に query を落とす（縮小版の指定 ?t= は表示側で付ける）。
+// thumb: パスが pathPrefix で始まるとき、表示の大きさごとに query をこの値にする（それ以外のパスはそのまま。dropQuery のホストにだけ置く）
+export const IMAGE_HOSTS: readonly {
+  host: string
+  dropQuery: boolean
+  thumb?: { pathPrefix: string } & Record<ImageSize, string>
+}[] = [
+  {
+    host: 'static.escape.id',
+    dropQuery: true,
+    thumb: { pathPrefix: '/i/', list: 't=sm', detail: 't=md' },
+  },
 ]
+
+// list: 作品一覧の stub、detail: 作品詳細・団体詳細
+export type ImageSize = 'list' | 'detail'
 
 const hostOf = (u: URL) => u.hostname.replace(/\.+$/, '').toLowerCase()
 
@@ -51,3 +63,35 @@ export const imagePageUrl = (): Parser<string> => (raw) => {
   u.hash = ''
   return ok(u.href)
 }
+
+// 表示の判定に使う DB の値。blocked は行の image_blocked、orgBlocked は作品の主団体の image_blocked（団体のロゴ・主団体なしは null）
+export type ImageSource = {
+  url: string | null
+  pageUrl: string | null
+  blocked: number
+  orgBlocked: number | null
+}
+
+export type ShownImage = { src: string; pageUrl: string; pageHost: string }
+
+// 画像を出すかの判定（ここ 1 か所）。enabled は MASTER_IMAGES === '1'。
+// 全体スイッチ OFF・URL が NULL・今の検証（IMAGE_HOSTS を含む）に通らない・行か主団体の image_blocked が 0 以外なら null
+// （0 / 1 以外の値も止める側に倒す。主団体なしは orgBlocked が null で、出す）。
+// 取得元のページと組でしか出さないので、image_page_url / logo_page_url が NULL・検証に通らないときも null
+export const shownImage = (
+  enabled: boolean,
+  s: ImageSource,
+  size: ImageSize,
+): ShownImage | null => {
+  if (!enabled || s.blocked !== 0 || (s.orgBlocked !== null && s.orgBlocked !== 0)) return null
+  if (s.url === null || s.pageUrl === null) return null
+  const img = imageUrl()(s.url)
+  const page = imagePageUrl()(s.pageUrl)
+  if (!img.ok || !page.ok) return null
+  const u = new URL(img.value)
+  const thumb = IMAGE_HOSTS.find((h) => h.host === u.hostname)?.thumb
+  if (thumb && u.pathname.startsWith(thumb.pathPrefix)) u.search = thumb[size]
+  return { src: u.href, pageUrl: page.value, pageHost: hostOf(new URL(page.value)) }
+}
+
+export const masterImagesOn = (v: string | undefined): boolean => v === '1'

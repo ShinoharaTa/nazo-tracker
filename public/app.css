@@ -1524,6 +1524,67 @@ a.meta,
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
+/* マスタの画像（作品の画像・団体のロゴ。design.md §3.4.2）: 手帳に貼った紙片。切り抜かない・加工しない（contain）。
+   読み込みに失敗したら app.js が data-mimg の箱ごと hidden にする */
+.mimg {
+  display: block;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+}
+.mimg img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.mimg[hidden],
+.mimg-wrap[hidden] {
+  display: none;
+}
+/* 一覧の stub の上段（左右 4px あけて 36px）。下の「形式 / エリア」2 行はそのまま。行の高さ 88px は変えない */
+.stub .mimg.thumb {
+  width: calc(100% - 8px);
+  height: 36px;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
+/* 作品詳細: カードの先頭に横幅いっぱい、16:9（高さの上限 220px） */
+.mimg-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.mimg.wide {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 220px;
+}
+/* 詳細とロゴは白い台紙に貼る（padding は box-sizing: border-box の内側。16:9・上限 220px は台紙ごとの寸法） */
+.mimg.wide,
+.mimg.logo {
+  padding: 6px;
+  background: var(--surface);
+  box-shadow: 2px 2px 0 var(--surface2);
+}
+/* 団体詳細: 画像の高さ 48px、幅は成り行き（上限 200px） */
+.mimg.logo img {
+  width: auto;
+  max-width: 200px;
+  height: 48px;
+}
+/* 出典行: 左に取得元、右に「掲載について」 */
+.mcap-row {
+  display: flex;
+  justify-content: space-between;
+  align-self: stretch;
+  gap: 12px;
+}
+.card a.mcap {
+  font-size: 12px;
+  color: var(--muted);
+  padding-block: 6px;
+}
 /* 結果の行の短い注記（回数・日目）。リンクと紛れないよう黒のまま */
 .pen {
   font-weight: 500;

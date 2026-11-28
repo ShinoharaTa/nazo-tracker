@@ -23,10 +23,11 @@ import {
   sessionsCsv,
   wishlistCsv,
 } from '../lib/export'
+import { masterImagesOn } from '../lib/image-url'
 import { computeStats, defaultView, wishlistOldestDays } from '../lib/stats'
 import { nowIso, todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
-import { Document, Layout } from '../ui/Layout'
+import { DataPolicy, Document, Layout } from '../ui/Layout'
 import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
 import { RequestNewWorkLink } from '../ui/requests'
 import { StatsPage } from '../ui/stats'
@@ -71,10 +72,21 @@ type WorksListProps = {
   selectedId?: string
   // 匿名人数（プレイ済みの chip）
   counts: Map<string, WorkCounts>
+  // MASTER_IMAGES === '1'
+  images: boolean
 }
 
 // 作品一覧（左ページ）
-const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksListProps) => (
+const WorksList = ({
+  kind,
+  q,
+  page,
+  items,
+  hasNext,
+  selectedId,
+  counts,
+  images,
+}: WorksListProps) => (
   <>
     <TopBar title="作品" />
     <form class="search" method="get" action="/works">
@@ -106,7 +118,12 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
     <div class="list">
       {items.length ? (
         items.map((w) => (
-          <WorkTicket w={w} selected={w.id === selectedId} counts={counts.get(w.id)} />
+          <WorkTicket
+            w={w}
+            selected={w.id === selectedId}
+            counts={counts.get(w.id)}
+            images={images}
+          />
         ))
       ) : q.trim() ? (
         <>
@@ -132,7 +149,8 @@ const WorksList = ({ kind, q, page, items, hasNext, selectedId, counts }: WorksL
 )
 
 // 詳細ページの左に出す一覧（1 頁目・フィルタ無し）
-const defaultWorksList = async (db: Db, selectedId?: string) => {
+const defaultWorksList = async (c: Context<AppEnv>, selectedId?: string) => {
+  const db = c.get('db')
   const { items, hasNext } = await listWorks(db, { page: 1 })
   const counts = await countsFor(
     db,
@@ -147,6 +165,7 @@ const defaultWorksList = async (db: Db, selectedId?: string) => {
       hasNext={hasNext}
       selectedId={selectedId}
       counts={counts}
+      images={masterImagesOn(c.env.MASTER_IMAGES)}
     />
   )
 }
@@ -182,18 +201,26 @@ ui.get('/works', async (c) => {
       title="作品"
       tab="works"
       left={
-        <WorksList kind={kind} q={q} page={page} items={items} hasNext={hasNext} counts={counts} />
+        <WorksList
+          kind={kind}
+          q={q}
+          page={page}
+          items={items}
+          hasNext={hasNext}
+          counts={counts}
+          images={masterImagesOn(c.env.MASTER_IMAGES)}
+        />
       }
     />,
   )
 })
 
 // 作品・団体・会場の詳細で共通の 404（左は作品一覧）
-const masterNotFound = async (db: Db) => (
+const masterNotFound = async (c: Context<AppEnv>) => (
   <Layout
     title="見つかりませんでした"
     tab="works"
-    left={await defaultWorksList(db)}
+    left={await defaultWorksList(c)}
     right={<NotFound back="/works" />}
   />
 )
@@ -204,7 +231,7 @@ const isOwner = (c: Context<AppEnv>) => c.get('user')?.role === 'owner'
 ui.get('/works/:id', async (c) => {
   const db = c.get('db')
   const r = await getWork(db, c.req.param('id'))
-  if (!r) return c.html(await masterNotFound(db), 404)
+  if (!r) return c.html(await masterNotFound(c), 404)
   if ('redirect' in r) return c.redirect(`/works/${encodeURIComponent(r.redirect)}`, 302)
   const owner = isOwner(c)
   const user = c.get('user')
@@ -224,7 +251,7 @@ ui.get('/works/:id', async (c) => {
     <Layout
       title={r.found.title}
       tab="works"
-      left={await defaultWorksList(db, r.found.id)}
+      left={await defaultWorksList(c, r.found.id)}
       right={
         <WorkDetail
           w={r.found}
@@ -233,6 +260,7 @@ ui.get('/works/:id', async (c) => {
           counts={counts}
           editHref={owner ? `/admin/works/${r.found.id}` : undefined}
           runEditHref={owner ? (runId) => `/admin/runs/${runId}` : undefined}
+          images={masterImagesOn(c.env.MASTER_IMAGES)}
         />
       }
     />,
@@ -242,13 +270,13 @@ ui.get('/works/:id', async (c) => {
 ui.get('/orgs/:id', async (c) => {
   const db = c.get('db')
   const r = await getOrg(db, c.req.param('id'))
-  if (!r) return c.html(await masterNotFound(db), 404)
+  if (!r) return c.html(await masterNotFound(c), 404)
   if ('redirect' in r) return c.redirect(`/orgs/${encodeURIComponent(r.redirect)}`, 302)
   return c.html(
     <Layout
       title={r.found.name}
       tab="works"
-      left={await defaultWorksList(db)}
+      left={await defaultWorksList(c)}
       right={
         <OrgDetail
           o={r.found}
@@ -259,6 +287,7 @@ ui.get('/orgs/:id', async (c) => {
             )
           }
           editHref={isOwner(c) ? `/admin/orgs/${r.found.id}` : undefined}
+          images={masterImagesOn(c.env.MASTER_IMAGES)}
         />
       }
     />,
@@ -268,13 +297,13 @@ ui.get('/orgs/:id', async (c) => {
 ui.get('/venues/:id', async (c) => {
   const db = c.get('db')
   const r = await getVenue(db, c.req.param('id'))
-  if (!r) return c.html(await masterNotFound(db), 404)
+  if (!r) return c.html(await masterNotFound(c), 404)
   if ('redirect' in r) return c.redirect(`/venues/${encodeURIComponent(r.redirect)}`, 302)
   return c.html(
     <Layout
       title={r.found.name}
       tab="works"
-      left={await defaultWorksList(db)}
+      left={await defaultWorksList(c)}
       right={
         <VenueDetail
           v={r.found}
@@ -433,6 +462,7 @@ export const SettingsList = ({
           href="/settings/counts"
         />
         <MenuItem label="自分のデータをエクスポート" href="/settings/export" />
+        <MenuItem label="データの扱い" href="/about" />
       </Menu>
     </div>
     <div class="sect">
@@ -857,6 +887,26 @@ ui.post('/settings/delete', async (c) => {
   return c.redirect('/login?deleted=1', 302)
 })
 
+// 「データの扱い」の公開ページ（ログイン不要）。本文は PC の設定タブの表紙と同じ DataPolicy。
+// 作品詳細・団体詳細の出典行「掲載について」は #images（画像の段落）へ飛ぶ
+ui.get('/about', (c) =>
+  c.html(
+    <Layout
+      title="データの扱い"
+      tab="settings"
+      single
+      left={
+        <>
+          <TopBar title="データの扱い" />
+          <div class="sect" style="margin-top:4px">
+            <DataPolicy />
+          </div>
+        </>
+      }
+    />,
+  ),
+)
+
 const loginMessage = (error: string | undefined, deleted: string | undefined): string | null => {
   if (deleted === '1') return '退会しました。'
   if (error === 'denied') return 'ログインがキャンセルされました。'
@@ -923,6 +973,9 @@ ui.get('/login', (c) => {
           <a class="btn ghost" href="/works">
             ログインせずに作品を見る
           </a>
+          <p class="note" style="margin:0">
+            <a href="/about">データの扱い ›</a>
+          </p>
         </div>
       </div>
     </Document>,

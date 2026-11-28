@@ -4,6 +4,7 @@
 
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { ulid } from '../lib/id'
+import type { ImageSource } from '../lib/image-url'
 import { nowIso, todayJst } from '../lib/time'
 import type { Db } from './client'
 import { PAGE_SIZE } from './master'
@@ -131,6 +132,8 @@ export type OwnWishRow = {
   title: string
   kind: (typeof workKinds)[number] | null
   org: { id: string; name: string } | null
+  // マスタの画像。出すかは shownImage で決める
+  image: ImageSource
   createdAt: string
   latestStatus: AttemptStatus | null
 }
@@ -633,6 +636,10 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
         kind: work.kind,
         orgId: organization.id,
         orgName: organization.name,
+        imageUrl: work.imageUrl,
+        imagePageUrl: work.imagePageUrl,
+        imageBlocked: work.imageBlocked,
+        orgImageBlocked: organization.imageBlocked,
         createdAt: wishlist.createdAt,
         latestStatus,
       })
@@ -646,10 +653,18 @@ const ownRepo = (db: Db, viewerId: string): OwnRepo => ({
       .limit(PAGE_SIZE + 1)
       .offset((page - 1) * PAGE_SIZE)
     return {
-      items: rows.slice(0, PAGE_SIZE).map(({ orgId, orgName, ...r }) => ({
-        ...r,
-        org: orgId && orgName ? { id: orgId, name: orgName } : null,
-      })),
+      items: rows
+        .slice(0, PAGE_SIZE)
+        .map(({ orgId, orgName, imageUrl, imagePageUrl, imageBlocked, orgImageBlocked, ...r }) => ({
+          ...r,
+          org: orgId && orgName ? { id: orgId, name: orgName } : null,
+          image: {
+            url: imageUrl,
+            pageUrl: imagePageUrl,
+            blocked: imageBlocked,
+            orgBlocked: orgImageBlocked,
+          },
+        })),
       hasNext: rows.length > PAGE_SIZE,
     }
   },

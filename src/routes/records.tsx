@@ -7,6 +7,7 @@ import { getRunById, getWork, listGenres, listWorks, type WorkDetailData } from 
 import { type OwnAttempt, scopedTo } from '../db/scoped'
 import type { AppEnv } from '../env'
 import { emptyForm, type Form, formOf } from '../lib/form'
+import { masterImagesOn } from '../lib/image-url'
 import { todayJst } from '../lib/time'
 import {
   editRecordFields,
@@ -79,6 +80,7 @@ const recordsList = async (
       hasNext={tab === 'wish' ? wish.hasNext : list.hasNext}
       playedCount={playedCount}
       selectedId={selectedId}
+      images={masterImagesOn(c.env.MASTER_IMAGES)}
     />
   )
 }
@@ -114,7 +116,16 @@ const searchPage = async (
       title="記録を追加"
       tab="records"
       left={await recordsList(c, {})}
-      right={<NewRecordSearch q={q} page={page} items={items} hasNext={hasNext} errors={errors} />}
+      right={
+        <NewRecordSearch
+          q={q}
+          page={page}
+          items={items}
+          hasNext={hasNext}
+          errors={errors}
+          images={masterImagesOn(c.env.MASTER_IMAGES)}
+        />
+      }
     />
   )
 }

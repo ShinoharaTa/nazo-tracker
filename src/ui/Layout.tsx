@@ -37,6 +37,35 @@ export const Document = ({ title, children }: { title: string; children?: Child 
   </>
 )
 
+// 「データの扱い」の本文。PC の設定タブの表紙（Cover）と公開ページ /about で共用する（文言はここ 1 か所）
+export const DataPolicy = () => (
+  <>
+    <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
+      記録と統計は自分だけが見られます。作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出しません。それでも人数の増え方から推測される可能性があるため、気になる場合は設定で自分を含めないようにできます。
+    </p>
+    <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
+      フレンドに見えるのは、作品名・ステータス・日付だけです。メモ・ネタバレメモ・ネタバレ写真は、フレンドにも見えません。
+    </p>
+    {/* マスタの画像（design.md §3.4.2）。MASTER_IMAGES の値にかかわらず出す。出典行の「掲載について」が #images へ飛ぶ */}
+    <p id="images" style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
+      作品の画像と団体のロゴは、このサイトには保存していません。公開元（escape.id
+      など）のページが紹介用に指定している画像を、お使いのブラウザが公開元から直接読み込んで表示します。そのとき、公開元のサーバーにはお使いの
+      IP アドレスが伝わります（どのページを見ていたかは伝えません）。
+    </p>
+    <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
+      画像の権利をお持ちで掲載を止めたい場合は、
+      <a href="https://bsky.app/profile/shino3.net" rel="noopener noreferrer">
+        @shino3.net
+      </a>
+      （Bluesky）か
+      <a href="https://x.com/SHINOHARATTT" rel="noopener noreferrer">
+        @SHINOHARATTT
+      </a>
+      （X）までお知らせください。確認でき次第、表示を止めます。
+    </p>
+  </>
+)
+
 // PC で詳細が開いていないときに右ページに出す表紙。データは出さない
 const Cover = ({ tab }: { tab: Tab }) => {
   if (tab === 'works') {
@@ -53,12 +82,7 @@ const Cover = ({ tab }: { tab: Tab }) => {
         <div class="top">
           <h2 style="font-size:20px">データの扱い</h2>
         </div>
-        <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
-          記録と統計は自分だけが見られます。作品ページの「プレイ済み」「マイリスト」の人数には、誰が記録したかを出しません。それでも人数の増え方から推測される可能性があるため、気になる場合は左の設定で自分を含めないようにできます。
-        </p>
-        <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
-          フレンドに見えるのは、作品名・ステータス・日付だけです。メモ・ネタバレメモ・ネタバレ写真は、フレンドにも見えません。
-        </p>
+        <DataPolicy />
       </div>
     )
   }

@@ -50,5 +50,7 @@ DISCORD_CLIENT_ID = "1575728591751221370"
 LINE_CLIENT_ID = ""
 # "1" のときだけ部品見本 GET /_ui を有効にする。ローカルでは .dev.vars で上書きする
 UI_GALLERY = "0"
+# "1" のときだけマスタの画像（作品の画像・団体のロゴ）を表示する。止めるときは "0"（docs/ops.md「画像の削除依頼」）
+MASTER_IMAGES = "0"
 
 # SESSION_SECRET・GOOGLE_CLIENT_SECRET・DISCORD_CLIENT_SECRET・LINE_CLIENT_SECRET は secret。`wrangler secret put <NAME>` で入れる（ローカルは .dev.vars）
