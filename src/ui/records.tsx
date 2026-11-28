@@ -196,7 +196,7 @@ export type RecordsListProps = {
   playedCount: number
   selectedId?: string
   // MASTER_IMAGES === '1'（マイリストの行の画像。記録の行には出さない）
-  images?: boolean
+  images: boolean
 }
 
 // 記録一覧（左ページ）
@@ -209,7 +209,7 @@ export const RecordsList = ({
   hasNext,
   playedCount,
   selectedId,
-  images = false,
+  images,
 }: RecordsListProps) => (
   <>
     <TopBar
@@ -267,7 +267,7 @@ export const NewRecordSearch = (props: {
   hasNext: boolean
   errors?: readonly string[]
   // MASTER_IMAGES === '1'
-  images?: boolean
+  images: boolean
 }) => (
   <>
     <TopBar back="/records" label="記録を追加" />

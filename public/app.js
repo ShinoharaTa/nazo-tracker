@@ -113,7 +113,8 @@ document.addEventListener('click', async (e) => {
 })
 
 // マスタの画像（data-mimg の箱の中の img）。読み込みに失敗したら箱ごと隠す。
-// error は bubble しないので capture で拾う。スクリプトが動く前に失敗していた分は complete && naturalWidth === 0 で拾う
+// error は bubble しないので capture で拾う。スクリプトが動く前に失敗していた分は complete && naturalWidth === 0 の img だけ
+// 読み込み直して確かめる（まだ読んでいない lazy の img を complete と報告するブラウザでも、正常な画像を隠さない）
 const hideMasterImage = (img) => {
   const box = img.closest('[data-mimg]')
   if (box instanceof HTMLElement) box.hidden = true
@@ -126,7 +127,9 @@ document.addEventListener(
   true,
 )
 for (const img of document.querySelectorAll('[data-mimg] img')) {
-  if (img instanceof HTMLImageElement && img.complete && img.naturalWidth === 0) {
-    hideMasterImage(img)
-  }
+  if (!(img instanceof HTMLImageElement) || !img.complete || img.naturalWidth !== 0) continue
+  const probe = new Image()
+  probe.referrerPolicy = 'no-referrer' // 必ず src より先
+  probe.onerror = () => hideMasterImage(img)
+  probe.src = img.currentSrc || img.src
 }

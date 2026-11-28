@@ -74,14 +74,15 @@ export type ImageSource = {
 export type ShownImage = { src: string; pageUrl: string; pageHost: string }
 
 // 画像を出すかの判定（ここ 1 か所）。enabled は MASTER_IMAGES === '1'。
-// 全体スイッチ OFF・URL が NULL・今の検証（IMAGE_HOSTS を含む）に通らない・行か主団体が image_blocked=1 なら null。
+// 全体スイッチ OFF・URL が NULL・今の検証（IMAGE_HOSTS を含む）に通らない・行か主団体の image_blocked が 0 以外なら null
+// （0 / 1 以外の値も止める側に倒す。主団体なしは orgBlocked が null で、出す）。
 // 取得元のページと組でしか出さないので、image_page_url / logo_page_url が NULL・検証に通らないときも null
 export const shownImage = (
   enabled: boolean,
   s: ImageSource,
   size: ImageSize,
 ): ShownImage | null => {
-  if (!enabled || s.blocked === 1 || s.orgBlocked === 1) return null
+  if (!enabled || s.blocked !== 0 || (s.orgBlocked !== null && s.orgBlocked !== 0)) return null
   if (s.url === null || s.pageUrl === null) return null
   const img = imageUrl()(s.url)
   const page = imagePageUrl()(s.pageUrl)

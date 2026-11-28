@@ -72,23 +72,41 @@ const Ext = ({ href, children }: { href: string; children?: Child }) =>
   )
 
 // マスタの画像の <img>（共通の属性）。width / height は箱の寸法。切り抜かない（object-fit: contain は app.css の .mimg）。
-// 読み込みに失敗したら public/app.js が data-mimg の箱ごと隠す
-const MasterImg = (p: { img: ShownImage; alt: string; width: number; height: number }) => (
+// 読み込みに失敗したら public/app.js が data-mimg の箱ごと隠す。loading は一覧 lazy、詳細・ロゴ eager
+const MasterImg = (p: {
+  img: ShownImage
+  alt: string
+  width: number
+  height: number
+  loading: 'lazy' | 'eager'
+}) => (
   <img
     src={p.img.src}
     alt={p.alt}
     width={p.width}
     height={p.height}
-    loading="lazy"
+    loading={p.loading}
     decoding="async"
     referrerpolicy="no-referrer"
   />
 )
 
+// 作品詳細・団体詳細の出典行。左は取得元（host）、右は掲載についての説明（/about の画像の段落）
+const McapRow = ({ label, img }: { label: string; img: ShownImage }) => (
+  <div class="mcap-row">
+    <a class="mcap" href={img.pageUrl} rel="noopener noreferrer">
+      {label}: {img.pageHost} ›
+    </a>
+    <a class="mcap" href="/about#images">
+      掲載について ›
+    </a>
+  </div>
+)
+
 // 作品一覧の 1 行。hrefBase の後ろに作品 id を付けてリンクにする（記録の作品選択では /records/new?work=）。
 // counts があればプレイ済み人数の chip を出す（none は出さない。マイリスト人数は一覧には出さない）
 // chip / extra はマイリスト用（extra を渡すと期間の代わりに出す。chip を渡すと人数の chip より優先）
-// images は MASTER_IMAGES === '1'。画像が出るときだけ stub の上段に 72x40 の箱を足す（出ないときの HTML は変えない）
+// images は MASTER_IMAGES === '1'。画像が出るときだけ stub の上段に箱を足す（出ないときの HTML は変えない）
 export const WorkTicket = ({
   w,
   selected,
@@ -96,7 +114,7 @@ export const WorkTicket = ({
   counts,
   chip,
   extra,
-  images = false,
+  images,
 }: {
   w: WorkListItem
   selected?: boolean
@@ -104,7 +122,7 @@ export const WorkTicket = ({
   counts?: WorkCounts
   chip?: Child
   extra?: string
-  images?: boolean
+  images: boolean
 }) => {
   const k = kindLabel(w.kind)
   const played = counts ? countLabel(counts.played) : null
@@ -124,7 +142,7 @@ export const WorkTicket = ({
         img ? (
           <>
             <span class="mimg thumb" data-mimg="">
-              <MasterImg img={img} alt="" width={72} height={40} />
+              <MasterImg img={img} alt="" width={61} height={36} loading="lazy" />
             </span>
             {nd}
           </>
@@ -235,7 +253,7 @@ export const WorkDetail = ({
   counts,
   editHref,
   runEditHref,
-  images = false,
+  images,
 }: {
   w: WorkDetailData
   today: string
@@ -243,7 +261,7 @@ export const WorkDetail = ({
   counts: WorkCounts
   editHref?: string
   runEditHref?: (runId: string) => string
-  images?: boolean
+  images: boolean
 }) => {
   const k = kindLabel(w.kind)
   const players = formatPlayers(w.playerMin, w.playerMax)
@@ -256,11 +274,15 @@ export const WorkDetail = ({
         {img ? (
           <div class="mimg-wrap" data-mimg="">
             <a class="mimg wide" href={img.pageUrl} rel="noopener noreferrer">
-              <MasterImg img={img} alt={`${w.title} の画像`} width={640} height={360} />
+              <MasterImg
+                img={img}
+                alt={`${w.title} の画像`}
+                width={640}
+                height={360}
+                loading="eager"
+              />
             </a>
-            <a class="mcap" href={img.pageUrl} rel="noopener noreferrer">
-              画像: {img.pageHost} ›
-            </a>
+            <McapRow label="画像" img={img} />
           </div>
         ) : null}
         <div style="display:flex;flex-direction:column;gap:6px">
@@ -398,12 +420,12 @@ export const OrgDetail = ({
   o,
   counts,
   editHref,
-  images = false,
+  images,
 }: {
   o: OrgDetailData
   counts?: Map<string, WorkCounts>
   editHref?: string
-  images?: boolean
+  images: boolean
 }) => {
   const logo = shownImage(images, o.logo, 'detail')
   return (
@@ -413,11 +435,15 @@ export const OrgDetail = ({
         {logo ? (
           <div class="mimg-wrap" data-mimg="">
             <span class="mimg logo">
-              <MasterImg img={logo} alt={`${o.name} のロゴ`} width={200} height={48} />
+              <MasterImg
+                img={logo}
+                alt={`${o.name} のロゴ`}
+                width={200}
+                height={48}
+                loading="eager"
+              />
             </span>
-            <a class="mcap" href={logo.pageUrl} rel="noopener noreferrer">
-              ロゴ: {logo.pageHost} ›
-            </a>
+            <McapRow label="ロゴ" img={logo} />
           </div>
         ) : null}
         <span class="title" style="font-size:22px">

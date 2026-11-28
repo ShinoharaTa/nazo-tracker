@@ -27,7 +27,7 @@ import { masterImagesOn } from '../lib/image-url'
 import { computeStats, defaultView, wishlistOldestDays } from '../lib/stats'
 import { nowIso, todayJst } from '../lib/time'
 import { Empty, Field, Menu, MenuItem, Pager, SearchIcon, Switch, TopBar } from '../ui/components'
-import { Document, Layout } from '../ui/Layout'
+import { DataPolicy, Document, Layout } from '../ui/Layout'
 import { OrgDetail, VenueDetail, WorkDetail, WorkTicket } from '../ui/master'
 import { RequestNewWorkLink } from '../ui/requests'
 import { StatsPage } from '../ui/stats'
@@ -462,6 +462,7 @@ export const SettingsList = ({
           href="/settings/counts"
         />
         <MenuItem label="自分のデータをエクスポート" href="/settings/export" />
+        <MenuItem label="データの扱い" href="/about" />
       </Menu>
     </div>
     <div class="sect">
@@ -886,6 +887,26 @@ ui.post('/settings/delete', async (c) => {
   return c.redirect('/login?deleted=1', 302)
 })
 
+// 「データの扱い」の公開ページ（ログイン不要）。本文は PC の設定タブの表紙と同じ DataPolicy。
+// 作品詳細・団体詳細の出典行「掲載について」は #images（画像の段落）へ飛ぶ
+ui.get('/about', (c) =>
+  c.html(
+    <Layout
+      title="データの扱い"
+      tab="settings"
+      single
+      left={
+        <>
+          <TopBar title="データの扱い" />
+          <div class="sect" style="margin-top:4px">
+            <DataPolicy />
+          </div>
+        </>
+      }
+    />,
+  ),
+)
+
 const loginMessage = (error: string | undefined, deleted: string | undefined): string | null => {
   if (deleted === '1') return '退会しました。'
   if (error === 'denied') return 'ログインがキャンセルされました。'
@@ -952,6 +973,9 @@ ui.get('/login', (c) => {
           <a class="btn ghost" href="/works">
             ログインせずに作品を見る
           </a>
+          <p class="note" style="margin:0">
+            <a href="/about">データの扱い ›</a>
+          </p>
         </div>
       </div>
     </Document>,

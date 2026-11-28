@@ -78,6 +78,9 @@ describe('shownImage', () => {
     ['取得元が X', true, { pageUrl: 'https://x.com/foo' }],
     ['行が image_blocked=1', true, { blocked: 1 }],
     ['主団体が image_blocked=1', true, { orgBlocked: 1 }],
+    // 0 / 1 以外の値は止める側に倒す
+    ['行の image_blocked が 2', true, { blocked: 2 }],
+    ['主団体の image_blocked が 2', true, { orgBlocked: 2 }],
   ])('%s なら出さない', (_, enabled, s) => {
     expect(shownImage(enabled, src(s), 'list')).toBeNull()
     expect(shownImage(enabled, src(s), 'detail')).toBeNull()
@@ -105,11 +108,13 @@ describe('表示', () => {
       orgId: ids.blockedOrg,
     })
     ids.foreign = await insertWork(env, { title: '許可外', kind: 'room', orgId: ids.org })
+    ids.odd = await insertWork(env, { title: '値が2', kind: 'room', orgId: ids.org })
     await setWorkImage(ids.img, IMG, PAGE)
     // 作品の blocked は保存時に URL を NULL にするが、表示の判定は URL があっても出さない
     await setWorkImage(ids.blocked, IMG, PAGE, 1)
     await setWorkImage(ids.orgBlocked, IMG, PAGE)
     await setWorkImage(ids.foreign, 'https://example.com/i/a.png', PAGE)
+    await setWorkImage(ids.odd, IMG, PAGE, 2)
     await setOrgLogo(ids.org, LOGO, ORG_PAGE)
     await setOrgLogo(ids.blockedOrg, null, null, 1)
   })
@@ -136,7 +141,7 @@ describe('表示', () => {
     it('一覧: URL のある作品の stub に ?t=sm の <img>（属性つき・alt=""）', async () => {
       const t = ticketOf(await html('/works', on), ids.img)
       expect(t).toContain(
-        `<div class="stub"><span class="mimg thumb" data-mimg=""><img src="${IMG}?t=sm" alt="" width="72" height="40" loading="lazy" decoding="async" referrerpolicy="no-referrer"/></span><span class="nd">ルーム<br/>オンライン</span></div>`,
+        `<div class="stub"><span class="mimg thumb" data-mimg=""><img src="${IMG}?t=sm" alt="" width="61" height="36" loading="lazy" decoding="async" referrerpolicy="no-referrer"/></span><span class="nd">ルーム<br/>オンライン</span></div>`,
       )
     })
 
@@ -149,20 +154,20 @@ describe('表示', () => {
 
     it('一覧: 作品 blocked / 団体 blocked / 許可外 host は出ない', async () => {
       const h = await html('/works', on)
-      for (const id of [ids.blocked, ids.orgBlocked, ids.foreign]) {
+      for (const id of [ids.blocked, ids.orgBlocked, ids.foreign, ids.odd]) {
         expect(ticketOf(h, id)).not.toContain('<img')
       }
       // 一覧の <img> は画像ありの 1 件だけ
       expect(imgs(h)).toHaveLength(1)
     })
 
-    it('作品詳細: 16:9 の箱に ?t=md の <img>、箱ごと取得元へのリンクと「画像: escape.id ›」', async () => {
+    it('作品詳細: 16:9 の箱に ?t=md の <img>（eager）、箱ごと取得元へのリンクと出典行', async () => {
       const h = await html(`/works/${ids.img}`, on)
       expect(h).toContain(
-        `<a class="mimg wide" href="${PAGE}" rel="noopener noreferrer"><img src="${IMG}?t=md" alt="画像あり の画像" width="640" height="360" loading="lazy" decoding="async" referrerpolicy="no-referrer"/></a>`,
+        `<a class="mimg wide" href="${PAGE}" rel="noopener noreferrer"><img src="${IMG}?t=md" alt="画像あり の画像" width="640" height="360" loading="eager" decoding="async" referrerpolicy="no-referrer"/></a>`,
       )
       expect(h).toContain(
-        `<a class="mcap" href="${PAGE}" rel="noopener noreferrer">画像: escape.id ›</a>`,
+        `<div class="mcap-row"><a class="mcap" href="${PAGE}" rel="noopener noreferrer">画像: escape.id ›</a><a class="mcap" href="/about#images">掲載について ›</a></div>`,
       )
     })
 
@@ -170,21 +175,23 @@ describe('表示', () => {
       ['作品 blocked', () => ids.blocked],
       ['団体 blocked', () => ids.orgBlocked],
       ['許可外 host', () => ids.foreign],
+      ['image_blocked が 2', () => ids.odd],
       ['画像なし', () => ids.plain],
     ])('作品詳細: %s は出ない（右ページに画像も出典も無い）', async (_, id) => {
       const h = await html(`/works/${id()}`, on)
       const right = h.slice(h.indexOf('pane-r'))
       expect(right).not.toContain('<img')
       expect(right).not.toContain('画像: ')
+      expect(right).not.toContain('/about#images')
     })
 
-    it('団体詳細: 高さ 48 のロゴ（alt「{団体名} のロゴ」）と「ロゴ: escape.id ›」', async () => {
+    it('団体詳細: 高さ 48 のロゴ（alt「{団体名} のロゴ」・eager）と出典行', async () => {
       const h = await html(`/orgs/${ids.org}`, on)
       expect(h).toContain(
-        `<img src="${LOGO}" alt="タカラッシュ のロゴ" width="200" height="48" loading="lazy" decoding="async" referrerpolicy="no-referrer"/>`,
+        `<img src="${LOGO}" alt="タカラッシュ のロゴ" width="200" height="48" loading="eager" decoding="async" referrerpolicy="no-referrer"/>`,
       )
       expect(h).toContain(
-        `<a class="mcap" href="${ORG_PAGE}" rel="noopener noreferrer">ロゴ: escape.id ›</a>`,
+        `<div class="mcap-row"><a class="mcap" href="${ORG_PAGE}" rel="noopener noreferrer">ロゴ: escape.id ›</a><a class="mcap" href="/about#images">掲載について ›</a></div>`,
       )
     })
 
@@ -193,6 +200,7 @@ describe('表示', () => {
       const right = h.slice(h.indexOf('pane-r'))
       expect(right).not.toContain('<img')
       expect(right).not.toContain('ロゴ: ')
+      expect(right).not.toContain('/about#images')
     })
 
     it('マイリストの行に出す。記録一覧には出さない', async () => {
@@ -206,14 +214,33 @@ describe('表示', () => {
         },
         body: new URLSearchParams(body).toString(),
       })
-      const wished = await app.request('/records/wishlist', form({ work_id: ids.img }), on)
-      expect(wished.status).toBe(302)
+      for (const id of [ids.img, ids.orgBlocked]) {
+        const wished = await app.request('/records/wishlist', form({ work_id: id }), on)
+        expect(wished.status).toBe(302)
+      }
       const wish = await html('/records?tab=wish', on, cookie)
       expect(ticketOf(wish, ids.img)).toContain(`<img src="${IMG}?t=sm"`)
+      // 主団体が blocked の作品は出さない
+      expect(ticketOf(wish, ids.orgBlocked)).not.toContain('<img')
+      expect(imgs(wish)).toHaveLength(1)
       expect(imgs(await html('/records?tab=wish', off, cookie))).toEqual([])
       // 記録一覧（RecordTicket）は stub が日付のまま
       expect(imgs(await html('/records', on, cookie))).toEqual([])
     })
+  })
+
+  it('記録の作品選択: 画像ありは ?t=sm で出す。主団体 blocked は出さない。OFF では出さない', async () => {
+    const { cookie } = await loginAs(env, { subject: 'mimg-picker' })
+    const pick = (q: string, e: Cloudflare.Env) =>
+      html(`/records/new?q=${encodeURIComponent(q)}`, e, cookie)
+    const found = await pick('画像あり', on)
+    expect(found).toContain(
+      `<img src="${IMG}?t=sm" alt="" width="61" height="36" loading="lazy" decoding="async" referrerpolicy="no-referrer"/>`,
+    )
+    const blocked = await pick('団体で止めた', on)
+    expect(blocked).toContain('団体で止めた')
+    expect(imgs(blocked)).toEqual([])
+    expect(imgs(await pick('画像あり', off))).toEqual([])
   })
 
   // main（PR 4 の前）の実測: /works 3、/works/:id 7、/orgs/:id 9（未ログイン）
@@ -235,15 +262,30 @@ describe('データの扱い', () => {
   it.each([
     ['0', off],
     ['1', on],
-  ])('MASTER_IMAGES=%s でも画像の扱いと連絡先を出す', async (_, e) => {
-    const { cookie } = await loginAs(env, { subject: `mimg-data-${_}` })
-    const h = await html('/settings', e, cookie)
-    expect(h).toContain('作品の画像と団体のロゴは、このサイトには保存していません。')
+  ])('/about は cookie なしで 200（MASTER_IMAGES=%s）。画像の段落と連絡先 2 つ', async (_, e) => {
+    const h = await html('/about', e)
+    expect(h).toContain('<title>データの扱い | NAZO LOG</title>')
+    expect(h).toMatch(
+      /<p id="images"[^>]*>作品の画像と団体のロゴは、このサイトには保存していません。/,
+    )
     expect(h).toContain(
       '<a href="https://bsky.app/profile/shino3.net" rel="noopener noreferrer">@shino3.net</a>',
     )
     expect(h).toContain(
       '<a href="https://x.com/SHINOHARATTT" rel="noopener noreferrer">@SHINOHARATTT</a>',
     )
+  })
+
+  it('/login に入口がある', async () => {
+    expect(await html('/login', env)).toContain('<a href="/about">データの扱い ›</a>')
+  })
+
+  it('/settings の「データ」節に入口がある', async () => {
+    const { cookie } = await loginAs(env, { subject: 'mimg-settings' })
+    const h = await html('/settings', env, cookie)
+    const start = h.indexOf('<h2>データ</h2>')
+    expect(start).toBeGreaterThan(-1)
+    const sect = h.slice(start, h.indexOf('<h2>', start + 1))
+    expect(sect).toContain('<a href="/about"><span>データの扱い</span></a>')
   })
 })

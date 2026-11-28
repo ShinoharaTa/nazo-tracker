@@ -101,4 +101,4 @@ OAuth を試すときは `.dev.vars` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SEC
 - 止めた行に対して validators で 400 になるのは、その行の画像の URL を**新しく入れる・別の値に変える**提案だけ（URL が変わっても、他の項目と束になっても）。画像に触れない提案（題名だけの update など）は通る。団体を止めた場合は、その団体の作品に画像を新しく入れる・別の値に変える提案も 400。変わっていない画像の値は検証し直さない（data-model.md「画像の URL の検証」）。
 - 依頼の理由・日付は、団体は `organization.note`（非公開）、作品は GitHub の issue に残す。
 - こちらに実体が無いので、R2・キャッシュから消す作業は無い。
-- 削除依頼の連絡先（「データの扱い」に書くもの。`src/ui/Layout.tsx` の Cover）: **運営者の SNS アカウントへの連絡で受け付ける。** Bluesky [@shino3.net](https://bsky.app/profile/shino3.net)、X [@SHINOHARATTT](https://x.com/SHINOHARATTT)。
+- 削除依頼の連絡先: **運営者の SNS アカウントへの連絡で受け付ける。** Bluesky [@shino3.net](https://bsky.app/profile/shino3.net)、X [@SHINOHARATTT](https://x.com/SHINOHARATTT)。ログイン不要の公開ページ `/about`「データの扱い」（本文は `src/ui/Layout.tsx` の `DataPolicy`。PC の設定タブの表紙と共用）に載せ、作品詳細・団体詳細の出典行の「掲載について ›」から `/about#images` へ辿れる。
