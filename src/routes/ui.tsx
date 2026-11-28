@@ -353,6 +353,7 @@ ui.get('/stats', async (c) => {
       title="統計"
       tab="stats"
       single
+      columns={2}
       left={
         <StatsPage
           stats={stats}

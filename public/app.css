@@ -1427,19 +1427,28 @@ dialog.sheet::backdrop {
   .ticket:hover:not(.sel) {
     border-color: var(--muted);
   }
-  .book.one .pane-l {
+  /* 2 列のグリッドは統計だけ（Layout の columns={2}）。他の single は 1 列で本文を中央の 680px に */
+  .book.one.grid .pane-l {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 64px;
     align-content: start;
     grid-auto-rows: max-content;
   }
-  .book.one .pane-l > .top,
-  .book.one .pane-l > .kpis,
-  .book.one .pane-l > .chips,
-  .book.one .pane-l > .switch,
-  .book.one .pane-l > .note {
+  .book.one.grid .pane-l > .top,
+  .book.one.grid .pane-l > .kpis,
+  .book.one.grid .pane-l > .chips,
+  .book.one.grid .pane-l > .switch,
+  .book.one.grid .pane-l > .note {
     grid-column: 1 / -1;
+  }
+  .book.one:not(.grid) .pane-l {
+    padding-inline: max(36px, calc((100% - 680px) / 2));
+  }
+  /* 入力フォームだけ 560px。差分表（提案の承認）と ticket の一覧（まとめて承認）は本文の幅のまま */
+  /* 却下フォーム（details.reject の直下）も、承認フォームと幅をそろえるため外す */
+  .book.one:not(.grid) form.list:not(:has(.diff, .pick), .reject > *) {
+    max-width: 560px;
   }
   .cover {
     display: flex;
