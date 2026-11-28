@@ -1068,8 +1068,12 @@ button.gtag.on {
 .diff .full {
   grid-column: 1 / -1;
 }
+/* 項目名は切れない欧文（未登録の field 名など）でも列を広げない */
+.diff .k {
+  overflow-wrap: anywhere;
+}
 /* 出典の字下げ = チェックボックスの幅 + gap（項目名の字頭に揃える） */
-.diff details.ind {
+.diff .ind {
   padding-left: 20px;
 }
 .diff label {

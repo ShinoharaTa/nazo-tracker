@@ -770,7 +770,7 @@ describe('差分表（.diff）', () => {
     expect(html).not.toMatch(/<span class="o( off)?">/)
     // 項目ごとの箱。採用チェックは <label><input …>項目名</label> のまま
     expect(html).toMatch(
-      /<div class="it"><span><label><input type="checkbox" name="accept_[^"]+" value="1" checked=""\/>題名<\/label><\/span>/,
+      /<div class="it"><span class="k"><label><input type="checkbox" name="accept_[^"]+" value="1" checked=""\/>題名<\/label><\/span>/,
     )
   })
 
@@ -791,7 +791,7 @@ describe('差分表（.diff）', () => {
     expect(html.match(/<span class="o">/g)?.length).toBe(2)
   })
 
-  it('出典は summary 1 行（host · 日付 · 確信度 · 出典）、出典なしの項目に details は出ない', async () => {
+  it('出典は summary 1 行（確信度 · host · 日付 · 出典）、出典なしの項目は details ではなく「出典なし · 確信度」', async () => {
     const src = (
       await api('POST', '/api/agent/sources', {
         url: 'https://escape.id/foo-org/e-diff/',
@@ -807,16 +807,18 @@ describe('差分表（.diff）', () => {
       target_id: workId,
       fields: [
         { ...f('work.description', '出典つき', 0.9), source_id: src },
-        f('work.official_url', 'https://example.com/'),
+        f('work.official_url', 'https://example.com/', 0.4),
       ],
     })
     const html = await (await get(`/admin/proposals/${id}`)).text()
     expect(html).toContain(
-      '<details class="full ind"><summary class="meta">escape.id · 2026-11-11 · <span class="mono">0.90</span> · 出典</summary>',
+      '<details class="full ind"><summary class="meta"><span class="mono">0.90</span> · escape.id · 2026-11-11 · 出典</summary>',
     )
     expect(html.match(/<details/g)?.length).toBe(1)
     expect(html).not.toContain('出典を見る')
-    expect(html).not.toContain('出典なし')
-    expect(html).not.toContain('<span class="meta full">')
+    expect(html).toContain(
+      '<span class="meta full ind">出典なし · <span class="mono">0.40</span></span>',
+    )
+    expect(html.match(/出典なし/g)?.length).toBe(1)
   })
 })

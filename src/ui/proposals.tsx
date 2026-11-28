@@ -468,16 +468,19 @@ const orderOf = (field: string) => {
   return n === -1 ? proposalFieldOrder.length : n
 }
 
-// 出典は 1 行の summary（host · 日付 · 確信度 · 出典）。開くと抜粋と URL。出典が無ければ何も出さない
-const SourceLine = ({ f, indent }: { f: AdminProposalField; indent: boolean }) =>
-  f.source ? (
-    <details class={indent ? 'full ind' : 'full'}>
+// 出典は 1 行の summary（確信度 · host · 日付 · 出典）。開くと抜粋と URL。出典が無ければ「出典なし · 確信度」の 1 行
+const SourceLine = ({ f, indent }: { f: AdminProposalField; indent: boolean }) => {
+  const ind = indent ? ' ind' : ''
+  const conf = <span class="mono">{confidenceText(f.confidence)}</span>
+  return f.source ? (
+    <details class={`full${ind}`}>
       <summary class="meta">
+        {conf}
         {[f.source.domain, f.source.fetchedAt ? isoToJstDate(f.source.fetchedAt) : null]
           .filter(Boolean)
-          .map((t) => `${t} · `)
-          .join('')}
-        <span class="mono">{confidenceText(f.confidence)}</span> · 出典
+          .map((t) => ` · ${t}`)
+          .join('')}{' '}
+        · 出典
       </summary>
       {f.source.excerpt ? (
         <p class="note" style="margin:4px 0;white-space:pre-wrap">
@@ -488,7 +491,10 @@ const SourceLine = ({ f, indent }: { f: AdminProposalField; indent: boolean }) =
         {f.source.url}
       </a>
     </details>
-  ) : null
+  ) : (
+    <span class={`meta full${ind}`}>出典なし · {conf}</span>
+  )
+}
 
 // 節の差分。editable なら採用の Checkbox（work.kind は下の Select で選ぶので付けない）
 const DiffSection = (props: {
@@ -531,7 +537,7 @@ const DiffSection = (props: {
           const box = props.editable && !byKind
           return (
             <div class="it">
-              <span class={off.trim() || undefined}>
+              <span class={`k${off}`}>
                 {box ? (
                   <label>
                     <input
