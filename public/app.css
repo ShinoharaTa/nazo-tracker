@@ -1445,7 +1445,8 @@ dialog.sheet::backdrop {
   .book.one:not(.grid) .pane-l {
     padding-inline: max(36px, calc((100% - 680px) / 2));
   }
-  .book.one:not(.grid) form.list {
+  /* 入力フォームだけ 560px。差分表（提案の承認）と ticket の一覧（まとめて承認）は本文の幅のまま */
+  .book.one:not(.grid) form.list:not(:has(.diff, .pick)) {
     max-width: 560px;
   }
   .cover {
