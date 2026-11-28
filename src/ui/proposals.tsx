@@ -769,8 +769,8 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
         <span class="row" style="justify-content:flex-start;gap:8px">
           <span class="chip">{proposalStatusLabels[p.status]}</span>
           <span class="meta">
-            {kindLabelOf(p)} · 確信度 <span class="mono">{confidenceText(minConfidence)}</span> ·{' '}
-            <span class="mono">{isoToJstDate(p.createdAt) ?? ''}</span>
+            {kindLabelOf(p)} · 確信度 <span class="mono">{confidenceText(minConfidence)}</span> ·
+            提案 <span class="mono">{isoToJstDate(p.createdAt) ?? ''}</span>
           </span>
         </span>
       </div>

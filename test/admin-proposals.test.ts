@@ -6,6 +6,7 @@ import { getAdminProposal } from '../src/db/proposals'
 import { createToken } from '../src/db/tokens'
 import app from '../src/index'
 import { ulid } from '../src/lib/id'
+import { isoToJstDate } from '../src/lib/time'
 import { approvalChoiceOf, buildApproval } from '../src/pipeline/apply'
 import { loginAs, ORIGIN } from './helpers/auth'
 import { insertOrg, insertOrgAlias, insertWork, insertWorkAlias } from './helpers/master'
@@ -855,10 +856,15 @@ describe('詳細の並び（承認 → 却下）', () => {
     const html = await (await get(`/admin/proposals/${id}`)).text()
     expect(html).not.toContain('提案日')
     expect(html).not.toContain('<dl class="kv">')
-    const date = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
+    // 期待値は DB に入った created_at から作る（日付をまたいでも落ちない）
+    const createdAt = await env.DB.prepare('SELECT created_at FROM proposal WHERE id = ?')
+      .bind(id)
+      .first<string>('created_at')
+    const date = isoToJstDate(createdAt ?? '')
+    expect(date).toBeTruthy()
     expect(html).toMatch(
       new RegExp(
-        `確信度 <span class="mono">[0-9.]+</span> · <span class="mono">${date}</span></span>`,
+        `確信度 <span class="mono">[0-9.]+</span> · 提案 <span class="mono">${date}</span></span>`,
       ),
     )
   })
