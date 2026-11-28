@@ -103,17 +103,27 @@ const TabLink = ({ t, current }: { t: (typeof tabs)[number]; current: Tab }) =>
     <a href={t.href}>{t.label}</a>
   )
 
-// single（見開き全体を 1 ページで使う）のときは right を渡せない
+// single（見開き全体を 1 ページで使う）のときは right を渡せない。
+// single は PC で 1 列（本文は最大 680px）。columns={2} を付けたときだけ 2 列のグリッド（統計だけ）
 export type LayoutProps = {
   title: string
   tab: Tab
   left: Child
   fab?: boolean
-} & ({ single: true; right?: never } | { single?: false; right?: Child })
+} & (
+  | { single: true; columns?: 2; right?: never }
+  | { single?: false; columns?: never; right?: Child }
+)
 
 export const Layout = (props: LayoutProps) => {
   const hasRight = props.right !== undefined && props.right !== null
-  const bookClass = props.single ? 'book one' : hasRight ? 'book has-detail' : 'book'
+  const bookClass = props.single
+    ? props.columns === 2
+      ? 'book one grid'
+      : 'book one'
+    : hasRight
+      ? 'book has-detail'
+      : 'book'
   return (
     <Document title={props.title}>
       <div id="app" class="wide-able">

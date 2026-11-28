@@ -135,9 +135,18 @@ describe('画面ルート', () => {
     expect(list).not.toContain('has-detail')
   })
 
-  it('/stats は見開き全体を 1 ページで使う', async () => {
+  it('/stats は見開き全体を 1 ページで使い、2 列のグリッド（grid）が付く', async () => {
     const html = await (await get('/stats')).text()
-    expect(html).toContain('class="book one"')
+    expect(html).toContain('<main class="book one grid">')
+  })
+
+  it('統計以外の single（/about・管理画面）は 1 列で grid が付かない', async () => {
+    const about = await (await app.request('/about', {}, env)).text()
+    expect(about).toContain('<main class="book one">')
+    const owner = await loginAs(env, { subject: 'ui-test-owner', owner: true })
+    const res = await app.request('/admin/proposals', { headers: { Cookie: owner.cookie } }, env)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('<main class="book one">')
   })
 })
 
