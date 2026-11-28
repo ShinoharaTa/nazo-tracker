@@ -77,6 +77,33 @@ export const orgAliasesTakenByB = (db: Db, a: OrgRow, b: OrgRow) =>
       ),
     )
 
+// A → B で B の画像列に入れる値（変えないなら空）。A が載せない指定なら B も載せない指定にして URL を消す
+// （取り下げの依頼を統合で失わない）。そうでなく B が載せない指定でなく URL も無ければ A の URL を写す
+const workImagePatch = (a: WorkRow, b: WorkRow): Partial<WorkRow> => {
+  if (a.imageBlocked === 1) {
+    return b.imageBlocked === 1 && b.imageUrl === null && b.imagePageUrl === null
+      ? {}
+      : { imageBlocked: 1, imageUrl: null, imagePageUrl: null }
+  }
+  if (b.imageBlocked === 0 && b.imageUrl === null && a.imageUrl !== null) {
+    return { imageUrl: a.imageUrl, imagePageUrl: a.imagePageUrl }
+  }
+  return {}
+}
+
+// 団体版（logo_url / logo_page_url / image_blocked）
+const orgLogoPatch = (a: OrgRow, b: OrgRow): Partial<OrgRow> => {
+  if (a.imageBlocked === 1) {
+    return b.imageBlocked === 1 && b.logoUrl === null && b.logoPageUrl === null
+      ? {}
+      : { imageBlocked: 1, logoUrl: null, logoPageUrl: null }
+  }
+  if (b.imageBlocked === 0 && b.logoUrl === null && a.logoUrl !== null) {
+    return { logoUrl: a.logoUrl, logoPageUrl: a.logoPageUrl }
+  }
+  return {}
+}
+
 export const mergeWorkStmts = async (
   db: Db,
   a: WorkRow,
@@ -120,11 +147,19 @@ export const mergeWorkStmts = async (
     mergedIntoId: b.id,
     updatedAt: now,
   }
-  if (takeUrl) {
-    const bAfter: WorkRow = { ...b, officialUrl: a.officialUrl, updatedAt: now }
+  if (takeUrl) extra.push(db.update(work).set({ officialUrl: null }).where(eq(work.id, a.id)))
+  // 画像（docs/design.md §3.4.2）は B の update にまとめる（change_log は B の update 1 行）。A はそのまま（UNIQUE ではない）
+  const bPatch: Partial<WorkRow> = {
+    ...(takeUrl ? { officialUrl: a.officialUrl } : {}),
+    ...workImagePatch(a, b),
+  }
+  if (Object.keys(bPatch).length > 0) {
+    const bAfter: WorkRow = { ...b, ...bPatch, updatedAt: now }
     extra.push(
-      db.update(work).set({ officialUrl: null }).where(eq(work.id, a.id)),
-      db.update(work).set({ officialUrl: a.officialUrl, updatedAt: now }).where(eq(work.id, b.id)),
+      db
+        .update(work)
+        .set({ ...bPatch, updatedAt: now })
+        .where(eq(work.id, b.id)),
       logChange(db, {
         table: work,
         rowId: b.id,
@@ -221,15 +256,24 @@ export const mergeOrganizationStmts = async (
     updatedAt: now,
   }
   if (takeUrl) {
-    const bAfter: OrgRow = { ...b, escapeIdUrl: a.escapeIdUrl, slug: a.slug, updatedAt: now }
     extra.push(
       db
         .update(organization)
         .set({ escapeIdUrl: null, slug: null })
         .where(eq(organization.id, a.id)),
+    )
+  }
+  // ロゴは作品の画像と同じ規則（docs/design.md §3.4.2）
+  const bPatch: Partial<OrgRow> = {
+    ...(takeUrl ? { escapeIdUrl: a.escapeIdUrl, slug: a.slug } : {}),
+    ...orgLogoPatch(a, b),
+  }
+  if (Object.keys(bPatch).length > 0) {
+    const bAfter: OrgRow = { ...b, ...bPatch, updatedAt: now }
+    extra.push(
       db
         .update(organization)
-        .set({ escapeIdUrl: a.escapeIdUrl, slug: a.slug, updatedAt: now })
+        .set({ ...bPatch, updatedAt: now })
         .where(eq(organization.id, b.id)),
       logChange(db, {
         table: organization,
