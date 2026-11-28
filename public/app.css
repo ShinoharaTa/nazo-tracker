@@ -1027,12 +1027,29 @@ button.gtag.on {
   border-radius: 10px;
   padding: 1px 8px;
 }
+/* 項目列は中身の幅（上限 9em、PC は 14em）。「前」が全部空の節（.new）は 項目 / 後 の 2 列 */
 .diff {
   font-size: 13px;
   display: grid;
-  grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: fit-content(9em) minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 12px;
   align-items: start;
+}
+.diff.new {
+  grid-template-columns: fit-content(9em) minmax(0, 1fr);
+}
+.diff > .meta {
+  padding-bottom: 4px;
+}
+/* 1 項目（項目名・前・後・出典）の箱。列は .diff に揃え（subgrid）、出典の有無にかかわらず上に線 */
+.diff .it {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  row-gap: 4px;
+  align-items: start;
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
 }
 .diff .o {
   color: var(--muted);
@@ -1051,21 +1068,38 @@ button.gtag.on {
 .diff .full {
   grid-column: 1 / -1;
 }
-.diff details.full {
-  margin-top: -4px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--surface2);
+/* 項目名は切れない欧文（未登録の field 名など）でも列を広げない */
+.diff .k {
+  overflow-wrap: anywhere;
+}
+/* 出典の字下げ = チェックボックスの幅 + gap（項目名の字頭に揃える） */
+.diff .ind {
+  padding-left: 20px;
 }
 .diff label {
   display: flex;
   gap: 6px;
   align-items: flex-start;
 }
+.diff label > input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+}
 .diff .off {
   color: var(--muted);
 }
 .diff .n.off {
   font-weight: 400;
+}
+@media (min-width: 1024px) {
+  .diff {
+    grid-template-columns: fit-content(14em) minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .diff.new {
+    grid-template-columns: fit-content(14em) minmax(0, 1fr);
+  }
 }
 /* 名寄せ候補の 1 行（.ticket と同じ枠） */
 .cand {
