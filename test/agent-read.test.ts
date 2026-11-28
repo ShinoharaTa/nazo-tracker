@@ -453,6 +453,8 @@ describe('GET /api/agent/schema', () => {
     expect(Object.keys(pf.merge).sort()).toEqual(['organization', 'venue', 'work'])
     expect(pf.create.organization.sort()).toEqual([
       'organization.escape_id_url',
+      'organization.logo_page_url',
+      'organization.logo_url',
       'organization.name',
       'organization.site_url',
     ])

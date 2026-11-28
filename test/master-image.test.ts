@@ -552,41 +552,334 @@ describe('載せない設定で取得元だけ入っているとき', () => {
   })
 })
 
-describe('agent はまだ画像の項目を書けない', () => {
-  it('update（work / organization）・create organization でも 400 unknown_field', async () => {
+describe('agent の画像の提案', () => {
+  const getJson = async (path: string) => {
+    const res = await app.request(path, { headers: { Authorization: `Bearer ${token}` } }, env)
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> }
+  }
+  const appliedOf = async (proposalId: string) =>
+    JSON.parse(
+      (
+        await env.DB.prepare('SELECT applied_json FROM proposal WHERE id = ?')
+          .bind(proposalId)
+          .first<{ applied_json: string | null }>()
+      )?.applied_json ?? '{}',
+    ) as Record<string, string>
+
+  const PREVIEW_STYLE = 'width:auto;height:auto;max-width:160px;max-height:160px;object-fit:contain'
+
+  // 指定した項目だけ採用して承認する
+  const approveOnly = async (proposalId: string, fields: string[]) => {
+    const rows = (
+      await env.DB.prepare('SELECT id, field FROM proposal_field WHERE proposal_id = ?')
+        .bind(proposalId)
+        .all<{ id: string; field: string }>()
+    ).results
+    const picked = rows.filter((r) => fields.includes(r.field))
+    return post(
+      `/admin/proposals/${proposalId}/approve`,
+      Object.fromEntries(picked.map((r) => [`accept_${r.id}`, '1'])),
+      owner.cookie,
+    )
+  }
+  const statusOf = async (proposalId: string) =>
+    (
+      await env.DB.prepare('SELECT status FROM proposal WHERE id = ?')
+        .bind(proposalId)
+        .first<{ status: string }>()
+    )?.status
+
+  it('work.image_url つきの create が 201。採用で行と change_log に入る', async () => {
+    const r = await api({
+      kind: 'create',
+      target_table: 'work',
+      fields: [
+        pf('work.title', `画像つきの新作 ${crypto.randomUUID()}`),
+        pf('work.image_url', `${IMG}?t=sm`),
+        pf('work.image_page_url', PAGE),
+      ],
+    })
+    expect(r.status).toBe(201)
+    expect((await approveAll(r.body.id as string)).status).toBe(302)
+    const id = (await appliedOf(r.body.id as string)).work
+    expect(await workRow(id)).toEqual({ image_url: IMG, image_page_url: PAGE, image_blocked: 0 })
+    const logs = await logsOf(id)
+    expect(logs.map((l) => l.action)).toEqual(['create'])
+    expect(JSON.parse(logs[0].after_json ?? '{}')).toMatchObject({
+      image_url: IMG,
+      image_page_url: PAGE,
+    })
+  })
+
+  it('work の update が 201。採用で行と change_log に入る', async () => {
+    const id = await insertWork(env, { title: `画像を足す ${crypto.randomUUID()}` })
+    const r = await api({
+      kind: 'update',
+      target_table: 'work',
+      target_id: id,
+      fields: [pf('work.image_url', IMG), pf('work.image_page_url', PAGE)],
+    })
+    expect(r.status).toBe(201)
+    expect((await approveAll(r.body.id as string)).status).toBe(302)
+    expect(await workRow(id)).toEqual({ image_url: IMG, image_page_url: PAGE, image_blocked: 0 })
+    const logs = await logsOf(id)
+    expect(logs).toHaveLength(1)
+    expect(JSON.parse(logs[0].before_json ?? '{}')).toMatchObject({ image_url: null })
+    expect(JSON.parse(logs[0].after_json ?? '{}')).toMatchObject({
+      image_url: IMG,
+      image_page_url: PAGE,
+    })
+  })
+
+  it('organization のロゴの update が 201。採用で行と change_log に入る', async () => {
+    const org = await insertOrg(env, { name: `ロゴを足す ${crypto.randomUUID()}` })
+    const r = await api({
+      kind: 'update',
+      target_table: 'organization',
+      target_id: org,
+      fields: [pf('organization.logo_url', LOGO), pf('organization.logo_page_url', ORG_PAGE)],
+    })
+    expect(r.status).toBe(201)
+    expect((await approveAll(r.body.id as string)).status).toBe(302)
+    expect(await orgRow(org)).toEqual({ logo_url: LOGO, logo_page_url: ORG_PAGE, image_blocked: 0 })
+    const logs = await logsOf(org)
+    expect(logs).toHaveLength(1)
+    expect(JSON.parse(logs[0].after_json ?? '{}')).toMatchObject({
+      logo_url: LOGO,
+      logo_page_url: ORG_PAGE,
+    })
+  })
+
+  it('image_blocked は work / organization とも create・update で 400 unknown_field', async () => {
     const work = await insertWork(env, { title: `agent の対象 ${crypto.randomUUID()}` })
     const org = await insertOrg(env, { name: `agent の対象団体 ${crypto.randomUUID()}` })
-    const cases: [Record<string, unknown>, string][] = [
-      ...['work.image_url', 'work.image_page_url', 'work.image_blocked'].map(
-        (field) =>
-          [{ kind: 'update', target_table: 'work', target_id: work }, field] as [
-            Record<string, unknown>,
-            string,
-          ],
-      ),
-      ...[
-        'organization.logo_url',
-        'organization.logo_page_url',
-        'organization.image_blocked',
-      ].flatMap((field) => [
-        [{ kind: 'update', target_table: 'organization', target_id: org }, field] as [
-          Record<string, unknown>,
-          string,
+    const cases: Record<string, unknown>[] = [
+      {
+        kind: 'update',
+        target_table: 'work',
+        target_id: work,
+        fields: [pf('work.image_blocked', '1')],
+      },
+      {
+        kind: 'create',
+        target_table: 'work',
+        fields: [pf('work.title', `新作 ${crypto.randomUUID()}`), pf('work.image_blocked', '1')],
+      },
+      {
+        kind: 'update',
+        target_table: 'organization',
+        target_id: org,
+        fields: [pf('organization.image_blocked', '1')],
+      },
+      {
+        kind: 'create',
+        target_table: 'organization',
+        fields: [
+          pf('organization.name', `新団体 ${crypto.randomUUID()}`),
+          pf('organization.image_blocked', '1'),
         ],
-        [
-          {
-            kind: 'create',
-            target_table: 'organization',
-            fields: [pf('organization.name', `新団体 ${crypto.randomUUID()}`)],
-          },
-          field,
-        ] as [Record<string, unknown>, string],
-      ]),
+      },
     ]
-    for (const [base, field] of cases) {
-      const fields = [...((base.fields as unknown[]) ?? []), pf(field, IMG)]
-      const r = await api({ ...base, fields })
-      expect(r, `${base.kind} ${field}`).toEqual({ status: 400, body: { error: 'unknown_field' } })
+    for (const body of cases) {
+      expect(await api(body), `${body.kind} ${body.target_table}`).toEqual({
+        status: 400,
+        body: { error: 'unknown_field' },
+      })
     }
+  })
+
+  it('載せない設定の行への画像の update は 400 invalid_fields', async () => {
+    const work = await insertWork(env, { title: `止めた作品 ${crypto.randomUUID()}` })
+    await setImage('work', work, { image_blocked: 1 })
+    expect(
+      await api({
+        kind: 'update',
+        target_table: 'work',
+        target_id: work,
+        fields: [pf('work.image_url', IMG), pf('work.image_page_url', PAGE)],
+      }),
+    ).toEqual({
+      status: 400,
+      body: {
+        error: 'invalid_fields',
+        details: ['画像を載せない設定です。画像の URL を空にしてください。'],
+      },
+    })
+    const org = await insertOrg(env, { name: `止めた団体 ${crypto.randomUUID()}` })
+    await setImage('organization', org, { image_blocked: 1 })
+    const r = await api({
+      kind: 'update',
+      target_table: 'organization',
+      target_id: org,
+      fields: [pf('organization.logo_url', LOGO), pf('organization.logo_page_url', ORG_PAGE)],
+    })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('invalid_fields')
+    expect(await orgRow(org)).toEqual({ logo_url: null, logo_page_url: null, image_blocked: 1 })
+  })
+
+  it('schema に画像の 4 項目と image_hosts・image_extensions が出る。image_blocked は出ない', async () => {
+    const r = await getJson('/api/agent/schema')
+    expect(r.status).toBe(200)
+    const pfs = r.body.proposal_fields as Record<string, Record<string, string[]>>
+    for (const kind of ['create', 'update']) {
+      expect(pfs[kind].work).toEqual(
+        expect.arrayContaining(['work.image_url', 'work.image_page_url']),
+      )
+      expect(pfs[kind].organization).toEqual(
+        expect.arrayContaining(['organization.logo_url', 'organization.logo_page_url']),
+      )
+      expect(pfs[kind].work).not.toContain('work.image_blocked')
+      expect(pfs[kind].organization).not.toContain('organization.image_blocked')
+    }
+    expect(r.body.image_hosts).toEqual(['static.escape.id'])
+    expect(r.body.image_extensions).toEqual(['png', 'jpg', 'jpeg', 'webp', 'gif'])
+  })
+
+  it('承認画面に新しい値と今の値のプレビューの <img>（no-referrer）が出る。許可外の値は文字だけ', async () => {
+    const OLD = 'https://static.escape.id/i/o/takarush/old.png'
+    const id = await insertWork(env, { title: `差し替え ${crypto.randomUUID()}` })
+    await setImage('work', id, { image_url: OLD, image_page_url: PAGE })
+    const r = await api({
+      kind: 'update',
+      target_table: 'work',
+      target_id: id,
+      fields: [pf('work.image_url', IMG)],
+    })
+    expect(r.status).toBe(201)
+    const html = await (await get(`/admin/proposals/${r.body.id}`, owner.cookie)).text()
+    const imgs = [...html.matchAll(/<img [^>]*>/g)].map((m) => m[0])
+    expect(imgs).toHaveLength(2)
+    for (const [img, src] of [
+      [imgs[0], OLD],
+      [imgs[1], IMG],
+    ]) {
+      expect(img).toContain(`src="${src}"`)
+      expect(img).toContain('referrerpolicy="no-referrer"')
+      expect(img).toContain('loading="lazy"')
+      expect(img).toContain(PREVIEW_STYLE)
+    }
+    // 項目名のラベル（採用の Checkbox の label）
+    expect(html).toMatch(/<label><input [^>]*name="accept_[^"]+"[^>]*>画像<\/label>/)
+
+    // 今の値が許可外 host（古い値）なら <img> にしない
+    const legacy = await insertWork(env, { title: `古い値 ${crypto.randomUUID()}` })
+    await setImage('work', legacy, {
+      image_url: 'https://old.example.com/a.png',
+      image_page_url: PAGE,
+    })
+    const r2 = await api({
+      kind: 'update',
+      target_table: 'work',
+      target_id: legacy,
+      fields: [pf('work.image_url', IMG)],
+    })
+    expect(r2.status).toBe(201)
+    const html2 = await (await get(`/admin/proposals/${r2.body.id}`, owner.cookie)).text()
+    expect(html2).toContain('https://old.example.com/a.png')
+    expect([...html2.matchAll(/<img [^>]*>/g)].map((m) => m[0])).toEqual([
+      expect.stringContaining(`src="${IMG}"`),
+    ])
+  })
+
+  it('載せない設定の既存の団体を primary にした create に画像 → 400 invalid_fields', async () => {
+    const org = await insertOrg(env, { name: `止めた団体 ${crypto.randomUUID()}` })
+    await setImage('organization', org, { image_blocked: 1 })
+    expect(
+      await api({
+        kind: 'create',
+        target_table: 'work',
+        fields: [
+          pf('work.title', `止めた団体の新作 ${crypto.randomUUID()}`),
+          pf('work.primary_organization_id', org),
+          pf('work.image_url', IMG),
+          pf('work.image_page_url', PAGE),
+        ],
+      }),
+    ).toEqual({
+      status: 400,
+      body: { error: 'invalid_fields', details: ['この団体は画像を載せない設定です。'] },
+    })
+  })
+
+  it('@organization の束でロゴと画像が 201。承認すると両方の行に入る', async () => {
+    const r = await api({
+      kind: 'create',
+      target_table: 'work',
+      fields: [
+        pf('organization.name', `束の団体 ${crypto.randomUUID()}`),
+        pf('organization.logo_url', LOGO),
+        pf('organization.logo_page_url', ORG_PAGE),
+        pf('work.title', `束の作品 ${crypto.randomUUID()}`),
+        pf('work.primary_organization_id', '@organization'),
+        pf('work.image_url', IMG),
+        pf('work.image_page_url', PAGE),
+      ],
+    })
+    expect(r.status).toBe(201)
+    expect((await approveAll(r.body.id as string)).status).toBe(302)
+    const applied = await appliedOf(r.body.id as string)
+    expect(await orgRow(applied.organization)).toEqual({
+      logo_url: LOGO,
+      logo_page_url: ORG_PAGE,
+      image_blocked: 0,
+    })
+    expect(await workRow(applied.work)).toEqual({
+      image_url: IMG,
+      image_page_url: PAGE,
+      image_blocked: 0,
+    })
+  })
+
+  it('部分承認で image_url だけ採用（create）→ 400 で作品はできない', async () => {
+    const title = `部分承認の新作 ${crypto.randomUUID()}`
+    const r = await api({
+      kind: 'create',
+      target_table: 'work',
+      fields: [pf('work.title', title), pf('work.image_url', IMG), pf('work.image_page_url', PAGE)],
+    })
+    expect(r.status).toBe(201)
+    const res = await approveOnly(r.body.id as string, ['work.title', 'work.image_url'])
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('画像と画像の取得元は両方入れてください。')
+    expect(await statusOf(r.body.id as string)).toBe('pending')
+    expect(
+      await env.DB.prepare('SELECT COUNT(*) AS n FROM work WHERE title = ?').bind(title).first('n'),
+    ).toBe(0)
+  })
+
+  it('部分承認で image_url だけ採用（画像なしの作品への update）→ 400 で行が変わらない', async () => {
+    const id = await insertWork(env, { title: `部分承認の対象 ${crypto.randomUUID()}` })
+    const r = await api({
+      kind: 'update',
+      target_table: 'work',
+      target_id: id,
+      fields: [pf('work.image_url', IMG), pf('work.image_page_url', PAGE)],
+    })
+    expect(r.status).toBe(201)
+    const res = await approveOnly(r.body.id as string, ['work.image_url'])
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('画像と画像の取得元は両方入れてください。')
+    expect(await statusOf(r.body.id as string)).toBe('pending')
+    expect(await workRow(id)).toEqual({ image_url: null, image_page_url: null, image_blocked: 0 })
+    expect(await logsOf(id)).toEqual([])
+  })
+
+  it('organization.logo_url の行にもプレビューの <img> が出る', async () => {
+    const org = await insertOrg(env, { name: `団体の承認 ${crypto.randomUUID()}` })
+    const r = await api({
+      kind: 'update',
+      target_table: 'organization',
+      target_id: org,
+      fields: [pf('organization.logo_url', LOGO), pf('organization.logo_page_url', ORG_PAGE)],
+    })
+    expect(r.status).toBe(201)
+    const html = await (await get(`/admin/proposals/${r.body.id}`, owner.cookie)).text()
+    const imgs = [...html.matchAll(/<img [^>]*>/g)].map((m) => m[0])
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0]).toContain(`src="${LOGO}"`)
+    expect(imgs[0]).toContain('referrerpolicy="no-referrer"')
+    expect(imgs[0]).toContain(PREVIEW_STYLE)
+    expect(html).toMatch(/<label><input [^>]*name="accept_[^"]+"[^>]*>ロゴ<\/label>/)
   })
 })

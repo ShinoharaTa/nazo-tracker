@@ -26,13 +26,11 @@ export type ProposalKind = Exclude<(typeof proposalKinds)[number], 'create_attem
 // 統合を提案できる表（merged_into_id がある表）
 const mergeTables: readonly ProposalTable[] = ['work', 'organization', 'venue']
 
-// 表ごとに agent が書ける列（note は書けない。run.work_id は create run / link だけ）。
-// 画像の列（image_url / image_page_url / image_blocked）はまだ書けない（#150。image_blocked は今後も書けない）
-const workImageColumns: readonly string[] = ['image_url', 'image_page_url', 'image_blocked']
+// 表ごとに agent が書ける列（note と image_blocked は書けない。run.work_id は create run / link だけ）
 const writable: Record<ProposalTable, readonly string[]> = {
-  work: workFields.filter((f) => !workImageColumns.includes(f)),
+  work: workFields.filter((f) => f !== 'image_blocked'),
   run: [...runFields.filter((f) => f !== 'note'), 'work_id'],
-  organization: ['name', 'site_url', 'escape_id_url'],
+  organization: ['name', 'site_url', 'escape_id_url', 'logo_url', 'logo_page_url'],
   venue: venueFields,
   shop: shopFields,
 }
