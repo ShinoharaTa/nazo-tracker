@@ -101,6 +101,10 @@ export const organization = sqliteTable(
     siteUrl: text('site_url'),
     escapeIdUrl: text('escape_id_url').unique(),
     note: text('note'),
+    // ロゴの URL と取得元のページ（実体は持たない。docs/design.md §3.4.2）。1 = ロゴと、この団体が primary の作品の画像を載せない
+    logoUrl: text('logo_url'),
+    logoPageUrl: text('logo_page_url'),
+    imageBlocked: integer('image_blocked').notNull().default(0),
     mergedIntoId: text('merged_into_id').references((): AnySQLiteColumn => organization.id),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
@@ -144,6 +148,10 @@ export const work = sqliteTable(
     estimatedMinutes: integer('estimated_minutes'),
     timeLimitMinutes: integer('time_limit_minutes'),
     firstReleasedOn: text('first_released_on'),
+    // 画像（og:image）の URL と取得元のページ（実体は持たない。docs/design.md §3.4.2）。1 = この作品には画像を載せない
+    imageUrl: text('image_url'),
+    imagePageUrl: text('image_page_url'),
+    imageBlocked: integer('image_blocked').notNull().default(0),
     mergedIntoId: text('merged_into_id').references((): AnySQLiteColumn => work.id),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),

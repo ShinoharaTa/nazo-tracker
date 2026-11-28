@@ -26,9 +26,11 @@ export type ProposalKind = Exclude<(typeof proposalKinds)[number], 'create_attem
 // 統合を提案できる表（merged_into_id がある表）
 const mergeTables: readonly ProposalTable[] = ['work', 'organization', 'venue']
 
-// 表ごとに agent が書ける列（note は書けない。run.work_id は create run / link だけ）
+// 表ごとに agent が書ける列（note は書けない。run.work_id は create run / link だけ）。
+// 画像の列（image_url / image_page_url / image_blocked）はまだ書けない（#150。image_blocked は今後も書けない）
+const workImageColumns: readonly string[] = ['image_url', 'image_page_url', 'image_blocked']
 const writable: Record<ProposalTable, readonly string[]> = {
-  work: workFields,
+  work: workFields.filter((f) => !workImageColumns.includes(f)),
   run: [...runFields.filter((f) => f !== 'note'), 'work_id'],
   organization: ['name', 'site_url', 'escape_id_url'],
   venue: venueFields,
@@ -277,10 +279,10 @@ export const fingerprintOf = (
 // validators を通す
 // ---------------------------------------------------------------------------
 
-// DB 列名キーの行 → フォームの文字列。null は空、is_permanent は '1' か空
+// DB 列名キーの行 → フォームの文字列。null は空、is_permanent / image_blocked は '1' か空
 export const formValueOf = (column: string, v: unknown): string => {
   if (v === null || v === undefined) return ''
-  if (column === 'is_permanent') return v === 1 ? '1' : ''
+  if (column === 'is_permanent' || column === 'image_blocked') return v === 1 ? '1' : ''
   return String(v)
 }
 

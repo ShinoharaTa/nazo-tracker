@@ -44,7 +44,7 @@ import { url as urlParser } from '../lib/form'
 import { hasUserinfo } from '../lib/match'
 import { prefectures } from '../lib/prefectures'
 import { allow } from '../lib/rate-limit'
-import { isEscapeIdMyPage } from '../lib/url'
+import { isEscapeIdMyPage, isXHost } from '../lib/url'
 import { buildAutoApply } from '../pipeline/apply'
 import { autoApplyDecision } from '../pipeline/auto'
 import {
@@ -257,9 +257,6 @@ apiAgent.get('/schema', requireScope('master:read'), (c) =>
 
 const EXCERPT_MAX = 500
 const agentSourceMethods = ['escape_mcp', 'webfetch', 'pds'] as const
-// X（旧 Twitter）とその短縮 URL は取得元にしない（サブドメインも全部）
-const xHosts = ['x.com', 'twitter.com', 't.co']
-const isXHost = (host: string) => xHosts.some((h) => host === h || host.endsWith(`.${h}`))
 // ISO 8601 の日時（タイムゾーン付き）
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/
 

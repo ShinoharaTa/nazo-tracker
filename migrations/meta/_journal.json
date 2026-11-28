@@ -64,6 +64,13 @@
       "when": 1795776171410,
       "tag": "0008_v_friend_attempt",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795850000000,
+      "tag": "0009_master_image",
+      "breakpoints": true
     }
   ]
 }

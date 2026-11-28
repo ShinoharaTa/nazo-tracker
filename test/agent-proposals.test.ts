@@ -184,8 +184,20 @@ describe('POST /api/agent/sources', () => {
 })
 
 describe('POST /api/agent/proposals の形', () => {
-  it('未知の field・note 列・imageUrl は 400 unknown_field', async () => {
-    for (const field of ['work.nope', 'work.note', 'run.note', 'organization.note', 'imageUrl']) {
+  it('未知の field・note 列・imageUrl・画像の列（まだ書けない）は 400 unknown_field', async () => {
+    for (const field of [
+      'work.nope',
+      'work.note',
+      'run.note',
+      'organization.note',
+      'imageUrl',
+      'work.image_url',
+      'work.image_page_url',
+      'work.image_blocked',
+      'organization.logo_url',
+      'organization.logo_page_url',
+      'organization.image_blocked',
+    ]) {
       const r = await post('/api/agent/proposals', {
         kind: 'create',
         target_table: 'work',

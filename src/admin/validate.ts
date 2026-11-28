@@ -6,6 +6,7 @@ import type { Db } from '../db/client'
 import {
   isLiveOrg,
   isLiveVenue,
+  liveOrgImageBlocked,
   orgAliasNormTaken,
   orgUniqueTaken,
   runEscapeUrlTaken,
@@ -34,6 +35,7 @@ import {
   str,
   url,
 } from '../lib/form'
+import { imagePageUrl, imageUrl } from '../lib/image-url'
 import { norm } from '../lib/norm'
 import { prefectures } from '../lib/prefectures'
 
@@ -113,10 +115,54 @@ const liveOrgId = (db: Db, errors: string[], label: string, raw: string) =>
   refId(errors, label, raw, (id) => isLiveOrg(db, id))
 
 // ---------------------------------------------------------------------------
+// マスタの画像（作品の画像・団体のロゴ。URL だけを持つ。docs/design.md §3.4.2）
+// ---------------------------------------------------------------------------
+
+// 「画像を載せない」の値（チェックボックス。空なら載せる）
+export const imageBlockedValues = ['1'] as const
+
+// 画像の URL と取得元の項目名（作品 / 団体）
+export const workImageFields = ['image_url', 'image_page_url'] as const
+export const orgImageFields = ['logo_url', 'logo_page_url'] as const
+
+// オーナーのフォームで「画像を載せない」にチェックした保存は、URL が残っていても空にして保存する
+// （載せない設定の行に URL があるエラーは agent の提案でだけ出す）
+export const clearBlockedImage = (f: Form, fields: readonly [string, string]): Form =>
+  f.image_blocked === '1' ? { ...f, [fields[0]]: '', [fields[1]]: '' } : f
+
+// 画像の URL と取得元（label は「画像」か「ロゴ」）。組で入れる・載せない設定の行には入れない
+const imageOf = (
+  errors: string[],
+  label: string,
+  rawUrl: string,
+  rawPage: string,
+  rawBlocked: string,
+) => {
+  const imgUrl = field(errors, label, rawUrl, imageUrl())
+  const pageUrl = field(errors, `${label}の取得元`, rawPage, imagePageUrl())
+  const blocked = field(errors, '画像を載せない', rawBlocked, oneOf(imageBlockedValues))
+  if ((rawUrl === '') !== (rawPage === '')) {
+    errors.push(`${label}と${label}の取得元は両方入れてください。`)
+  }
+  if (blocked && rawUrl !== '') {
+    errors.push(`画像を載せない設定です。${label}の URL を空にしてください。`)
+  }
+  return { imgUrl, pageUrl, blocked: blocked ? 1 : 0 }
+}
+
+// ---------------------------------------------------------------------------
 // organization
 // ---------------------------------------------------------------------------
 
-export const orgFields = ['name', 'site_url', 'escape_id_url', 'note'] as const
+export const orgFields = [
+  'name',
+  'site_url',
+  'escape_id_url',
+  'note',
+  'logo_url',
+  'logo_page_url',
+  'image_blocked',
+] as const
 
 export type OrgInput = {
   name: string
@@ -124,6 +170,9 @@ export type OrgInput = {
   escapeIdUrl: string | null
   slug: string | null
   note: string | null
+  logoUrl: string | null
+  logoPageUrl: string | null
+  imageBlocked: number
 }
 
 export const validateOrg = async (db: Db, f: Form, selfId?: string) => {
@@ -132,11 +181,21 @@ export const validateOrg = async (db: Db, f: Form, selfId?: string) => {
   const siteUrl = field(errors, '公式サイト', f.site_url, url())
   const escapeIdUrl = field(errors, 'escape.id の URL', f.escape_id_url, escapeOrgUrl())
   const note = field(errors, 'メモ', f.note, str(NOTE_MAX, { multiline: true }))
+  const logo = imageOf(errors, 'ロゴ', f.logo_url, f.logo_page_url, f.image_blocked)
   const slug = slugOf(escapeIdUrl)
   if (escapeIdUrl && (await orgUniqueTaken(db, { escapeIdUrl, slug }, selfId))) {
     errors.push('同じ escape.id URL の団体があります。')
   }
-  return done<OrgInput>(errors, { name: name ?? '', siteUrl, escapeIdUrl, slug, note })
+  return done<OrgInput>(errors, {
+    name: name ?? '',
+    siteUrl,
+    escapeIdUrl,
+    slug,
+    note,
+    logoUrl: logo.imgUrl,
+    logoPageUrl: logo.pageUrl,
+    imageBlocked: logo.blocked,
+  })
 }
 
 export const orgAliasFields = ['name', 'kind', 'since', 'until'] as const
@@ -232,6 +291,9 @@ export const workFields = [
   'estimated_minutes',
   'time_limit_minutes',
   'first_released_on',
+  'image_url',
+  'image_page_url',
+  'image_blocked',
 ] as const
 
 export type WorkInput = {
@@ -245,6 +307,9 @@ export type WorkInput = {
   estimatedMinutes: number | null
   timeLimitMinutes: number | null
   firstReleasedOn: string | null
+  imageUrl: string | null
+  imagePageUrl: string | null
+  imageBlocked: number
 }
 
 export const validateWork = async (db: Db, f: Form, selfId?: string) => {
@@ -252,7 +317,18 @@ export const validateWork = async (db: Db, f: Form, selfId?: string) => {
   const title = field(errors, '題名', f.title, str(NAME_MAX), true)
   // kind は任意（親の決定: 形式不明のまま登録できるように。P4 の提案も NULL で入る）
   const kind = field(errors, '形式', f.kind, oneOf(workKinds))
-  const primaryOrganizationId = await liveOrgId(db, errors, '団体', f.primary_organization_id)
+  // 団体の存在確認と「画像を載せない」を同じ 1 クエリで読む（まとめて承認のクエリ数を増やさない）
+  let orgImageBlocked = false
+  const primaryOrganizationId = await refId(
+    errors,
+    '団体',
+    f.primary_organization_id,
+    async (id) => {
+      const blocked = await liveOrgImageBlocked(db, id)
+      orgImageBlocked = blocked === true
+      return blocked !== null
+    },
+  )
   const officialUrl = field(errors, '公式サイト', f.official_url, url())
   const description = field(errors, '説明', f.description, str(NOTE_MAX, { multiline: true }))
   const playerMin = field(errors, '最少人数', f.player_min, int(1, PLAYERS_MAX))
@@ -260,6 +336,8 @@ export const validateWork = async (db: Db, f: Form, selfId?: string) => {
   const estimatedMinutes = field(errors, '所要時間', f.estimated_minutes, int(1, MINUTES_MAX))
   const timeLimitMinutes = field(errors, '制限時間', f.time_limit_minutes, int(1, MINUTES_MAX))
   const firstReleasedOn = field(errors, '初演・発売日', f.first_released_on, date())
+  const image = imageOf(errors, '画像', f.image_url, f.image_page_url, f.image_blocked)
+  if (orgImageBlocked && f.image_url !== '') errors.push('この団体は画像を載せない設定です。')
   if (playerMin !== null && playerMax !== null && playerMin > playerMax) {
     errors.push('最少人数は最多人数以下にしてください。')
   }
@@ -277,6 +355,9 @@ export const validateWork = async (db: Db, f: Form, selfId?: string) => {
     estimatedMinutes,
     timeLimitMinutes,
     firstReleasedOn,
+    imageUrl: image.imgUrl,
+    imagePageUrl: image.pageUrl,
+    imageBlocked: image.blocked,
   })
 }
 
