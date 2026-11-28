@@ -30,7 +30,7 @@ sequenceDiagram
 1. `nazo-admin queue list --status triaged,open` で取得（open は A-1 を省略した場合）。
 2. 各件を `processing` に。
 3. 調査:
-   - `url` が escape.id → MCP `get_event`、必要なら `list_dates`。`source(method=escape_mcp)` を登録。`imageUrl` は提案に含めない。escape.id は形式を区別していない前提なので、`work.kind` は説明文・公式サイトから推定して confidence 付きで提案し、オーナーが承認時に確定する（`type` の生値は `run.escape_type_raw` に参考として残す）。終了日が無く常設らしい（期間「-」/開始日のみ）なら `is_permanent=1` を提案し confidence を 0.7 に下げる。
+   - `url` が escape.id → MCP `get_event`、必要なら `list_dates`。`source(method=escape_mcp)` を登録。作品の画像は公演ページの **og:image の URL**（`ogImageUrl`）を `work.image_url`、公演ページの URL を `work.image_page_url` に、団体のロゴは主催のアイコン（= 団体ページの og:image）の URL を `organization.logo_url`、団体ページ（`https://escape.id/<slug>-org/`）を `organization.logo_page_url` に提案する（出典は公演情報と同じ source、確信度 0.95。画像の実体は落とさない）。`imageUrl`（縦ポスター優先で og:image と別物になりうる）は提案に含めない。escape.id は形式を区別していない前提なので、`work.kind` は説明文・公式サイトから推定して confidence 付きで提案し、オーナーが承認時に確定する（`type` の生値は `run.escape_type_raw` に参考として残す）。終了日が無く常設らしい（期間「-」/開始日のみ）なら `is_permanent=1` を提案し confidence を 0.7 に下げる。
    - それ以外の URL → robots 確認 → WebFetch。`source(method=webfetch)`。
    - URL 無し → 公式サイトを検索で探す。見つからなければ `needs_info`。
 4. `nazo-admin match --title --org` で候補を取得。
@@ -40,7 +40,7 @@ sequenceDiagram
 
 確信度の目安: escape.id 由来の構造化フィールド 0.95 / 公式サイト本文から読んだ値 0.7 / 推測 0.4 / 常設判定 0.7。
 
-Claude が**触らないもの**: 画像（取得・アップロードとも）、ユーザーの記録（attempt / session / image）、フレンド関係、ジャンルの付与。評価項目は手入力のみ。
+Claude が**触らないもの**: 画像の実体（取得・アップロードとも。URL を提案に書くだけ）、ユーザーの写真、ユーザーの記録（attempt / session / image）、フレンド関係、ジャンルの付与。評価項目は手入力のみ。
 
 `work.kind` / `is_permanent` の確定: 提案の `proposal_field` に `kind`（推定値 + 根拠の source）を含め、承認 UI でオーナーが選び直せるセレクトにする。A-3 自動反映の対象で `work.kind` / `run.is_permanent` の confidence < 0.9 なら、その項目だけ**入れずに**作品・回を反映し（kind = NULL、is_permanent = 0）、同じ値の `update` 提案（pending、`follow_up_of_id` = 元の提案、リクエストは付けない）を同じ batch で作る。記録はすぐ付けられ、kind が決まるまでステータスは 5 択のまま。
 
@@ -69,6 +69,8 @@ A-3 自動反映ルール（Worker 側、`src/pipeline/auto.ts`。`/admin/propos
 `hold: true` の提案は条件判定の対象外（常に pending。§5 の `POST /api/agent/proposals`）。
 
 `update` / `merge` / `link` / 参加記録インポートは常に pending。
+
+画像（`work.image_url` / `image_page_url`）は特別扱いしない（許可ホスト + escape MCP 由来なので、条件を満たせば画像つきで自動反映されうる）。団体の節がある束は 3 で承認待ちなので、**ロゴは必ず人が見る**。
 
 反映は `POST /api/agent/proposals` の 1 batch: 提案（`auto_applied`・`revert_until`・`applied_json`、項目の `accepted` は入れた項目 1 / 入れなかった kind・is_permanent 0）→ 作品 → 回（change_log は actor = トークン、`proposal_id`）→ follow-up → リクエストの自動 done。応答は 201 `{"status":"auto_applied","revert_until":ISO,"follow_ups":[id…]}`。書き込みの UNIQUE 違反は 409（同じ fingerprint の pending → `duplicate_pending`、同じ escape.id URL の回 → `duplicate_escape_id_url`、ほか → `conflict`）。一覧の期限は JST の「M/D HH:mm まで」。
 
@@ -120,12 +122,12 @@ fingerprint = sha256(kind, target_table, target_id or title_norm, 正規化し�
   - `GET /api/agent/match?title=&org=&url=`: `/api/admin/match` と同じ検証・同じ形（完全一致のみ）。
   - `GET /api/agent/rows/:table/:id`: table ∈ work / run / organization / venue / shop（不正 400 `invalid_table`）。DB 列名の行 1 つ（`note` は除く）。work は `aliases`・`runs` も付ける（各 200 件まで。超えたら切って `truncated: true` を付ける）。統合済みも返す。無い → 404 `not_found`。
   - `GET /api/agent/index/:table?part=name|alias&after=&limit=1000`: table ∈ work / organization / venue（venue は name のみ、不正 400 `invalid_part`）。未統合だけ（alias は未統合の作品・団体の別名）、id 昇順、limit は 1〜1000（既定 1000）。work `{id,work_id,title,title_norm,org_id}`、organization `{id,organization_id,name,name_norm}`、venue `{id,name,name_norm,prefecture}`。`{items, next}`（続きがあれば最後の id、無ければ null。次は `after=<next>`）。
-  - `GET /api/agent/schema`: 提案で書ける項目と値の一覧（MCP のツール説明の元。二重管理しない）。`{proposal_fields:{<kind>:{<target_table>:["<表>.<列>"…]}}, enums:{"work.kind","run.channel","shop.kind","venue.prefecture","run.is_permanent"}, placeholders:{"<表>.<列>":"@<表>"}, source_methods, request_statuses, proposal_statuses}`。`proposal_fields` は `src/pipeline/fields.ts` の表（`parseProposal` が許す項目）から作り、kind は create / update / link / merge（`create_attempt_import` は載せない）。`enums` は validators が値を限定している列で、`run.is_permanent` の `""` は常設でない（null と同じ）。`placeholders` は同じ束の行を指せる列とその値（`fields.ts` の `placeholders` から作る。例 `"work.primary_organization_id":"@organization"`）。`source_methods` は agent が送れるもの（`escape_mcp` / `webfetch` / `pds`）。
+  - `GET /api/agent/schema`: 提案で書ける項目と値の一覧（MCP のツール説明の元。二重管理しない）。`{proposal_fields:{<kind>:{<target_table>:["<表>.<列>"…]}}, enums:{"work.kind","run.channel","shop.kind","venue.prefecture","run.is_permanent"}, placeholders:{"<表>.<列>":"@<表>"}, source_methods, request_statuses, proposal_statuses}`。`proposal_fields` は `src/pipeline/fields.ts` の表（`parseProposal` が許す項目）から作り、kind は create / update / link / merge（`create_attempt_import` は載せない）。`enums` は validators が値を限定している列で、`run.is_permanent` の `""` は常設でない（null と同じ）。`placeholders` は同じ束の行を指せる列とその値（`fields.ts` の `placeholders` から作る。例 `"work.primary_organization_id":"@organization"`）。`source_methods` は agent が送れるもの（`escape_mcp` / `webfetch` / `pds`）。`image_hosts` は画像の URL に使えるホスト（`src/lib/image-url.ts` の `IMAGE_HOSTS`。例 `["static.escape.id"]`）。
 - 出典と提案（`src/routes/api-agent.ts`、形と検証は `src/pipeline/fields.ts`）。Worker は外部へ fetch しない:
   - `POST /api/agent/sources` `{url, method, fetched_at, content_hash?, excerpt?, robots_checked}` → 201 `{"id"}`。`domain` は Worker が host（小文字）から入れる。`method` は `escape_mcp` / `webfetch` / `pds`（`manual` などは 400 `invalid_method`）。禁止の取得元（escape.id / `*.escape.id` の `/me` 以下、host が `x.com` / `twitter.com` / `t.co` そのものかそのサブドメイン）は 400 `forbidden_source`。`escape_mcp` は host `escape.id` のみ（400 `method_host_mismatch`）、`webfetch` は `robots_checked` = 1 必須（400 `robots_not_checked`）。`url` 不正・userinfo（`user:pass@`）付き 400 `invalid_url`、`robots_checked` は 0 / 1 / true / false（400 `invalid_robots_checked`）、`fetched_at` はタイムゾーン付き ISO 8601（400 `invalid_fetched_at`、UTC の toISOString の形で保存）、`content_hash` は 64 桁 hex（400 `invalid_content_hash`）、`excerpt` ≤ 500 字（400 `excerpt_too_long`）。
   - `POST /api/agent/proposals` `{kind, target_table, target_id?, request_id?, fields:[{field, new_value, source_id, confidence}], match_candidates?, hold?}` → 201 `{"id","status":"pending"|"auto_applied","fingerprint","revert_until":null|ISO,"follow_ups":[id…]}`。A-3（§4）に合えば `auto_applied`、それ以外は `pending`。
     - `hold`（true / false、既定 false）: true なら A-3 の判定をせず、設定が ON で条件を満たしていても `pending`（MCP の `create_proposal` は常に true を送る）。false・無しは従来どおり。true / false 以外（null・0 / 1・文字列も）は 400 `invalid_hold`。fingerprint には含めない。
-    - 項目は `<表>.<列>`（列はフォーム名）、値はフォームと同じ文字列（前後の空白を落とし、空は null）で、承認時と同じ validators に通す（エラーは 400 `{"error":"invalid_fields","details":[…]}`）。書ける列・kind ごとの節は `src/pipeline/fields.ts` の表（それ以外・`note`・画像は 400 `unknown_field`）。create は work / run の束に新しい団体・会場・販売先を入れられ、`@organization` / `@venue` / `@shop` で同じ束の行を指す（節が無ければ 400 `invalid_placeholder`）。
+    - 項目は `<表>.<列>`（列はフォーム名）、値はフォームと同じ文字列（前後の空白を落とし、空は null）で、承認時と同じ validators に通す（エラーは 400 `{"error":"invalid_fields","details":[…]}`）。書ける列・kind ごとの節は `src/pipeline/fields.ts` の表（それ以外・`note`・`image_blocked` は 400 `unknown_field`）。create は work / run の束に新しい団体・会場・販売先を入れられ、`@organization` / `@venue` / `@shop` で同じ束の行を指す（節が無ければ 400 `invalid_placeholder`）。
     - kind 不正 400 `invalid_kind`、`create_attempt_import` 400 `kind_not_supported`、target_table 不正 400 `invalid_target_table`、create に target_id 400 `target_id_not_allowed`、それ以外で無し 400 `target_id_required`、同じ field 2 回 400 `duplicate_field`、confidence が 0〜1 でない 400 `invalid_confidence`、候補（最大 20 件 `{table: work|organization|venue, id, score 0〜1, reason ≤ 40 字}`。id は 64 字まで、存在は確かめない）不正 400 `invalid_candidates`、無い source_id 400 `{"error":"source_not_found","field"}`。
     - `request_id` は任意。無い 404 `request_not_found`、`processing` でない 409 `request_not_processing`。target が無い 404 `target_not_found`、統合済み 409 `target_merged`。create で既存の回の `run.escape_id_url` 409 `{"error":"duplicate_escape_id_url","run_id","work_id"}`。update で全項目が今の値と同じ・link で同じ作品 400 `no_change`。
     - 保存する `new_value` と fingerprint は validator が正規化した後の値（URL の末尾スラッシュ、`08` と `8` などの書き方の違いを畳み、却下記憶・重複をすり抜けないようにする）。参照プレースホルダと `run.work_id` は送られた値のまま。

@@ -272,6 +272,7 @@ a:not([class]), a.meta, .kv a, .card a:not(.btn) {
 - 会期 extra: 開催中・販売中 → 13/400 --fg、終了 → muted、**終了まで 14 日以内 → `.due`（赤の波線）で「〜11/30 終了」**。WorkTicket に `today` を渡す必要がある（runStatus と同じ比較。UR2 O5 を吸収）。
 - 蛍光ペン: 検索語があるときだけ、作品名の一致部分を `<mark class="hl">`（UR2 O6 を吸収。背景 surface2 ではなく蛍光ペンにする）。PC の選択中は 4.1 と同じ。
 - 青: なし（行ごとリンク）。
+- マスタの画像（design.md §3.4.2）: stub（72px）の上段に 72x40 の箱、その下に今の「形式 / エリア」2 行をそのまま。**行の高さ 88px は変えない。** 画像なしの作品は今と同じ見た目（文字 2 行が中央）。`alt=""`（隣に題名がある装飾）、縮小版 `?t=sm`。
 
 ### 4.4 作品詳細（WorkDetail、master.tsx:209-339）
 - カードの中を「meta（団体リンク青）→ 作品名 22/700 → **自分の状況 `.mine`** → **期間 `.period`**」の順にする。
@@ -280,6 +281,9 @@ a:not([class]), a.meta, .kv a, .card a:not(.btn) {
   - `.period`: 代表の回（開催中・販売中を優先）の `runStatus` と期間。開催中なら終わりの日に `.hl`（1）、14 日以内なら `.hl` の代わりに `.due`（赤と黄を重ねない）。
 - 匿名の人数（WorkNums、master.tsx:190-206）は 20px の `.nums` をやめ、カード下端の 13px muted 1 行「プレイ済み 12 人 · マイリスト 3 人」に落とす（今は 20px で主役を奪っている。pc_work）。
 - 「記録する」は黒塗りの主ボタンのまま。外部リンク（escape.id・チケット・公式サイト）は青＋下線。
+- マスタの画像: カードの先頭に横幅いっぱい・縦横比 16:9 の箱（高さの上限 220px）。箱ごと `image_page_url` へのリンク。箱の下に 12px muted で「画像: escape.id ›」（表示名は `image_page_url` の host）。alt は「{題名} の画像」、縮小版 `?t=md`。
+- 団体詳細: 名前の上に高さ 48px・幅は成り行き（上限 200px）のロゴ。下に「ロゴ: escape.id ›」。alt は「{団体名} のロゴ」。
+- 画像の共通規則: **切り抜かない・加工しない**（`object-fit: contain`。`cover`・グレースケール・角丸での切り落としはしない）。余白は `--surface2`、枠は 1px `--line`（手帳に貼った紙片の扱い）。モノクロの地にカラーの画像が乗るのは許容する。`<img>` には `loading="lazy"` `decoding="async"` `referrerpolicy="no-referrer"` と箱の寸法の `width` / `height`。読み込みに失敗したら箱ごと隠す。
 
 ### 4.5 統計（StatsPage、src/ui/stats.tsx）
 - 見方を chip で切り替える: 「ルーム・公演」（`?view=visit`）/「持ち帰り・周遊など」（`?view=done`）/「ふりかえり」（`?view=all`）。1 画面に主役は 1 つ（§2.1）。
