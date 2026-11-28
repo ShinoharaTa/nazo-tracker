@@ -1,5 +1,5 @@
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-plugin'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig(async () => {
   const migrations = await readD1Migrations('./migrations')
@@ -30,6 +30,8 @@ export default defineConfig(async () => {
     ],
     test: {
       setupFiles: ['./test/apply-migrations.ts'],
+      // mcp/ は node で動く別パッケージ（テストは mcp 側の tsx --test）。Workers プールでは回さない
+      exclude: [...configDefaults.exclude, 'mcp/**'],
     },
   }
 })
