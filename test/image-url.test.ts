@@ -13,20 +13,26 @@ describe('imageUrl', () => {
     [IMG, IMG],
     // query（縮小版の ?t=）と hash は落とす
     [`${IMG}?t=sm#x`, IMG],
-    // host は小文字・末尾ドットを除いて比べる
+    // host は小文字・末尾ドットを除いて比べ、保存値は規則の host に揃える
     [
       'https://STATIC.escape.id/o/takarush/nanica_logo.png',
       'https://static.escape.id/o/takarush/nanica_logo.png',
     ],
-    ['https://static.escape.id./o/a.png', 'https://static.escape.id./o/a.png'],
+    ['https://static.escape.id./o/a.png', 'https://static.escape.id/o/a.png'],
+    ['https://static.escape.id../o/a.png', 'https://static.escape.id/o/a.png'],
     // 既定のポート 443 は URL の正規化で消える
     ['https://static.escape.id:443/o/a.png', 'https://static.escape.id/o/a.png'],
+    // 拡張子の許可リスト（大文字小文字を区別しない。query は見ない）
+    ['https://static.escape.id/o/a.JPG', 'https://static.escape.id/o/a.JPG'],
+    ['https://static.escape.id/o/a.jpeg', 'https://static.escape.id/o/a.jpeg'],
+    ['https://static.escape.id/o/a.webp', 'https://static.escape.id/o/a.webp'],
+    ['https://static.escape.id/o/a.gif?t=sm', 'https://static.escape.id/o/a.gif'],
   ])('%s → 通る', (raw, want) => {
     expect(imageUrl()(raw)).toEqual({ ok: true, value: want })
   })
 
   const hostsMsg = 'は https://static.escape.id/ の URL にしてください。'
-  const svgMsg = 'に SVG の画像は使えません。'
+  const extMsg = 'は png / jpg / webp / gif の画像の URL にしてください。'
   it.each([
     ['http', 'http://static.escape.id/o/a.png', hostsMsg],
     ['userinfo', 'https://u:p@static.escape.id/o/a.png', hostsMsg],
@@ -37,10 +43,21 @@ describe('imageUrl', () => {
     ['サブドメイン', 'https://cdn.static.escape.id/a.png', hostsMsg],
     ['後ろに続く host', 'https://static.escape.id.example.com/a.png', hostsMsg],
     ['X の画像', 'https://pbs.twimg.com/media/a.jpg', hostsMsg],
-    ['.svg', 'https://static.escape.id/o/logo.svg', svgMsg],
-    ['.SVG（大文字）', 'https://static.escape.id/o/logo.SVG', svgMsg],
-    ['.svg（query 付き）', 'https://static.escape.id/o/logo.svg?t=sm', svgMsg],
-    ['%2Esvg', 'https://static.escape.id/o/logo%2Esvg', svgMsg],
+    ['.svg', 'https://static.escape.id/o/logo.svg', extMsg],
+    ['.SVG（大文字）', 'https://static.escape.id/o/logo.SVG', extMsg],
+    ['.svg（query 付き）', 'https://static.escape.id/o/logo.svg?t=sm', extMsg],
+    ['.svg（query に .png）', 'https://static.escape.id/o/logo.svg?x=.png', extMsg],
+    ['.svg（hash に .png）', 'https://static.escape.id/o/logo.svg#.png', extMsg],
+    ['.svgz', 'https://static.escape.id/o/logo.svgz', extMsg],
+    ['%2Esvg', 'https://static.escape.id/o/logo%2Esvg', extMsg],
+    ['末尾 /', 'https://static.escape.id/o/a.png/', extMsg],
+    ['拡張子なし', 'https://static.escape.id/o/a', extMsg],
+    ['パスなし', 'https://static.escape.id/', extMsg],
+    [';x', 'https://static.escape.id/o/a.png;x', extMsg],
+    ['%00', 'https://static.escape.id/o/a.png%00', extMsg],
+    ['%20', 'https://static.escape.id/o/a.png%20', extMsg],
+    ['末尾ドット', 'https://static.escape.id/o/a.png.', extMsg],
+    ['.bmp', 'https://static.escape.id/o/a.bmp', extMsg],
     ['javascript:', 'javascript:alert(1)', 'は http:// か https:// で始まる URL にしてください。'],
     ['空白', 'https://static.escape.id/o/a b.png', 'に空白は使えません。'],
   ])('%s → 落ちる', (_, raw, error) => {

@@ -121,7 +121,10 @@ orgs.post('/orgs/:id', async (c) => {
   if (!o) return c.html(notFound(), 404)
   if (o.row.mergedIntoId) return c.html(mergedPage(o.mergedInto), 400)
   const form = clearBlockedImage(formOf(await c.req.parseBody(), orgFields), orgImageFields)
-  const v = await validateOrg(db, form, o.row.id)
+  const v = await validateOrg(db, form, o.row.id, {
+    url: o.row.logoUrl,
+    pageUrl: o.row.logoPageUrl,
+  })
   if (!v.ok) return c.html(editPage({ ...o, values: form, errors: v.errors }), 400)
   await updateOrg(db, o.row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/orgs/${o.row.id}?saved=1`, 302)

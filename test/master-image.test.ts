@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { emptyForm, orgFields, validateOrg, validateWork, workFields } from '../src/admin/validate'
 import { createDb } from '../src/db/client'
+import { createToken } from '../src/db/tokens'
 import app from '../src/index'
 import { loginAs, ORIGIN } from './helpers/auth'
 import { insertOrg, insertWork } from './helpers/master'
@@ -163,7 +164,7 @@ describe('validateWork の画像', () => {
     })
   })
 
-  it('団体の存在確認と載せない設定は 1 クエリ（統合済みの団体は従来どおり落ちる）', async () => {
+  it('統合済みの団体は従来どおり落ちる', async () => {
     const into = await insertOrg(env, { name: `統合先 ${crypto.randomUUID()}` })
     const merged = await insertOrg(env, {
       name: `統合済み ${crypto.randomUUID()}`,
@@ -205,7 +206,10 @@ describe('validateOrg のロゴ', () => {
 
   it('.svg・サブドメイン・userinfo のロゴ → 落ちる', async () => {
     for (const [logo, error] of [
-      ['https://static.escape.id/o/a.svg', 'ロゴに SVG の画像は使えません。'],
+      [
+        'https://static.escape.id/o/a.svg',
+        'ロゴは png / jpg / webp / gif の画像の URL にしてください。',
+      ],
       [
         'https://a.static.escape.id/o/a.png',
         'ロゴは https://static.escape.id/ の URL にしてください。',
@@ -366,5 +370,223 @@ describe('オーナーの団体編集フォーム', () => {
     )
     expect(res.status).toBe(302)
     expect(await orgRow(id)).toEqual({ logo_url: LOGO, logo_page_url: ORG_PAGE, image_blocked: 0 })
+  })
+})
+
+// ---- 変わっていない画像の値は検証し直さない
+
+let token = ''
+beforeAll(async () => {
+  token = (await createToken(createDb(env.DB), 'master-image', 90)).token
+})
+
+const api = async (body: unknown) => {
+  const res = await app.request(
+    '/api/agent/proposals',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    env,
+  )
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> }
+}
+
+const pf = (field: string, newValue: string | null) => ({
+  field,
+  new_value: newValue,
+  source_id: null,
+  confidence: 0.95,
+})
+
+// 全項目を採用して承認する
+const approveAll = async (proposalId: string) => {
+  const rows = (
+    await env.DB.prepare('SELECT id FROM proposal_field WHERE proposal_id = ?')
+      .bind(proposalId)
+      .all<{ id: string }>()
+  ).results
+  return post(
+    `/admin/proposals/${proposalId}/approve`,
+    Object.fromEntries(rows.map((r) => [`accept_${r.id}`, '1'])),
+    owner.cookie,
+  )
+}
+
+const titleOf = async (id: string) =>
+  (await env.DB.prepare('SELECT title FROM work WHERE id = ?').bind(id).first<{ title: string }>())
+    ?.title
+
+// 画像つきの作品の団体を「画像を載せない」にした状態
+const blockedOrgWork = async () => {
+  const org = await insertOrg(env, { name: `止めた団体 ${crypto.randomUUID()}` })
+  const title = `止めた団体の作品 ${crypto.randomUUID()}`
+  const id = await insertWork(env, { title, orgId: org })
+  await setImage('work', id, { image_url: IMG, image_page_url: PAGE })
+  await setImage('organization', org, { image_blocked: 1 })
+  return { org, id, title }
+}
+
+describe('変わっていない画像の値は検証し直さない', () => {
+  it('(a) 団体を止めたあと、agent の work.title だけの update が 201 で通り、承認後も画像 3 列が保たれる', async () => {
+    const { id } = await blockedOrgWork()
+    const newTitle = `題名だけ変える ${crypto.randomUUID()}`
+    const r = await api({
+      kind: 'update',
+      target_table: 'work',
+      target_id: id,
+      fields: [pf('work.title', newTitle)],
+    })
+    expect(r.status).toBe(201)
+    expect((await approveAll(r.body.id as string)).status).toBe(302)
+    expect(await titleOf(id)).toBe(newTitle)
+    expect(await workRow(id)).toEqual({ image_url: IMG, image_page_url: PAGE, image_blocked: 0 })
+  })
+
+  it('(b) 同じ状態でオーナーの編集フォームから題名だけ変えて保存できる', async () => {
+    const { org, id } = await blockedOrgWork()
+    const newTitle = `フォームで題名だけ ${crypto.randomUUID()}`
+    const res = await post(
+      `/admin/works/${id}`,
+      { title: newTitle, primary_organization_id: org, image_url: IMG, image_page_url: PAGE },
+      owner.cookie,
+    )
+    expect(res.status).toBe(302)
+    expect(await titleOf(id)).toBe(newTitle)
+    expect(await workRow(id)).toEqual({ image_url: IMG, image_page_url: PAGE, image_blocked: 0 })
+  })
+
+  it('(c) 同じ状態で画像 URL を別の値に変えると従来のエラー。空にするのは通る', async () => {
+    const { org, id, title } = await blockedOrgWork()
+    const res = await post(
+      `/admin/works/${id}`,
+      {
+        title,
+        primary_organization_id: org,
+        image_url: 'https://static.escape.id/i/o/takarush/other.png',
+        image_page_url: PAGE,
+      },
+      owner.cookie,
+    )
+    expect(res.status).toBe(400)
+    expect(await errorsOf(res)).toEqual(['この団体は画像を載せない設定です。'])
+    const cleared = await post(
+      `/admin/works/${id}`,
+      { title, primary_organization_id: org },
+      owner.cookie,
+    )
+    expect(cleared.status).toBe(302)
+    expect(await workRow(id)).toEqual({ image_url: null, image_page_url: null, image_blocked: 0 })
+  })
+
+  it('(d) image_blocked=1 の作品への題名だけの update が通り、3 列が保たれる', async () => {
+    const id = await insertWork(env, { title: `止めた作品 ${crypto.randomUUID()}` })
+    await setImage('work', id, { image_blocked: 1 })
+    const newTitle = `止めた作品の題名 ${crypto.randomUUID()}`
+    const r = await api({
+      kind: 'update',
+      target_table: 'work',
+      target_id: id,
+      fields: [pf('work.title', newTitle)],
+    })
+    expect(r.status).toBe(201)
+    expect((await approveAll(r.body.id as string)).status).toBe(302)
+    expect(await titleOf(id)).toBe(newTitle)
+    expect(await workRow(id)).toEqual({ image_url: null, image_page_url: null, image_blocked: 1 })
+  })
+
+  it('許可外 host のまま残った値も、変えなければ検証し直さない。変えると落ちる', async () => {
+    const db = createDb(env.DB)
+    const old = { url: 'https://old.example.com/a.png', pageUrl: PAGE }
+    const form = {
+      ...emptyForm(workFields),
+      title: '古い画像の作品',
+      image_url: old.url,
+      image_page_url: PAGE,
+    }
+    expect(await validateWork(db, form, 'self', old)).toMatchObject({
+      ok: true,
+      value: { imageUrl: old.url, imagePageUrl: PAGE },
+    })
+    expect(await validateWork(db, form)).toEqual({
+      ok: false,
+      errors: ['画像は https://static.escape.id/ の URL にしてください。'],
+    })
+    expect(
+      await validateWork(db, { ...form, image_page_url: 'https://escape.id/a-org/' }, 'self', old),
+    ).toEqual({ ok: false, errors: ['画像は https://static.escape.id/ の URL にしてください。'] })
+  })
+})
+
+describe('載せない設定で取得元だけ入っているとき', () => {
+  it('作品・団体・作品の団体とも「取得元ページの URL も空に」と案内する', async () => {
+    const db = createDb(env.DB)
+    const msg = '画像を載せない設定です。取得元ページの URL も空にしてください。'
+    expect(
+      await validateWork(db, {
+        ...emptyForm(workFields),
+        title: '取得元だけ',
+        image_page_url: PAGE,
+        image_blocked: '1',
+      }),
+    ).toEqual({ ok: false, errors: [msg] })
+    expect(
+      await validateOrg(db, {
+        ...emptyForm(orgFields),
+        name: '取得元だけの団体',
+        logo_page_url: ORG_PAGE,
+        image_blocked: '1',
+      }),
+    ).toEqual({ ok: false, errors: [msg] })
+    const org = await insertOrg(env, { name: `止めた団体 ${crypto.randomUUID()}` })
+    await setImage('organization', org, { image_blocked: 1 })
+    expect(
+      await validateWork(db, {
+        ...emptyForm(workFields),
+        title: '団体が止めた作品の取得元だけ',
+        primary_organization_id: org,
+        image_page_url: PAGE,
+      }),
+    ).toEqual({ ok: false, errors: [msg] })
+  })
+})
+
+describe('agent はまだ画像の項目を書けない', () => {
+  it('update（work / organization）・create organization でも 400 unknown_field', async () => {
+    const work = await insertWork(env, { title: `agent の対象 ${crypto.randomUUID()}` })
+    const org = await insertOrg(env, { name: `agent の対象団体 ${crypto.randomUUID()}` })
+    const cases: [Record<string, unknown>, string][] = [
+      ...['work.image_url', 'work.image_page_url', 'work.image_blocked'].map(
+        (field) =>
+          [{ kind: 'update', target_table: 'work', target_id: work }, field] as [
+            Record<string, unknown>,
+            string,
+          ],
+      ),
+      ...[
+        'organization.logo_url',
+        'organization.logo_page_url',
+        'organization.image_blocked',
+      ].flatMap((field) => [
+        [{ kind: 'update', target_table: 'organization', target_id: org }, field] as [
+          Record<string, unknown>,
+          string,
+        ],
+        [
+          {
+            kind: 'create',
+            target_table: 'organization',
+            fields: [pf('organization.name', `新団体 ${crypto.randomUUID()}`)],
+          },
+          field,
+        ] as [Record<string, unknown>, string],
+      ]),
+    ]
+    for (const [base, field] of cases) {
+      const fields = [...((base.fields as unknown[]) ?? []), pf(field, IMG)]
+      const r = await api({ ...base, fields })
+      expect(r, `${base.kind} ${field}`).toEqual({ status: 400, body: { error: 'unknown_field' } })
+    }
   })
 })

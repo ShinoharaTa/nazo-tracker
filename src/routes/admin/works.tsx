@@ -184,7 +184,10 @@ works.post('/works/:id', async (c) => {
   if (!w) return c.html(notFound(), 404)
   if (w.row.mergedIntoId) return c.html(mergedPage(w.mergedInto), 400)
   const form = clearBlockedImage(formOf(await c.req.parseBody(), workFields), workImageFields)
-  const v = await validateWork(db, form, w.row.id)
+  const v = await validateWork(db, form, w.row.id, {
+    url: w.row.imageUrl,
+    pageUrl: w.row.imagePageUrl,
+  })
   if (!v.ok) return c.html(await editPage(db, { ...w, values: form, errors: v.errors }), 400)
   await updateWork(db, w.row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${w.row.id}?saved=1`, 302)

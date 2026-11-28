@@ -1,5 +1,6 @@
 // マスタの画像（作品の OGP 画像・団体のロゴ）の URL。実体は取得・保存・配信せず、URL の文字列だけを持つ（docs/design.md §3.4.2）。
 // 画像の URL は許可ホストに限る。ホストを足すのは docs/sources.md §2 に行を足す PR とセット。X 系の画像ホストは足さない。
+// この URL は <img src> にだけ載せる（<object>・CSS・リンク先として開く用途に使わない）。
 
 import { ng, ok, type Parser, url } from './form'
 import { hasUserinfo } from './match'
@@ -14,8 +15,12 @@ const hostOf = (u: URL) => u.hostname.replace(/\.+$/, '').toLowerCase()
 
 const HOSTS_MSG = `は ${IMAGE_HOSTS.map((h) => `https://${h.host}/`).join(' か ')} の URL にしてください。`
 
-// 画像の URL（work.image_url / organization.logo_url）。https・userinfo なし・ポートなし・許可ホストに完全一致・.svg 以外。
-// 保存値は hash を落とした href（dropQuery のホストは query も落とす）
+// パスの最後のセグメントがこの拡張子で終わるときだけ通す（大文字小文字は区別しない。query と hash は見ない）。
+// 末尾 /・拡張子なし・.svg / .svgz・;x・%00・%20・末尾ドットはここで落ちる
+const IMAGE_EXT = /\.(png|jpe?g|webp|gif)$/i
+
+// 画像の URL（work.image_url / organization.logo_url）。https・userinfo なし・ポートなし・許可ホストに完全一致・拡張子が許可リスト。
+// 保存値は host を規則の host に揃え（末尾ドットを残さない）、hash を落とした href（dropQuery のホストは query も落とす）
 export const imageUrl = (): Parser<string> => (raw) => {
   const base = url()(raw)
   if (!base.ok) return base
@@ -23,13 +28,9 @@ export const imageUrl = (): Parser<string> => (raw) => {
   if (u.protocol !== 'https:' || hasUserinfo(base.value) || u.port !== '') return ng(HOSTS_MSG)
   const rule = IMAGE_HOSTS.find((h) => h.host === hostOf(u))
   if (!rule) return ng(HOSTS_MSG)
-  let path: string
-  try {
-    path = decodeURIComponent(u.pathname).toLowerCase()
-  } catch {
-    return ng(HOSTS_MSG)
-  }
-  if (path.endsWith('.svg')) return ng('に SVG の画像は使えません。')
+  const last = u.pathname.slice(u.pathname.lastIndexOf('/') + 1)
+  if (!IMAGE_EXT.test(last)) return ng('は png / jpg / webp / gif の画像の URL にしてください。')
+  u.hostname = rule.host
   u.hash = ''
   if (rule.dropQuery) u.search = ''
   return ok(u.href)

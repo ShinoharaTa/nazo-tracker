@@ -130,22 +130,37 @@ export const orgImageFields = ['logo_url', 'logo_page_url'] as const
 export const clearBlockedImage = (f: Form, fields: readonly [string, string]): Form =>
   f.image_blocked === '1' ? { ...f, [fields[0]]: '', [fields[1]]: '' } : f
 
-// 画像の URL と取得元（label は「画像」か「ロゴ」）。組で入れる・載せない設定の行には入れない
+// 既存行の今の画像の値（更新のとき。新規作成は undefined）
+export type CurrentImage = { url: string | null; pageUrl: string | null }
+
+// 画像の URL と取得元（label は「画像」か「ロゴ」）。組で入れる・載せない設定の行（orgBlocked は作品の団体）には入れない。
+// 既存行の更新で URL と取得元が今の値と同じなら検証し直さない（団体を止めた後・許可ホストを外した後も無関係な更新を通す。
+// 出すかどうかは表示側が判定する）
 const imageOf = (
   errors: string[],
   label: string,
-  rawUrl: string,
-  rawPage: string,
-  rawBlocked: string,
+  raw: { url: string; page: string; blocked: string },
+  current?: CurrentImage,
+  orgBlocked = false,
 ) => {
-  const imgUrl = field(errors, label, rawUrl, imageUrl())
-  const pageUrl = field(errors, `${label}の取得元`, rawPage, imagePageUrl())
-  const blocked = field(errors, '画像を載せない', rawBlocked, oneOf(imageBlockedValues))
-  if ((rawUrl === '') !== (rawPage === '')) {
+  const blocked = field(errors, '画像を載せない', raw.blocked, oneOf(imageBlockedValues))
+  const unchanged =
+    current !== undefined && raw.url === (current.url ?? '') && raw.page === (current.pageUrl ?? '')
+  if (unchanged) return { imgUrl: current.url, pageUrl: current.pageUrl, blocked: blocked ? 1 : 0 }
+  const imgUrl = field(errors, label, raw.url, imageUrl())
+  const pageUrl = field(errors, `${label}の取得元`, raw.page, imagePageUrl())
+  if (blocked || orgBlocked) {
+    if (raw.url !== '') {
+      errors.push(
+        blocked
+          ? `画像を載せない設定です。${label}の URL を空にしてください。`
+          : 'この団体は画像を載せない設定です。',
+      )
+    } else if (raw.page !== '') {
+      errors.push('画像を載せない設定です。取得元ページの URL も空にしてください。')
+    }
+  } else if ((raw.url === '') !== (raw.page === '')) {
     errors.push(`${label}と${label}の取得元は両方入れてください。`)
-  }
-  if (blocked && rawUrl !== '') {
-    errors.push(`画像を載せない設定です。${label}の URL を空にしてください。`)
   }
   return { imgUrl, pageUrl, blocked: blocked ? 1 : 0 }
 }
@@ -175,13 +190,18 @@ export type OrgInput = {
   imageBlocked: number
 }
 
-export const validateOrg = async (db: Db, f: Form, selfId?: string) => {
+export const validateOrg = async (db: Db, f: Form, selfId?: string, current?: CurrentImage) => {
   const errors: string[] = []
   const name = field(errors, '名前', f.name, str(NAME_MAX), true)
   const siteUrl = field(errors, '公式サイト', f.site_url, url())
   const escapeIdUrl = field(errors, 'escape.id の URL', f.escape_id_url, escapeOrgUrl())
   const note = field(errors, 'メモ', f.note, str(NOTE_MAX, { multiline: true }))
-  const logo = imageOf(errors, 'ロゴ', f.logo_url, f.logo_page_url, f.image_blocked)
+  const logo = imageOf(
+    errors,
+    'ロゴ',
+    { url: f.logo_url, page: f.logo_page_url, blocked: f.image_blocked },
+    current,
+  )
   const slug = slugOf(escapeIdUrl)
   if (escapeIdUrl && (await orgUniqueTaken(db, { escapeIdUrl, slug }, selfId))) {
     errors.push('同じ escape.id URL の団体があります。')
@@ -312,7 +332,7 @@ export type WorkInput = {
   imageBlocked: number
 }
 
-export const validateWork = async (db: Db, f: Form, selfId?: string) => {
+export const validateWork = async (db: Db, f: Form, selfId?: string, current?: CurrentImage) => {
   const errors: string[] = []
   const title = field(errors, '題名', f.title, str(NAME_MAX), true)
   // kind は任意（親の決定: 形式不明のまま登録できるように。P4 の提案も NULL で入る）
@@ -336,8 +356,13 @@ export const validateWork = async (db: Db, f: Form, selfId?: string) => {
   const estimatedMinutes = field(errors, '所要時間', f.estimated_minutes, int(1, MINUTES_MAX))
   const timeLimitMinutes = field(errors, '制限時間', f.time_limit_minutes, int(1, MINUTES_MAX))
   const firstReleasedOn = field(errors, '初演・発売日', f.first_released_on, date())
-  const image = imageOf(errors, '画像', f.image_url, f.image_page_url, f.image_blocked)
-  if (orgImageBlocked && f.image_url !== '') errors.push('この団体は画像を載せない設定です。')
+  const image = imageOf(
+    errors,
+    '画像',
+    { url: f.image_url, page: f.image_page_url, blocked: f.image_blocked },
+    current,
+    orgImageBlocked,
+  )
   if (playerMin !== null && playerMax !== null && playerMin > playerMax) {
     errors.push('最少人数は最多人数以下にしてください。')
   }
