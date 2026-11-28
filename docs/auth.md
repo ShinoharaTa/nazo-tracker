@@ -50,7 +50,7 @@
 | 未ログイン | マスタ閲覧（匿名の「プレイ済み n 人 / マイリスト n 人」を含む。人数のみ） |
 | member | 自分の attempt / session / image / market_visit / wishlist / stats の CRUD、匿名人数へのオプトアウト設定、request 投稿、自分の request の状態閲覧、表示名・連携・share level・friend_code の変更、フレンド申請/承認/解除/ブロック、**フレンドの記録を share level の射影で閲覧**、画像の通報、退会 |
 | owner | member + マスタ直接編集、request 一覧・選別、proposal 承認/却下、api_token 発行、自動反映 ON/OFF、genre 編集、通報画像の非表示。**他人の記録を見る画面・API は無い**（フレンドとしては一般 member と同じ） |
-| agent (token) | マスタ読、request 読と状態更新（processing / proposed / needs_info）、source・proposal 作成、match API。記録・フレンド・画像は 403 |
+| agent (token) | マスタ読、request 読と状態更新（processing / proposed / needs_info）、source・proposal 作成、match API。記録・フレンド・ユーザーの写真は 403 |
 
 ### フレンド閲覧の規則
 - `/api/friends/:userId/*` は (1) viewer と target の `friendship` が存在、(2) どちらの向きにも `block` が無い、を満たすときだけ 200。満たさなければ **404**（存在を漏らさない）。
@@ -61,7 +61,7 @@
 ### 実装上の規約
 - 禁止語チェックは `scripts/check-scoped.mjs`（`npm run lint` に含む）。
 - オーナー画面は `/admin/*`（`requireOwner`。owner 以外は 404、未ログインの GET は `302 /login`・POST は 401）。オーナー用 JSON API は `/api/admin/*`（owner 以外は未ログインを含め JSON の 404 `{ "error": "not_found" }`）。
-- agent トークンは `/api/agent/*`（`requireAgent`、Bearer のみ・cookie を見ない。`src/routes/api-agent.ts`）だけで受ける。それ以外の全ルートへの `Authorization`（形式を問わない）は `rejectBearer` が 403 `{"error":"agent_token_not_allowed"}`、`/api/agent` の未定義パスは 403 `{"error":"forbidden"}`（記録・フレンド・画像の 403 はこれで満たす）。発行・失効はオーナー画面 `/admin/tokens`。詳細は agent-pipeline.md §5。
+- agent トークンは `/api/agent/*`（`requireAgent`、Bearer のみ・cookie を見ない。`src/routes/api-agent.ts`）だけで受ける。それ以外の全ルートへの `Authorization`（形式を問わない）は `rejectBearer` が 403 `{"error":"agent_token_not_allowed"}`、`/api/agent` の未定義パスは 403 `{"error":"forbidden"}`（記録・フレンド・ユーザーの写真の 403 はこれで満たす）。発行・失効はオーナー画面 `/admin/tokens`。詳細は agent-pipeline.md §5。
 - 匿名人数のオプトアウトは `GET/POST /settings/counts`（本人、`requireUser`。`own().setExcludeFromCounts` が `WHERE id = viewerId` で `user.exclude_from_counts` を書く）。
 - 記録系のルートは HTML の `/records/*`（本人。`src/routes/records.tsx`、`requireUser`）、HTML の `/friends/:userId`（フレンドの記録一覧。`src/routes/friends.tsx`、`requireUser`。`asFriendOf` が null なら 404）、JSON を出す段階で足す `/api/me/*`（本人。wishlist もここ）と `/api/friends/:userId/*`（射影）のみ。それ以外の URL でユーザー id を取らない。`/records/:id` 系は他人の id・無い id を 404 にする。
 - 禁止語（`check:scoped`）は記録系テーブル（`attempt` / `attemptGenre` / `session` / `image` / `wishlist` / `marketVisit`）とビュー `vAttemptEnriched` / `vFriendAttempt`。`vFriendAttempt` は許可リストのファイル（`counts.ts` など）からも import できない（`src/db/scoped.ts` だけ）。schema の `import * as` / `export *` は許可リストのファイルでも `src/db/client.ts` 以外は違反。許可リスト外では、生 SQL で `FROM` / `JOIN` / `UPDATE` / `INTO` の後ろに記録系の表名・ビュー名（`attempt` / `attempt_genre` / `session` / `image` / `wishlist` / `market_visit` / `v_attempt_enriched` / `v_friend_attempt`）が出ても違反。生 SQL の `v_friend_attempt` は許可リストのファイルでも `src/db/scoped.ts` 以外は違反。検査自体の陰性テストは `test/check-scoped-negative.mjs`（`npm run lint` に含む）。

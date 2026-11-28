@@ -55,6 +55,9 @@ erDiagram
 | site_url | TEXT NULL | |
 | escape_id_url | TEXT UNIQUE NULL | `https://escape.id/<slug>-org/` |
 | note | TEXT | 非公開 |
+| logo_url | TEXT NULL | ロゴの URL（正規化後）。実体は持たない。host は `IMAGE_HOSTS`（`src/lib/image-url.ts`）に限る（design.md §3.4.2） |
+| logo_page_url | TEXT NULL | そのロゴを og:image にしているページ（出典リンク先）。`logo_url` と組で入れる |
+| image_blocked | INTEGER NOT NULL DEFAULT 0 | 1 = この団体のロゴと、この団体が primary の作品の画像を載せない（権利者の依頼など）。オーナーだけが変えられる |
 | merged_into_id | TEXT NULL FK | マージ先 |
 | created_at / updated_at | TEXT | |
 
@@ -74,11 +77,24 @@ erDiagram
 | kind | `hall` / `room` / `stroll`(周遊) / `line` / `web` / `takeaway`(持ち帰り) / `cafe`(カフェ謎) / `box`(箱謎) / `other` |
 | primary_organization_id FK NULL | |
 | official_url UNIQUE NULL | 正規化後 |
-| description | **画像は持たない**（escape.id `imageUrl` は保存しない） |
+| description | |
+| image_url | 画像の URL（正規化後。公演ページの og:image）。実体は持たない。host は `IMAGE_HOSTS` に限る。escape.id の `imageUrl`（縦ポスター優先）は使わない（design.md §3.4.2） |
+| image_page_url | その画像を og:image にしているページ（出典リンク先）。`image_url` と組で入れる |
+| image_blocked | INTEGER NOT NULL DEFAULT 0。1 = この作品には画像を載せない（権利者の依頼など）。オーナーだけが変えられる（agent は書けない） |
 | player_min / player_max / estimated_minutes / time_limit_minutes | escape.id から |
 | first_released_on | 初演・発売日（分かれば） |
 | merged_into_id FK NULL | |
 | created_at / updated_at | |
+
+### 画像の URL の検証（work / organization）
+
+`validateWork` / `validateOrg`（`src/admin/validate.ts`）。URL のパーサは `src/lib/image-url.ts`。
+
+- `image_url` / `logo_url`: 2000 文字以内・空白なし、`https:` のみ、userinfo・ポート指定なし、host（小文字・末尾ドット除去）が `IMAGE_HOSTS` に完全一致（サブドメインの後方一致はしない）。パスの最後のセグメントの拡張子が png / jpg / jpeg / webp / gif（大文字小文字は区別しない。query と hash は見ない）のときだけ通す。末尾 `/`・拡張子なし・`.svg` / `.svgz`・`;x`・`%00`・`%20`・末尾ドットは拒否。保存値は host を規則の host に揃え、hash を落とす（`static.escape.id` は query も落とす）。この URL は `<img src>` にだけ載せる（`<object>`・CSS・リンク先として開く用途に使わない）。
+- `image_page_url` / `logo_page_url`: `https:` のみ、userinfo なし、escape.id のマイページ（`/me` 以下）と X 系 host は不可。hash を落とす。
+- 組: 画像と取得元は両方入れる（片方だけはエラー）。行が `image_blocked=1` なら画像の URL は入れられず、取得元だけ入っているときは「取得元ページの URL も空にしてください」と案内する。作品の団体（`primary_organization_id`）が `image_blocked=1` なら作品に画像の URL は入れられない（`@organization` は対象外）。
+- **変わっていない値は検証し直さない。** 既存行の更新（オーナーの編集フォーム・agent の update・承認時の再検証）で、画像の URL と取得元が今の行の値と同じなら、上の規則（許可ホスト・拡張子・取得元・組・載せない設定）を掛けない。値が変わるとき（空 → 値、値 → 別の値）と新規作成では全部掛ける。値 → 空は常に通す。これで、団体を止めたあとも、その団体の画像つき作品への無関係な更新（題名だけ等）が通る。`IMAGE_HOSTS` からホストを外した場合も同じ。表示するかは表示側の判定関数が見る（保存値が残っていても出さない）。
+- オーナーのフォームで「画像を載せない」にチェックした保存は、URL が残っていても空にして保存する。
 
 ### work_alias
 `id, work_id, title, title_norm, kind(former_title / alt_spelling / subtitle)` UNIQUE(work_id, title_norm)（同じ作品に同じ表記の別名は 1 つ）
@@ -350,9 +366,11 @@ work A → B:
 | 6 | 統合後の B（B の題名・B と A の別名）に `title_norm = A.title_norm` が無ければ `INSERT work_alias(B, A.title, A.title_norm, 'former_title')` |
 | 7 | `B.official_url IS NULL AND A.official_url IS NOT NULL` なら `UPDATE work SET official_url=NULL WHERE id=A` → `UPDATE work SET official_url=A.official_url WHERE id=B`（UNIQUE 列は統合先が空のときだけ引き継ぐ。衝突しない） |
 | 8 | `UPDATE work SET merged_into_id=B, updated_at=now WHERE id=A` |
-| 9 | change_log: (`work`, A, `merge`, before=A, after=統合後の A) を 1 行。5 で消した別名ごとに (`work_alias`, その id, `delete`, before=消した行)、6 を実行したら (`work_alias`, 新 id, `create`)、7 を実行したら (`work`, B, `update`) も |
+| 9 | change_log: (`work`, A, `merge`, before=A, after=統合後の A) を 1 行。5 で消した別名ごとに (`work_alias`, その id, `delete`, before=消した行)、6 を実行したら (`work_alias`, 新 id, `create`)、7 または画像の規則を実行したら (`work`, B, `update`) も（1 行にまとめる） |
 
-organization A → B: `work.primary_organization_id` / `run.organization_id`（`billed_as` は書き換えない）/ `venue.organization_id` / `shop.organization_id` / `booth.organization_id` を B に → `organization_alias` を B に（B に同じ `name_norm` がある A の別名は DELETE して change_log に `delete`）→ A.name を `former_name` alias として B に（統合後の B の名前・別名に同じ `name_norm` が無ければ）→ `escape_id_url` と `slug`（slug は URL から導くので組で扱う）を、B の `escape_id_url` が NULL で A にあるときだけ B へ移す → A の `merged_into_id` → change_log（`merge` 1 行 + 消した別名ごとの `delete` + 別名の `create` + B の `update`）。
+画像（work A → B）: A が `image_blocked=1` なら B も 1 にし、B の `image_url` / `image_page_url` を NULL にする（取り下げの依頼を統合で失わない）。そうでなく、B が `image_blocked=0` かつ `image_url` NULL で A にあれば、A の 2 列を B に写す（A はそのまま。UNIQUE ではないので空ける必要なし）。B の update は 7 と同じ change_log 1 行にまとめる。
+
+organization A → B: `work.primary_organization_id` / `run.organization_id`（`billed_as` は書き換えない）/ `venue.organization_id` / `shop.organization_id` / `booth.organization_id` を B に → `organization_alias` を B に（B に同じ `name_norm` がある A の別名は DELETE して change_log に `delete`）→ A.name を `former_name` alias として B に（統合後の B の名前・別名に同じ `name_norm` が無ければ）→ `escape_id_url` と `slug`（slug は URL から導くので組で扱う）を、B の `escape_id_url` が NULL で A にあるときだけ B へ移す → A の `merged_into_id` → change_log（`merge` 1 行 + 消した別名ごとの `delete` + 別名の `create` + B の `update`）。ロゴは work の画像と同じ規則（A が `image_blocked=1` なら B も 1 にして B の `logo_url` / `logo_page_url` を NULL。そうでなく B が `image_blocked=0` かつ `logo_url` NULL で A にあれば A の 2 列を B に写す）で、B の `update` 1 行にまとめる。
 
 venue A → B: `run.venue_id` / `session.venue_id` / `market_edition.venue_id` を B に → A の `merged_into_id` → change_log（`merge` 1 行）。venue に alias 表は無いので旧名は change_log にだけ残る。
 

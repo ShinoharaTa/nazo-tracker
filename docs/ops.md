@@ -85,3 +85,20 @@ AUTH_DEV_HOSTS=<IP>
 `http://<IP>:8787/_dev/login` で仮ログインできる。起動中は同じ LAN の誰でもオーナーで入れるので、確認が終わったら止める。
 
 OAuth を試すときは `.dev.vars` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`（または `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET`、`LINE_CLIENT_ID` / `LINE_CLIENT_SECRET`）を入れる。リダイレクト URI は手順 4〜6 の `http://127.0.0.1:8787/...` を使う。
+
+## 画像の削除依頼
+
+マスタの画像（作品の OGP 画像・団体のロゴ）は URL だけを持ち、実体は公開元にある（design.md §3.4.2）。こちらで止める手順:
+
+| 依頼の単位 | オーナーの操作（1 操作） | 効果 |
+|---|---|---|
+| 作品 1 つ | `/admin/works/:id` の「画像を載せない」にチェックして保存 | `image_blocked=1`、`image_url` / `image_page_url` を NULL（同じ保存で）。change_log に残る |
+| 団体まるごと | `/admin/orgs/:id` の「画像を載せない」にチェックして保存 | ロゴを NULL、`image_blocked=1`。その団体が primary の作品の画像は**表示の判定で**出なくなる（作品側の URL は消さない） |
+| ホストまるごと（escape.id から言われた場合） | `src/lib/image-url.ts` の `IMAGE_HOSTS` から外す PR をマージしてデプロイ | その host の画像が全部出なくなる。新しい提案も 400 |
+| 全停止 | `wrangler.toml` の `MASTER_IMAGES` を `"0"` にしてデプロイ（急ぐときは Cloudflare のダッシュボードで変数を変える） | 表示だけ止まる。データはそのまま |
+
+- 「画像を載せない」にチェックした保存では、フォームに URL が残っていても空にして保存する。解除はチェックを外して保存。
+- 止めた行に対して validators で 400 になるのは、その行の画像の URL を**新しく入れる・別の値に変える**提案だけ（URL が変わっても、他の項目と束になっても）。画像に触れない提案（題名だけの update など）は通る。団体を止めた場合は、その団体の作品に画像を新しく入れる・別の値に変える提案も 400。変わっていない画像の値は検証し直さない（data-model.md「画像の URL の検証」）。
+- 依頼の理由・日付は、団体は `organization.note`（非公開）、作品は GitHub の issue に残す。
+- こちらに実体が無いので、R2・キャッシュから消す作業は無い。
+- 削除依頼の連絡先（「データの扱い」に書くもの）: **運営者の SNS アカウントへの連絡で受け付ける。** アカウントの URL は表示を ON にする PR（PR 4 / PR 8）で入れる。
