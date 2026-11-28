@@ -17,13 +17,14 @@ export const INSTRUCTIONS = [
     'API にも無く（403）、この MCP はセッション cookie を持たないので呼べない。頼まれたら「オーナーが画面で行う」と答える。',
 ].join('\n')
 
-export const buildServer = (config: ConfigResult): McpServer => {
+// timeoutMs はテストで短くする（既定は client.ts の TIMEOUT_MS）
+export const buildServer = (config: ConfigResult, opts: { timeoutMs?: number } = {}): McpServer => {
   const server = new McpServer(
     { name: 'nazo-tracker', version: '0.1.0' },
     { instructions: INSTRUCTIONS },
   )
   const ctx: ToolContext = config.ok
-    ? { client: new ApiClient(config.config), error: null }
+    ? { client: new ApiClient(config.config, opts.timeoutMs), error: null }
     : { client: null, error: config.message }
   registerReadTools(server, ctx)
   registerWriteTools(server, ctx)

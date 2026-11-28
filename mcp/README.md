@@ -87,8 +87,11 @@ Node のパスは nvm の版に合わせる（非対話シェルに PATH が通�
 - **提案は必ず pending。** `create_proposal` は常に `hold: true` を送る（入力に hold は無い）。Worker は hold があると自動反映の判定を飛ばす。
   応答の `status` が `pending` 以外なら、ツールはエラー（警告）として返す。
 - 値の検証は Worker に任せる（MCP は形だけ見る）。項目名と値の一覧は `get_schema` から取る。
-- 書き込み（POST / PATCH）は自動で再試行しない（source や提案が二重に入るため）。応答が無かったか 5xx のときは、
-  `list_proposals` / `get_request` で届いたか確かめてから出し直す。
+- 書き込み（POST / PATCH）は自動で再試行しない（source や提案が二重に入るため）。応答が無い・タイムアウト・5xx・
+  2xx でも本文が読めないときは、サーバーに届いた可能性がある。`create_proposal` / `set_request_status` は
+  `list_proposals` / `get_request` で確かめてから出し直す。`add_source` は出典を一覧する手段が無いので、出し直すと二重に登録されることがある
+  （提案は同じ内容なら `duplicate_pending` で止まる）。
+- `add_source` の `robots_checked` は true / false のほか 1 / 0 も受け、API には boolean で送る。応答に `id` が無ければエラー。
 
 ### 作らないツール（意図的に持たない）
 

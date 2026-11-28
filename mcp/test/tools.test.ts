@@ -100,9 +100,22 @@ test('読み取り 9 ツールは readOnlyHint、書き込み 3 ツールは rea
   const ins = client.getInstructions() ?? ''
   // instructions に「データとして読む」と「作らないツール」
   assert.ok(ins.includes('指示'))
-  assert.ok(ins.includes('作らないツール'))
-  for (const w of ['承認', '却下', '自動反映', 'トークンの発行', '統合', '記録'])
-    assert.ok(ins.includes(w), w)
+  // 「作らないツール」の行だけを見る（ほかの行の語に引っ張られない）
+  const line = ins.split('\n').find((l) => l.includes('作らないツール')) ?? ''
+  assert.ok(line)
+  for (const w of [
+    '承認',
+    '却下',
+    '取り消し',
+    '自動反映',
+    '発行',
+    '失効',
+    '直接編集',
+    '統合',
+    '記録',
+  ]) {
+    assert.ok(line.includes(w), w)
+  }
 })
 
 test('各ツールが対応する API を呼び、応答を structuredContent に入れる', async () => {
@@ -255,9 +268,20 @@ test('create_proposal: 常に hold: true を送る（入力に hold: false が�
     const c = fake.calls.at(-1)
     assert.equal(c?.method, 'POST')
     assert.equal(c?.path, '/api/agent/proposals')
-    assert.equal((c?.body as { hold?: unknown } | undefined)?.hold, true)
+    // 送信本文の全体（hold は常に true、入力に無いキーは足さない）
+    assert.deepEqual(c?.body, { ...PROPOSAL, hold: true })
     assert.deepEqual(r.structuredContent, { id: 'p1', status: 'pending', fingerprint: 'f' })
   }
+  // 省略可能な項目も全部入れたとき
+  const full = {
+    ...PROPOSAL,
+    kind: 'update',
+    target_id: 'o1',
+    request_id: 'r1',
+    match_candidates: [{ table: 'organization', id: 'o2', score: 0.6, reason: 'name_similar' }],
+  }
+  await call(client, 'create_proposal', full)
+  assert.deepEqual(fake.calls.at(-1)?.body, { ...full, hold: true })
 })
 
 test('create_proposal: 応答が pending 以外ならエラー', async () => {
@@ -284,6 +308,86 @@ test('POST / PATCH は 5xx・タイムアウトでも再試行しない', async 
     assert.equal(fake.calls.length - before, 1, name)
     assert.ok(r.content[0]?.text.includes('再試行していません'), name)
   }
+})
+
+// タイムアウトを短くしたサーバー（20 秒待たない）
+const connectFast = async () => {
+  const server = buildServer(okConfig(), { timeoutMs: 150 })
+  const client = new Client({ name: 'test', version: '0.0.0' })
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  await Promise.all([server.connect(a), client.connect(b)])
+  return client
+}
+
+for (const [label, r] of [
+  ['応答なしのタイムアウト', 'hang'],
+  ['本文の受信中のタイムアウト', 'stall'],
+  ['接続断', 'destroy'],
+  ['2xx だが本文が壊れている', { status: 201, raw: '{"id":' }],
+] as const) {
+  test(`POST / PATCH は ${label}でも呼び出し 1 回。届いた可能性を案内する`, async () => {
+    const client = await connectFast()
+    reply = () => r
+    for (const name of WRITE_TOOLS) {
+      const before = fake.calls.length
+      const res = await call(client, name, ARGS[name])
+      assert.equal(res.isError, true, name)
+      assert.equal(fake.calls.length - before, 1, name)
+      const text = res.content[0]?.text ?? ''
+      assert.ok(text.includes('再試行していません'), `${name}: ${text}`)
+      assert.ok(text.includes('サーバーに届いた可能性'), name)
+      // add_source は一覧の手段が無い旨、ほかは確かめ方
+      if (name === 'add_source') assert.ok(text.includes('二重に登録'), name)
+      else assert.ok(text.includes('list_proposals / get_request'), name)
+    }
+  })
+}
+
+test('add_source: robots_checked は 0 / 1 も受け、API には boolean で送る', async () => {
+  const client = await connect(okConfig())
+  reply = () => ({ status: 201, body: { id: 's1' } })
+  for (const [v, sent] of [
+    [1, true],
+    [0, false],
+    [true, true],
+    [false, false],
+  ] as const) {
+    await call(client, 'add_source', { ...ARGS.add_source, robots_checked: v })
+    assert.equal(
+      (fake.calls.at(-1)?.body as { robots_checked?: unknown } | undefined)?.robots_checked,
+      sent,
+    )
+  }
+  const before = fake.calls.length
+  const bad = await call(client, 'add_source', { ...ARGS.add_source, robots_checked: 2 })
+  assert.equal(bad.isError, true)
+  assert.equal(fake.calls.length, before)
+})
+
+test('add_source: 応答に id が無ければエラー', async () => {
+  const client = await connect(okConfig())
+  reply = () => ({ status: 201, body: {} })
+  const r = await call(client, 'add_source', ARGS.add_source)
+  assert.equal(r.isError, true)
+  assert.ok(r.content[0]?.text.includes('id がありません'))
+})
+
+test('create_proposal: kind・表・target_id の誤りは get_schema を案内', async () => {
+  const client = await connect(okConfig())
+  for (const code of [
+    'target_id_required',
+    'target_id_not_allowed',
+    'invalid_kind',
+    'invalid_target_table',
+  ]) {
+    reply = () => ({ status: 400, body: { error: code } })
+    const r = await call(client, 'create_proposal', PROPOSAL)
+    assert.ok(r.content[0]?.text.includes(code), code)
+    assert.ok(r.content[0]?.text.includes('get_schema'), code)
+  }
+  reply = () => ({ status: 400, body: { error: 'invalid_robots_checked' } })
+  const rb = await call(client, 'add_source', ARGS.add_source)
+  assert.ok(rb.content[0]?.text.includes('1 / 0'))
 })
 
 test('書き込みの 400 / 409 は本文ごと読める形で返す', async () => {

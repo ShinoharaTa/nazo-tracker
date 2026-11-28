@@ -76,23 +76,39 @@ const HINTS: Record<string, string> = {
   invalid_content_hash: 'content_hash は SHA-256 の 16 進 64 文字にしてください。',
   excerpt_too_long: 'excerpt は 500 文字までです。',
   too_large: '本文が 64 KiB を超えています。項目を減らしてください。',
+  target_id_required:
+    'update / link / merge には target_id が要ります（kind の値は get_schema を見る）。',
+  target_id_not_allowed: 'create には target_id を付けません（kind の値は get_schema を見る）。',
+  invalid_kind:
+    'kind は get_schema の proposal_fields のキー（create / update / link / merge）から選んでください。',
+  invalid_target_table:
+    'target_table は get_schema の proposal_fields[kind] にある表から選んでください。',
+  invalid_robots_checked: 'robots_checked は true / false（または 1 / 0）にしてください。',
 }
 
-// 書き込みは再試行しない。応答が無いか 5xx のときは、届いたかどうかが分からない
-const WRITE_UNKNOWN_HINT =
-  '書き込みは自動で再試行していません。届いている可能性があるので、list_proposals / get_request で確かめてから出し直してください。'
+// 書き込みは再試行しない。応答が無い・5xx・2xx でも本文が読めないときは、届いたかどうかが分からない
+export const WRITE_UNKNOWN_HINT =
+  '書き込みは自動で再試行していません。サーバーに届いた可能性があるので、list_proposals / get_request で確かめてから出し直してください。'
+// 出典は一覧できないので確かめようがない
+export const SOURCE_UNKNOWN_HINT =
+  '書き込みは自動で再試行していません。サーバーに届いた可能性があります。出典を一覧する手段は無いため、出し直すと二重に登録されることがあります（提案は同じ内容なら duplicate_pending で止まります）。'
+
+// 届いたかどうかが分からない失敗（送る前に止めた invalid_token_format とリダイレクトは除く）
+const unknownOutcome = (e: ApiError) =>
+  e.status >= 500 || ['timeout', 'network_error', 'invalid_response'].includes(e.code)
 
 const DEFAULT_HINT = '本文の error と項目を見て、入力を直してから呼び直してください。'
 
-export const apiErrorResult = (e: unknown, write = false) => {
+// writeHint は書き込みツールで、届いたかどうかが分からないときの次の手
+export const apiErrorResult = (e: unknown, writeHint: string | null = null) => {
   if (!(e instanceof ApiError)) {
     // 想定外の例外。文言にトークンが混ざる経路は無いが、念のため種類だけを返す
     return errorText(`エラー: 想定外の失敗（${e instanceof Error ? e.name : typeof e}）`)
   }
   const lines = [`エラー: ${e.message}`]
   if (e.body) lines.push(`本文: ${json(e.body)}`)
-  const unknown = write && (e.status === 0 || e.status >= 500)
-  lines.push(`次の手: ${unknown ? WRITE_UNKNOWN_HINT : (HINTS[e.code] ?? DEFAULT_HINT)}`)
+  const hint = writeHint && unknownOutcome(e) ? writeHint : (HINTS[e.code] ?? DEFAULT_HINT)
+  lines.push(`次の手: ${hint}`)
   return errorText(lines.join('\n'))
 }
 

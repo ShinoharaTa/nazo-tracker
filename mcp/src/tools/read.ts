@@ -19,7 +19,7 @@ const id = z.string().trim().min(1)
 const limit = (max: number) => z.number().int().min(1).max(max)
 
 // 設定エラーなら全ツールをそのエラーにする。API の失敗は apiErrorResult に写す
-// write は書き込みツール（応答が無かったときの次の手が変わる）
+// writeHint は書き込みツールで、届いたかどうかが分からないときの次の手
 export const withClient =
   <A>(
     ctx: ToolContext,
@@ -27,14 +27,14 @@ export const withClient =
       client: ApiClient,
       args: A,
     ) => Promise<ReturnType<typeof result> | ReturnType<typeof errorText>>,
-    write = false,
+    writeHint: string | null = null,
   ) =>
   async (args: A) => {
     if (!ctx.client) return errorText(`エラー: ${ctx.error}`)
     try {
       return await fn(ctx.client, args)
     } catch (e) {
-      return apiErrorResult(e, write)
+      return apiErrorResult(e, writeHint)
     }
   }
 

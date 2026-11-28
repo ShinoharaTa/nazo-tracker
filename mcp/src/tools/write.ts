@@ -3,7 +3,14 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { encodeId, errorText, json, result } from './common.js'
+import {
+  encodeId,
+  errorText,
+  json,
+  result,
+  SOURCE_UNKNOWN_HINT,
+  WRITE_UNKNOWN_HINT,
+} from './common.js'
 import { type ToolContext, withClient } from './read.js'
 
 const WRITE = {
@@ -46,7 +53,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         })
         return result(json(r), r)
       },
-      true,
+      WRITE_UNKNOWN_HINT,
     ),
   )
 
@@ -62,7 +69,9 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         url: z.string().trim().min(1).describe('取得した URL（http / https）'),
         method: z.string().trim().min(1).describe('escape_mcp / webfetch / pds'),
         fetched_at: z.string().trim().min(1).describe('取得日時（タイムゾーン付き ISO 8601）'),
-        robots_checked: z.boolean().describe('robots.txt で許可を確かめたか'),
+        robots_checked: z
+          .union([z.boolean(), z.literal(0), z.literal(1)])
+          .describe('robots.txt で許可を確かめたか（true / false、1 / 0 も可）'),
         excerpt: z.string().optional().describe('根拠の抜粋（500 文字まで）'),
         content_hash: z.string().optional().describe('本文の SHA-256（16 進 64 文字）'),
       },
@@ -76,7 +85,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           url: string
           method: string
           fetched_at: string
-          robots_checked: boolean
+          robots_checked: boolean | 0 | 1
           excerpt?: string
           content_hash?: string
         },
@@ -85,13 +94,19 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
           url: a.url,
           method: a.method,
           fetched_at: a.fetched_at,
-          robots_checked: a.robots_checked,
+          // API には boolean で送る
+          robots_checked: a.robots_checked === true || a.robots_checked === 1,
           excerpt: a.excerpt,
           content_hash: a.content_hash,
         })
+        if (typeof r.id !== 'string' || !r.id) {
+          return errorText(
+            `エラー: 応答に出典の id がありません。\n本文: ${json(r)}\n次の手: ${SOURCE_UNKNOWN_HINT}`,
+          )
+        }
         return result(json({ id: r.id }), { id: r.id })
       },
-      true,
+      SOURCE_UNKNOWN_HINT,
     ),
   )
 
@@ -173,7 +188,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         }
         return result(json(out), out)
       },
-      true,
+      WRITE_UNKNOWN_HINT,
     ),
   )
 }
