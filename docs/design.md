@@ -162,6 +162,7 @@ flowchart LR
 - **画像の実体は取得しない・保存しない・配信しない。** 持つのは URL の文字列だけ（`work.image_url` / `organization.logo_url`）。画像は閲覧者のブラウザが公開元のサーバーから直接読む。Worker も agent も画像を取りに行かない。
 - 画像は必ず「取得元ページへのリンク + 出典の表記」と組で出す（リンクプレビューの形。`image_page_url` / `logo_page_url`）。切り抜かない・加工しない（`object-fit: contain`）。詳細・団体の出典行の右に「掲載について ›」を置き、公開ページ `/about#images`（画像の扱いと削除依頼の連絡先。ログイン不要）へ飛ばす。
 - 対象ホストは許可リスト（`src/lib/image-url.ts` の `IMAGE_HOSTS`）で限る。最初は `static.escape.id` だけ。X 系の画像ホストは入れない。拡張子も許可リスト（png / jpg / jpeg / webp / gif）で限り、SVG などは通さない。URL は `<img src>` にだけ載せる。検証の規則は data-model.md「画像の URL の検証」。
+- HTML の応答すべてに `Content-Security-Policy: img-src 'self' https://static.escape.id` を付ける（`img-src` だけ。`src/index.ts`）。値は `IMAGE_HOSTS` から作るので、許可ホストを足すと CSP も自動で増える。
 - 権利者が嫌がれば、公開元で消す・差し替える・Referer なしを拒否する、のどれでも止められる。こちら側でも 1 操作で止められる（`image_blocked`、許可リストから外す、`MASTER_IMAGES`。ops.md「画像の削除依頼」）。止めた行・団体の作品に画像を新しく入れる・別の値に変える提案は 400 になるが、画像に触れない更新は通る（変わっていない画像の値は検証し直さない）。
 
 持ち方の比較:

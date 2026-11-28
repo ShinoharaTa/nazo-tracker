@@ -3,6 +3,7 @@ import { csrf } from 'hono/csrf'
 import { rejectBearer } from './auth/agent'
 import { attachUser } from './auth/middleware'
 import type { AppEnv } from './env'
+import { IMG_SRC_CSP } from './lib/image-url'
 import admin from './routes/admin'
 import apiAdmin from './routes/api-admin'
 import apiAgent from './routes/api-agent'
@@ -16,6 +17,14 @@ import ui from './routes/ui'
 
 // strict: false で末尾スラッシュ付き（/records/ など）も同じルートとして扱う。サブアプリ側も同じ設定
 const app = new Hono<AppEnv>({ strict: false })
+
+// HTML の応答すべてに CSP（img-src だけ）を付ける。JSON・リダイレクト・静的アセット（[assets] が Worker より先に返す）には付けない
+app.use('*', async (c, next) => {
+  await next()
+  if (c.res.headers.get('Content-Type')?.startsWith('text/html')) {
+    c.res.headers.set('Content-Security-Policy', IMG_SRC_CSP)
+  }
+})
 
 // 疎通確認。SESSION_SECRET の検査（attachUser）より前に置き、設定不備でも D1 の疎通を見られるようにする
 app.get('/healthz', async (c) => {
