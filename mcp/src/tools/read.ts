@@ -82,7 +82,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     },
     withClient(ctx, async (client, a: { status?: string[]; limit?: number }) => {
       const r = await client.get('/requests', { status: a.status?.join(','), limit: a.limit })
-      return result(`${DATA_NOTE}\n${json(r)}`, r)
+      return result(`${DATA_NOTE}\n${json(r)}`, { _note: DATA_NOTE, ...r })
     }),
   )
 
@@ -96,7 +96,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     },
     withClient(ctx, async (client, a: { id: string }) => {
       const r = await client.get(`/requests/${encodeId(a.id)}`)
-      return result(`${DATA_NOTE}\n${json(r)}`, r)
+      return result(`${DATA_NOTE}\n${json(r)}`, { _note: DATA_NOTE, ...r })
     }),
   )
 
@@ -125,7 +125,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       title: 'マスタを名前で探す',
       description:
         '作品・団体・会場を、名前と別名の部分一致・近い名前で探す（match より広い）。' +
-        'score は 1 が正規化後の完全一致、0.7〜0.95 が部分一致、0.7 未満が近い名前。reason の alias_* は別名で当たった。',
+        'score は 1 が正規化後の完全一致、0.7〜0.95 が部分一致、0.7 未満が近い名前、0.3 は 1 文字だけの部分一致。reason の alias_* は別名で当たった。',
       inputSchema: {
         table: z.enum(searchTables).describe('work / organization / venue'),
         query: z.string().trim().min(1).describe('探す名前'),
