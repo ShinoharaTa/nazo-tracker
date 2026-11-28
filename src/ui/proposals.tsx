@@ -108,7 +108,7 @@ const ImagePreview = ({ field, v }: { field: string; v: string | null }) => {
       alt=""
       loading="lazy"
       referrerpolicy="no-referrer"
-      style="display:block;max-width:160px;height:auto;object-fit:contain;margin-top:4px"
+      style="display:block;width:auto;height:auto;max-width:160px;max-height:160px;object-fit:contain;margin-top:4px"
     />
   )
 }

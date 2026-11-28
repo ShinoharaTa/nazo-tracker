@@ -17,7 +17,8 @@ const HOSTS_MSG = `は ${IMAGE_HOSTS.map((h) => `https://${h.host}/`).join(' か
 
 // パスの最後のセグメントがこの拡張子で終わるときだけ通す（大文字小文字は区別しない。query と hash は見ない）。
 // 末尾 /・拡張子なし・.svg / .svgz・;x・%00・%20・末尾ドットはここで落ちる
-const IMAGE_EXT = /\.(png|jpe?g|webp|gif)$/i
+export const IMAGE_EXTENSIONS: readonly string[] = ['png', 'jpg', 'jpeg', 'webp', 'gif']
+const IMAGE_EXT = new RegExp(`\\.(${IMAGE_EXTENSIONS.join('|')})$`, 'i')
 
 // 画像の URL（work.image_url / organization.logo_url）。https・userinfo なし・ポートなし・許可ホストに完全一致・拡張子が許可リスト。
 // 保存値は host を規則の host に揃え（末尾ドットを残さない）、hash を落とした href（dropQuery のホストは query も落とす）
