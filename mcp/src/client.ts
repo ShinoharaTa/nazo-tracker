@@ -44,6 +44,14 @@ export class ApiClient {
     return this.request('GET', path, query)
   }
 
+  post(path: string, body: unknown): Promise<Record<string, unknown>> {
+    return this.request('POST', path, undefined, body)
+  }
+
+  patch(path: string, body: unknown): Promise<Record<string, unknown>> {
+    return this.request('PATCH', path, undefined, body)
+  }
+
   // GET だけ、応答が無いか 5xx のとき 1 回だけやり直す。POST / PATCH は二重に書くのでやり直さない
   async request(
     method: 'GET' | 'POST' | 'PATCH',
