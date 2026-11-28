@@ -64,6 +64,10 @@ const aliasCount = (n: number, dropped: number): string =>
 const orgName = async (db: Db, id: string | null): Promise<string | null> =>
   id ? ((await getAdminOrg(db, id))?.row.name ?? null) : null
 
+// 統合元が画像を載せない指定で統合先がそうでないとき（db/merge.ts の画像の規則で統合先も止まる）
+const IMAGE_BLOCK_NOTE =
+  '統合元が画像を載せない設定のため、統合先も載せない設定になり、画像の URL が消えます。'
+
 const workEntity: Entity<WorkRow> = {
   base: '/admin/works',
   label: '作品',
@@ -86,6 +90,7 @@ const workEntity: Entity<WorkRow> = {
       taken
         ? '同じ題名が統合先にあるため旧題は追加しません。'
         : `「${a.title}」の題名は「${b.title}」の旧題として残ります。`,
+      ...(a.imageBlocked === 1 && b.imageBlocked === 0 ? [IMAGE_BLOCK_NOTE] : []),
       `「${a.title}」は統合済みになり、作品ページは「${b.title}」へ転送されます。`,
     ]
   },
@@ -112,6 +117,9 @@ const orgEntity: Entity<OrgRow> = {
       taken
         ? '同じ名前が統合先にあるため旧名は追加しません。'
         : `「${a.name}」の名前は「${b.name}」の旧名として残ります。`,
+      ...(a.imageBlocked === 1 && b.imageBlocked === 0
+        ? [`${IMAGE_BLOCK_NOTE}この団体の作品の画像も出なくなります。`]
+        : []),
       `「${a.name}」は統合済みになり、団体ページは「${b.name}」へ転送されます。`,
     ]
   },

@@ -129,6 +129,9 @@ const IMG_A = 'https://static.escape.id/i/o/merge/a.png'
 const IMG_B = 'https://static.escape.id/i/o/merge/b.png'
 const PAGE_A = 'https://escape.id/e/merge-a/'
 const PAGE_B = 'https://escape.id/e/merge-b/'
+const IMAGE_NOTE =
+  '統合元が画像を載せない設定のため、統合先も載せない設定になり、画像の URL が消えます。'
+const ORG_IMAGE_NOTE = 'この団体の作品の画像も出なくなります。'
 
 const setImage = (
   table: 'work' | 'organization',
@@ -303,6 +306,9 @@ describe('作品の統合', () => {
     const b = await insertWork(env, { title: '画像写し先' })
     await setImage('work', a, IMG_A, PAGE_A, 0)
     expect(
+      await (await get(`/admin/works/${a}/merge?into=${b}`, owner.cookie)).text(),
+    ).not.toContain(IMAGE_NOTE)
+    expect(
       (await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
     ).toBe(302)
     expect(await row('work', a)).toMatchObject({ image_url: IMG_A, image_page_url: PAGE_A })
@@ -347,6 +353,70 @@ describe('作品の統合', () => {
       image_blocked: 1,
     })
     expect(await logsOf(b2)).toHaveLength(0)
+  })
+
+  it('画像: A も B も載せない指定で URL も無ければ B は変わらない（change_log 0 行、updated_at 不変）。確認画面に注記なし', async () => {
+    const a = await insertWork(env, { title: '画像両止め元' })
+    const b = await insertWork(env, { title: '画像両止め先' })
+    await setImage('work', a, null, null, 1)
+    await setImage('work', b, null, null, 1)
+    const before = await row('work', b)
+    const page = await (await get(`/admin/works/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).not.toContain(IMAGE_NOTE)
+    expect(
+      (await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(await row('work', b)).toMatchObject({
+      image_url: null,
+      image_page_url: null,
+      image_blocked: 1,
+      updated_at: before?.updated_at,
+    })
+    expect(await logsOf(b)).toHaveLength(0)
+  })
+
+  it('画像: URL の引き継ぎが無くても A が載せない指定なら B が止まる（update 1 行）。確認画面に注記', async () => {
+    const a = await insertWork(env, { title: '画像止めだけ元' })
+    const b = await insertWork(env, { title: '画像止めだけ先' })
+    await setImage('work', a, null, null, 1)
+    await setImage('work', b, IMG_B, PAGE_B, 0)
+    const page = await (await get(`/admin/works/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).toContain(IMAGE_NOTE)
+    expect(page).not.toContain(ORG_IMAGE_NOTE)
+    expect(
+      (await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(await row('work', b)).toMatchObject({
+      image_url: null,
+      image_page_url: null,
+      image_blocked: 1,
+      official_url: null,
+    })
+    const logs = await logsOf(b)
+    expect(logs.map((l) => l.action)).toEqual(['update'])
+    expect(JSON.parse(logs[0].after_json ?? '{}')).toMatchObject({
+      image_url: null,
+      image_blocked: 1,
+      official_url: null,
+    })
+  })
+
+  it('画像: A が載せない指定で B も載せない指定だが URL が残っていれば消す。確認画面に注記なし', async () => {
+    const a = await insertWork(env, { title: '画像残り元' })
+    const b = await insertWork(env, { title: '画像残り先' })
+    await setImage('work', a, null, null, 1)
+    await setImage('work', b, IMG_B, PAGE_B, 1)
+    const page = await (await get(`/admin/works/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).not.toContain(IMAGE_NOTE)
+    expect(
+      (await post(`/admin/works/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(await row('work', b)).toMatchObject({
+      image_url: null,
+      image_page_url: null,
+      image_blocked: 1,
+    })
+    expect((await logsOf(b)).map((l) => l.action)).toEqual(['update'])
   })
 
   it('A と B に同じ表記の別名があっても統合できる（UNIQUE(work_id, title_norm)）', async () => {
@@ -668,6 +738,9 @@ describe('団体の統合', () => {
     const b = await insertOrg(env, { name: 'ロゴ写し先' })
     await setImage('organization', a, IMG_A, PAGE_A, 0)
     expect(
+      await (await get(`/admin/orgs/${a}/merge?into=${b}`, owner.cookie)).text(),
+    ).not.toContain(IMAGE_NOTE)
+    expect(
       (await post(`/admin/orgs/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
     ).toBe(302)
     expect(await row('organization', a)).toMatchObject({ logo_url: IMG_A, logo_page_url: PAGE_A })
@@ -712,6 +785,68 @@ describe('団体の統合', () => {
       image_blocked: 1,
     })
     expect(await logsOf(b2)).toHaveLength(0)
+  })
+  it('ロゴ: A も B も載せない指定で URL も無ければ B は変わらない（change_log 0 行、updated_at 不変）。確認画面に注記なし', async () => {
+    const a = await insertOrg(env, { name: 'ロゴ両止め元' })
+    const b = await insertOrg(env, { name: 'ロゴ両止め先' })
+    await setImage('organization', a, null, null, 1)
+    await setImage('organization', b, null, null, 1)
+    const before = await row('organization', b)
+    const page = await (await get(`/admin/orgs/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).not.toContain(IMAGE_NOTE)
+    expect(
+      (await post(`/admin/orgs/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(await row('organization', b)).toMatchObject({
+      logo_url: null,
+      logo_page_url: null,
+      image_blocked: 1,
+      updated_at: before?.updated_at,
+    })
+    expect(await logsOf(b)).toHaveLength(0)
+  })
+
+  it('ロゴ: URL の引き継ぎが無くても A が載せない指定なら B が止まる（update 1 行）。確認画面に注記', async () => {
+    const a = await insertOrg(env, { name: 'ロゴ止めだけ元' })
+    const b = await insertOrg(env, { name: 'ロゴ止めだけ先' })
+    await setImage('organization', a, null, null, 1)
+    await setImage('organization', b, IMG_B, PAGE_B, 0)
+    const page = await (await get(`/admin/orgs/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).toContain(IMAGE_NOTE + ORG_IMAGE_NOTE)
+    expect(
+      (await post(`/admin/orgs/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(await row('organization', b)).toMatchObject({
+      logo_url: null,
+      logo_page_url: null,
+      image_blocked: 1,
+      escape_id_url: null,
+    })
+    const logs = await logsOf(b)
+    expect(logs.map((l) => l.action)).toEqual(['update'])
+    expect(JSON.parse(logs[0].after_json ?? '{}')).toMatchObject({
+      logo_url: null,
+      image_blocked: 1,
+      escape_id_url: null,
+    })
+  })
+
+  it('ロゴ: A が載せない指定で B も載せない指定だが URL が残っていれば消す。確認画面に注記なし', async () => {
+    const a = await insertOrg(env, { name: 'ロゴ残り元' })
+    const b = await insertOrg(env, { name: 'ロゴ残り先' })
+    await setImage('organization', a, null, null, 1)
+    await setImage('organization', b, IMG_B, PAGE_B, 1)
+    const page = await (await get(`/admin/orgs/${a}/merge?into=${b}`, owner.cookie)).text()
+    expect(page).not.toContain(IMAGE_NOTE)
+    expect(
+      (await post(`/admin/orgs/${a}/merge`, { into: b, confirm: 'yes' }, owner.cookie)).status,
+    ).toBe(302)
+    expect(await row('organization', b)).toMatchObject({
+      logo_url: null,
+      logo_page_url: null,
+      image_blocked: 1,
+    })
+    expect((await logsOf(b)).map((l) => l.action)).toEqual(['update'])
   })
 })
 
