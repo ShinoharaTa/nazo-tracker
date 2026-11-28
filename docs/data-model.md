@@ -86,6 +86,16 @@ erDiagram
 | merged_into_id FK NULL | |
 | created_at / updated_at | |
 
+### 画像の URL の検証（work / organization）
+
+`validateWork` / `validateOrg`（`src/admin/validate.ts`）。URL のパーサは `src/lib/image-url.ts`。
+
+- `image_url` / `logo_url`: 2000 文字以内・空白なし、`https:` のみ、userinfo・ポート指定なし、host（小文字・末尾ドット除去）が `IMAGE_HOSTS` に完全一致（サブドメインの後方一致はしない）。パスの最後のセグメントの拡張子が png / jpg / jpeg / webp / gif（大文字小文字は区別しない。query と hash は見ない）のときだけ通す。末尾 `/`・拡張子なし・`.svg` / `.svgz`・`;x`・`%00`・`%20`・末尾ドットは拒否。保存値は host を規則の host に揃え、hash を落とす（`static.escape.id` は query も落とす）。この URL は `<img src>` にだけ載せる（`<object>`・CSS・リンク先として開く用途に使わない）。
+- `image_page_url` / `logo_page_url`: `https:` のみ、userinfo なし、escape.id のマイページ（`/me` 以下）と X 系 host は不可。hash を落とす。
+- 組: 画像と取得元は両方入れる（片方だけはエラー）。行が `image_blocked=1` なら画像の URL は入れられず、取得元だけ入っているときは「取得元ページの URL も空にしてください」と案内する。作品の団体（`primary_organization_id`）が `image_blocked=1` なら作品に画像の URL は入れられない（`@organization` は対象外）。
+- **変わっていない値は検証し直さない。** 既存行の更新（オーナーの編集フォーム・agent の update・承認時の再検証）で、画像の URL と取得元が今の行の値と同じなら、上の規則（許可ホスト・拡張子・取得元・組・載せない設定）を掛けない。値が変わるとき（空 → 値、値 → 別の値）と新規作成では全部掛ける。値 → 空は常に通す。これで、団体を止めたあとも、その団体の画像つき作品への無関係な更新（題名だけ等）が通る。`IMAGE_HOSTS` からホストを外した場合も同じ。表示するかは表示側の判定関数が見る（保存値が残っていても出さない）。
+- オーナーのフォームで「画像を載せない」にチェックした保存は、URL が残っていても空にして保存する。
+
 ### work_alias
 `id, work_id, title, title_norm, kind(former_title / alt_spelling / subtitle)` UNIQUE(work_id, title_norm)（同じ作品に同じ表記の別名は 1 つ）
 
