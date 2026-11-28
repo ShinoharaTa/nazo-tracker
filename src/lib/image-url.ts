@@ -20,6 +20,10 @@ export const IMAGE_HOSTS: readonly {
   },
 ]
 
+// HTML の応答に付ける CSP。img-src だけを絞る（他の directive は足さない。インラインの style / script を壊さないため）。
+// 許可ホストを IMAGE_HOSTS に足せばここも増える（host を二重に持たない）
+export const IMG_SRC_CSP = `img-src 'self' ${IMAGE_HOSTS.map((h) => `https://${h.host}`).join(' ')}`
+
 // list: 作品一覧の stub、detail: 作品詳細・団体詳細
 export type ImageSize = 'list' | 'detail'
 
