@@ -65,13 +65,13 @@ const workFormOf = (r: WorkRow): Form => ({
 })
 
 const notFound = () => (
-  <AdminPage title="見つかりませんでした">
+  <AdminPage section="master" title="見つかりませんでした">
     <AdminNotFound back="/admin/works" />
   </AdminPage>
 )
 
 const mergedPage = (into: { id: string; name: string } | null) => (
-  <AdminPage title="作品を編集">
+  <AdminPage section="master" title="作品を編集">
     <TopBar back="/admin/works" label="作品を編集" />
     {into ? <MergedNotice href={`/admin/works/${into.id}`} name={into.name} /> : null}
   </AdminPage>
@@ -86,7 +86,7 @@ const newPage = async (
     confirm?: string
   },
 ) => (
-  <AdminPage title="作品を追加">
+  <AdminPage section="master" title="作品を追加">
     <TopBar back="/admin/works" label="作品を追加" />
     <div class="sect" style="margin-top:4px">
       <WorkForm action="/admin/works/new" orgs={await orgOptions(db)} {...p} />
@@ -108,7 +108,7 @@ const editPage = async (
     merged?: boolean
   },
 ) => (
-  <AdminPage title="作品を編集">
+  <AdminPage section="master" title="作品を編集">
     <TopBar back="/admin/works" label="作品を編集" />
     <div class="sect" style="margin-top:4px">
       {p.saved ? <Saved /> : null}

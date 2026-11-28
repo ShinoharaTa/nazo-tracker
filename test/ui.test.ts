@@ -150,6 +150,68 @@ describe('画面ルート', () => {
   })
 })
 
+// 管理画面だけ、PC のサイドの目次で「設定」の下に管理の区分を出す。.side はスマホで display: none
+describe('管理画面のサイドの小見出し', () => {
+  let ownerCookie = ''
+  beforeAll(async () => {
+    ownerCookie = (await loginAs(env, { subject: 'ui-test-subnav-owner', owner: true })).cookie
+  })
+  const ownerGet = async (path: string) => {
+    const res = await app.request(path, { headers: { Cookie: ownerCookie } }, env)
+    expect(res.status).toBe(200)
+    return res.text()
+  }
+  const side = (html: string) => html.match(/<aside class="side">[\s\S]*?<\/aside>/)?.[0] ?? ''
+  const items = [
+    ['マスタ管理', '/admin'],
+    ['リクエスト', '/admin/requests'],
+    ['agent トークン', '/admin/tokens'],
+    ['承認待ちの提案', '/admin/proposals'],
+  ]
+  const subOf = (current: string) =>
+    `<a class="on" href="/settings">設定</a><div class="idx-sub">${items
+      .map(([label, href]) =>
+        href === current
+          ? `<a class="on" href="${href}" aria-current="page">${label}</a>`
+          : `<a href="${href}">${label}</a>`,
+      )
+      .join('')}</div>`
+
+  it('/admin/proposals では設定の下に区分が出て、提案が現在地', async () => {
+    const html = await ownerGet('/admin/proposals')
+    expect(side(html)).toContain(subOf('/admin/proposals'))
+    // 下部ナビ（スマホ）には出さない
+    expect(html.match(/idx-sub/g)).toHaveLength(1)
+  })
+
+  it('管理画面ではサイドの aria-current="page" は 1 つ（下部ナビの設定はそのまま）', async () => {
+    for (const path of ['/admin/proposals', '/admin/works', '/admin/requests', '/admin/tokens']) {
+      const html = await ownerGet(path)
+      expect(side(html).match(/aria-current="page"/g)).toHaveLength(1)
+      const bn = html.match(/<nav class="bn"[\s\S]*?<\/nav>/)?.[0] ?? ''
+      expect(bn).toContain('<a class="on" href="/settings" aria-current="page">設定</a>')
+    }
+  })
+
+  it('マスタの各ページはマスタ管理が現在地', async () => {
+    for (const path of ['/admin', '/admin/works', '/admin/works/new', '/admin/orgs']) {
+      expect(side(await ownerGet(path))).toContain(subOf('/admin'))
+    }
+  })
+
+  it('リクエスト・トークンはそれぞれが現在地', async () => {
+    expect(side(await ownerGet('/admin/requests'))).toContain(subOf('/admin/requests'))
+    expect(side(await ownerGet('/admin/tokens'))).toContain(subOf('/admin/tokens'))
+  })
+
+  it('管理画面以外（/works・/settings）には出さない', async () => {
+    for (const path of ['/works', '/settings']) {
+      expect(await ownerGet(path)).not.toContain('idx-sub')
+    }
+    expect(await (await get('/settings')).text()).not.toContain('idx-sub')
+  })
+})
+
 describe('GET /_ui', () => {
   it('UI_GALLERY 未設定なら 404', async () => {
     const res = await app.request('/_ui', {}, { ...env, UI_GALLERY: undefined })

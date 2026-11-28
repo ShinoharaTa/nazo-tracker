@@ -67,7 +67,7 @@ const NewForm = ({ values, errors = [] }: { values: Form; errors?: readonly stri
 )
 
 const newPage = (values: Form, errors?: readonly string[]) => (
-  <AdminPage title="agent トークンを発行">
+  <AdminPage section="tokens" title="agent トークンを発行">
     <TopBar back="/admin/tokens" label="agent トークンを発行" />
     <div class="sect" style="margin-top:4px">
       <NewForm values={values} errors={errors} />
@@ -78,7 +78,7 @@ const newPage = (values: Form, errors?: readonly string[]) => (
 tokens.get('/tokens', async (c) => {
   const rows = await listTokens(c.get('db'))
   return c.html(
-    <AdminPage title="agent トークン">
+    <AdminPage section="tokens" title="agent トークン">
       <TopBar
         back="/settings"
         label="agent トークン"
@@ -133,7 +133,7 @@ tokens.post('/tokens', async (c) => {
   if (!v.ok) return c.html(newPage(form, v.errors), 400)
   const { token, expiresAt } = await createToken(c.get('db'), v.value.name, v.value.days)
   return c.html(
-    <AdminPage title="agent トークンを発行しました">
+    <AdminPage section="tokens" title="agent トークンを発行しました">
       <TopBar back="/admin/tokens" label="発行しました" />
       <div class="sect" style="margin-top:4px">
         <div class="list">
@@ -162,7 +162,7 @@ tokens.post('/tokens/:id/revoke', async (c) => {
   const t = await getToken(db, c.req.param('id'))
   if (!t) {
     return c.html(
-      <AdminPage title="見つかりませんでした">
+      <AdminPage section="tokens" title="見つかりませんでした">
         <AdminNotFound back="/admin/tokens" />
       </AdminPage>,
       404,

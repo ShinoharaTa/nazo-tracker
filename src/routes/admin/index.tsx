@@ -71,14 +71,14 @@ const mergeTarget = (m: MergeFrom | undefined, id: string, merged: unknown) =>
   m && id !== m.id && !merged ? id : undefined
 
 const notFoundPage = (back: string) => (
-  <AdminPage title="見つかりませんでした">
+  <AdminPage section="master" title="見つかりませんでした">
     <AdminNotFound back={back} />
   </AdminPage>
 )
 
 admin.get('/', (c) =>
   c.html(
-    <AdminPage title="マスタ管理">
+    <AdminPage section="master" title="マスタ管理">
       <TopBar back="/settings" label="マスタ管理" />
       <div class="sect" style="margin-top:4px">
         <h2>作品</h2>
@@ -123,7 +123,7 @@ const listPage = (p: {
   rows: AdminListRow[]
   mergeFrom?: MergeFrom
 }) => (
-  <AdminPage title={p.label}>
+  <AdminPage section="master" title={p.label}>
     <AdminList {...p} />
   </AdminPage>
 )

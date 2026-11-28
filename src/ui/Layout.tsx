@@ -94,14 +94,41 @@ const Cover = ({ tab }: { tab: Tab }) => {
   )
 }
 
-const TabLink = ({ t, current }: { t: (typeof tabs)[number]; current: Tab }) =>
+// subCurrent: 小見出しに現在地があるときは、aria-current をそちらに譲り、タブは見た目（.on）だけ残す
+const TabLink = ({
+  t,
+  current,
+  subCurrent,
+}: {
+  t: (typeof tabs)[number]
+  current: Tab
+  subCurrent?: boolean
+}) =>
   t.key === current ? (
-    <a class="on" href={t.href} aria-current="page">
+    <a class="on" href={t.href} aria-current={subCurrent ? undefined : 'page'}>
       {t.label}
     </a>
   ) : (
     <a href={t.href}>{t.label}</a>
   )
+
+// PC のサイドの目次で、選択中のタブの下に字下げして出す小見出し（管理画面の区分など）。
+// current は items の href のどれか。スマホでは .side ごと出さない
+export type SubNav = { items: readonly { label: string; href: string }[]; current?: string }
+
+const SubNavLinks = ({ sub }: { sub: SubNav }) => (
+  <div class="idx-sub">
+    {sub.items.map((i) =>
+      i.href === sub.current ? (
+        <a class="on" href={i.href} aria-current="page">
+          {i.label}
+        </a>
+      ) : (
+        <a href={i.href}>{i.label}</a>
+      ),
+    )}
+  </div>
+)
 
 // single（見開き全体を 1 ページで使う）のときは right を渡せない。
 // single は PC で 1 列（本文は最大 680px）。columns={2} を付けたときだけ 2 列のグリッド（統計だけ）
@@ -110,6 +137,7 @@ export type LayoutProps = {
   tab: Tab
   left: Child
   fab?: boolean
+  sub?: SubNav
 } & (
   | { single: true; columns?: 2; right?: never }
   | { single?: false; columns?: never; right?: Child }
@@ -133,9 +161,20 @@ export const Layout = (props: LayoutProps) => {
             ＋ 記録
           </a>
           <nav class="idx" aria-label="メニュー">
-            {tabs.map((t) => (
-              <TabLink t={t} current={props.tab} />
-            ))}
+            {tabs.map((t) =>
+              props.sub && t.key === props.tab ? (
+                <>
+                  <TabLink
+                    t={t}
+                    current={props.tab}
+                    subCurrent={props.sub.items.some((i) => i.href === props.sub?.current)}
+                  />
+                  <SubNavLinks sub={props.sub} />
+                </>
+              ) : (
+                <TabLink t={t} current={props.tab} />
+              ),
+            )}
           </nav>
         </aside>
         <main class={bookClass}>

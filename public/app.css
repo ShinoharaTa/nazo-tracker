@@ -1385,6 +1385,36 @@ dialog.sheet::backdrop {
   .idx a:hover:not(.on) {
     color: var(--fg);
   }
+  /* 選択中のタブの下に字下げして出す小見出し（管理画面の区分）。タブの箱は付けず、現在地は太字と左の罫で示す */
+  .idx-sub {
+    display: flex;
+    flex-direction: column;
+    margin: -2px 16px 4px 16px;
+  }
+  .idx .idx-sub a {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 10px;
+    border: none;
+    border-left: 2px solid var(--line);
+    border-radius: 0;
+    background: none;
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .idx .idx-sub a.on {
+    border-left-color: var(--rule);
+    margin-right: 0;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .book.one .top h1.sub {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--fg);
+  }
   .side .proto {
     margin-top: auto;
     align-self: flex-start;

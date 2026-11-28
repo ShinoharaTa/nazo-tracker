@@ -77,7 +77,7 @@ const toTab = (v: string | undefined): AdminProposalTab =>
   (adminProposalTabs as readonly string[]).includes(v ?? '') ? (v as AdminProposalTab) : 'pending'
 
 const notFoundPage = () => (
-  <AdminPage title="見つかりませんでした">
+  <AdminPage section="proposals" title="見つかりませんでした">
     <AdminNotFound back="/admin/proposals" />
   </AdminPage>
 )
@@ -128,7 +128,7 @@ const load = async (db: Db, id: string) => {
 }
 
 const detailPage = (d: Loaded, opts: Partial<ProposalDetailProps> = {}) => (
-  <AdminPage title="提案">
+  <AdminPage section="proposals" title="提案">
     <ProposalDetail
       {...d}
       kindSelectable={kindSelectable(d.p, d.fields)}
@@ -149,7 +149,7 @@ proposals.get('/proposals', async (c) => {
     getAutoApply(db),
   ])
   return c.html(
-    <AdminPage title="提案">
+    <AdminPage section="proposals" title="提案">
       <ProposalsList
         tab={tab}
         pendingCount={pendingCount}
@@ -237,7 +237,7 @@ const bulkBlockOf = (l: BulkLoaded): string | null =>
 
 const bulkErrorPage = (c: Context<AppEnv>, error: string) =>
   c.html(
-    <AdminPage title="まとめて承認">
+    <AdminPage section="proposals" title="まとめて承認">
       <BulkConfirm items={[]} skipped={[]} errors={[error]} />
     </AdminPage>,
     400,
@@ -262,7 +262,7 @@ proposals.get('/proposals/bulk', async (c) => {
     else items.push(l.item)
   }
   return c.html(
-    <AdminPage title="まとめて承認">
+    <AdminPage section="proposals" title="まとめて承認">
       <BulkConfirm items={items} skipped={skipped} over={bulkOverNote(all.length)} />
     </AdminPage>,
   )
@@ -302,7 +302,7 @@ proposals.post('/proposals/bulk', async (c) => {
     }
   }
   return c.html(
-    <AdminPage title="まとめて承認">
+    <AdminPage section="proposals" title="まとめて承認">
       <BulkResults results={results} over={bulkOverNote(all.length)} />
     </AdminPage>,
   )
@@ -385,7 +385,7 @@ const mergeHrefOf = async (db: Db, d: Loaded): Promise<string | null> => {
 }
 
 const revertPage = (d: Loaded, opts: { error?: string; mergeHref?: string | null } = {}) => (
-  <AdminPage title="自動反映の取り消し">
+  <AdminPage section="proposals" title="自動反映の取り消し">
     <RevertConfirm
       p={d.p}
       headline={headlineOf(d.p, d.fields, d.names)}
