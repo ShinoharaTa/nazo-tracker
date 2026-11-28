@@ -10,6 +10,7 @@ import type {
   ProposalRow,
 } from '../db/proposals'
 import { workKinds } from '../db/schema'
+import { imageUrl } from '../lib/image-url'
 import { norm } from '../lib/norm'
 import { isoToJstDate } from '../lib/time'
 import {
@@ -93,6 +94,23 @@ const valueText = (field: string, v: string | null, names: RefNames): string => 
   if (field === 'shop.kind') return shopKindLabels[v as ShopKind] ?? v
   if (field === 'run.is_permanent') return v === '1' ? '常設' : v
   return v
+}
+
+// 画像の項目（work.image_url / organization.logo_url）のプレビュー。許可ホストの検証を通った URL だけ <img> にする
+const imageFields: readonly string[] = ['work.image_url', 'organization.logo_url']
+const ImagePreview = ({ field, v }: { field: string; v: string | null }) => {
+  if (v === null || !imageFields.includes(field)) return null
+  const u = imageUrl()(v)
+  if (!u.ok) return null
+  return (
+    <img
+      src={u.value}
+      alt=""
+      loading="lazy"
+      referrerpolicy="no-referrer"
+      style="display:block;max-width:160px;height:auto;object-fit:contain;margin-top:4px"
+    />
+  )
 }
 
 // 詳細の見出し。create は作る行の名前（回は作品の題名）、それ以外は対象の今の名前
@@ -528,8 +546,14 @@ const DiffSection = (props: {
                 label
               )}
             </span>
-            <span class={`o${off}`}>{valueText(f.field, f.oldValue, props.names)}</span>
-            <span class={`n${off}`}>{valueText(f.field, f.newValue, props.names)}</span>
+            <span class={`o${off}`}>
+              {valueText(f.field, f.oldValue, props.names)}
+              <ImagePreview field={f.field} v={f.oldValue} />
+            </span>
+            <span class={`n${off}`}>
+              {valueText(f.field, f.newValue, props.names)}
+              <ImagePreview field={f.field} v={f.newValue} />
+            </span>
             <SourceLine f={f} />
           </>
         )

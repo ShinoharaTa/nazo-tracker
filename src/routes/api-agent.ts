@@ -41,6 +41,7 @@ import { getAutoApply } from '../db/settings'
 import type { AppEnv } from '../env'
 import { isUniqueViolation } from '../lib/db-error'
 import { url as urlParser } from '../lib/form'
+import { IMAGE_HOSTS } from '../lib/image-url'
 import { hasUserinfo } from '../lib/match'
 import { prefectures } from '../lib/prefectures'
 import { allow } from '../lib/rate-limit'
@@ -247,6 +248,8 @@ apiAgent.get('/schema', requireScope('master:read'), (c) =>
       'run.is_permanent': [...permanentValues, ''],
     },
     placeholders: placeholderSchema(),
+    // work.image_url / organization.logo_url に使えるホスト（https・完全一致）
+    image_hosts: IMAGE_HOSTS.map((h) => h.host),
     source_methods: agentSourceMethods,
     request_statuses: requestStatuses,
     proposal_statuses: proposalStatuses,

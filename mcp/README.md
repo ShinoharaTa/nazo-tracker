@@ -59,7 +59,7 @@ Node のパスは nvm の版に合わせる（非対話シェルに PATH が通�
 | ツール | 入力 | API |
 |---|---|---|
 | `whoami` | なし | `GET /whoami`（名前・期限・残り日数・接続先 host） |
-| `get_schema` | なし | `GET /schema`（kind × 表ごとの書ける項目、値の一覧、source method、状態） |
+| `get_schema` | なし | `GET /schema`（kind × 表ごとの書ける項目、値の一覧、画像の URL に使えるホスト `image_hosts`、source method、状態） |
 | `list_requests` | `status[]`（既定 triaged）, `limit` | `GET /requests` |
 | `get_request` | `id` | `GET /requests/:id` |
 | `match` | `title?`, `org?`, `url?` | `GET /match`（正規化後の完全一致） |
