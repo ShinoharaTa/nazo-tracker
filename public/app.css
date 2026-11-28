@@ -1118,6 +1118,13 @@ button.gtag.on {
   align-items: center;
   font-weight: 700;
 }
+/* 却下は承認ボタンのすぐ下に畳む（summary は .note の文字 + 三角。開くと理由・チェック・却下ボタン） */
+.reject {
+  margin-top: 12px;
+}
+.reject > summary + form {
+  margin-top: 10px;
+}
 /* まとめて承認の選択（承認待ちの .ticket の左に Checkbox。選べない行も同じ幅を空けて揃える） */
 .pick {
   display: flex;
