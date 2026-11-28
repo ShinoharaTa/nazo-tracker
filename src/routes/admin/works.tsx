@@ -5,6 +5,7 @@
 import { Hono } from 'hono'
 import {
   ALIAS_TAKEN,
+  clearBlockedImage,
   emptyForm,
   type Form,
   formOf,
@@ -12,6 +13,7 @@ import {
   validateWorkAlias,
   workAliasFields,
   workFields,
+  workImageFields,
 } from '../../admin/validate'
 import { currentUser } from '../../auth/middleware'
 import type { Db } from '../../db/client'
@@ -57,6 +59,9 @@ const workFormOf = (r: WorkRow): Form => ({
   estimated_minutes: num(r.estimatedMinutes),
   time_limit_minutes: num(r.timeLimitMinutes),
   first_released_on: r.firstReleasedOn ?? '',
+  image_url: r.imageUrl ?? '',
+  image_page_url: r.imagePageUrl ?? '',
+  image_blocked: r.imageBlocked === 1 ? '1' : '',
 })
 
 const notFound = () => (
@@ -133,7 +138,7 @@ works.get('/works/new', async (c) =>
 works.post('/works/new', async (c) => {
   const db = c.get('db')
   const body = await c.req.parseBody()
-  const form = formOf(body, workFields)
+  const form = clearBlockedImage(formOf(body, workFields), workImageFields)
   // confirm は候補を見て確認済みの norm(title)。題名を変えたら再チェックする
   const confirm = typeof body.confirm === 'string' ? body.confirm : ''
   const v = await validateWork(db, form)
@@ -178,8 +183,11 @@ works.post('/works/:id', async (c) => {
   const w = await getAdminWork(db, c.req.param('id'))
   if (!w) return c.html(notFound(), 404)
   if (w.row.mergedIntoId) return c.html(mergedPage(w.mergedInto), 400)
-  const form = formOf(await c.req.parseBody(), workFields)
-  const v = await validateWork(db, form, w.row.id)
+  const form = clearBlockedImage(formOf(await c.req.parseBody(), workFields), workImageFields)
+  const v = await validateWork(db, form, w.row.id, {
+    url: w.row.imageUrl,
+    pageUrl: w.row.imagePageUrl,
+  })
   if (!v.ok) return c.html(await editPage(db, { ...w, values: form, errors: v.errors }), 400)
   await updateWork(db, w.row, v.value, { actor: { userId: currentUser(c).id } })
   return c.redirect(`/admin/works/${w.row.id}?saved=1`, 302)

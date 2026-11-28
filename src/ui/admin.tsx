@@ -88,6 +88,21 @@ export const OrgForm = ({ action, values, errors = [] }: FormProps) => (
       placeholder="https://escape.id/〇〇-org/"
     />
     <Field label="メモ（オーナーのみ・公開されません）" name="note" value={values.note} multiline />
+    <Field
+      label="ロゴ"
+      name="logo_url"
+      type="url"
+      value={values.logo_url}
+      placeholder="https://static.escape.id/…"
+    />
+    <Field
+      label="ロゴの取得元"
+      name="logo_page_url"
+      type="url"
+      value={values.logo_page_url}
+      placeholder="https://escape.id/〇〇-org/"
+    />
+    <Checkbox label="画像を載せない" name="image_blocked" checked={values.image_blocked === '1'} />
     <SubmitButton />
   </form>
 )
@@ -305,6 +320,21 @@ export const WorkForm = ({
       type="date"
       value={values.first_released_on}
     />
+    <Field
+      label="画像"
+      name="image_url"
+      type="url"
+      value={values.image_url}
+      placeholder="https://static.escape.id/…"
+    />
+    <Field
+      label="画像の取得元"
+      name="image_page_url"
+      type="url"
+      value={values.image_page_url}
+      placeholder="https://escape.id/〇〇-org/e-〇〇/"
+    />
+    <Checkbox label="画像を載せない" name="image_blocked" checked={values.image_blocked === '1'} />
     <SubmitButton />
   </form>
 )

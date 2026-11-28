@@ -646,6 +646,16 @@ export const isLiveOrg = async (db: Db, id: string): Promise<boolean> =>
     .where(and(eq(organization.id, id), isNull(organization.mergedIntoId)))
     .get())
 
+// 未統合の団体なら「画像を載せない」か（isLiveOrg と同じ 1 クエリ）。無いか統合済みなら null
+export const liveOrgImageBlocked = async (db: Db, id: string): Promise<boolean | null> => {
+  const r = await db
+    .select({ imageBlocked: organization.imageBlocked })
+    .from(organization)
+    .where(and(eq(organization.id, id), isNull(organization.mergedIntoId)))
+    .get()
+  return r ? r.imageBlocked === 1 : null
+}
+
 // escape_id_url か slug が同じ団体（exceptId 以外。統合済みも含む）があるか
 export const orgUniqueTaken = async (
   db: Db,

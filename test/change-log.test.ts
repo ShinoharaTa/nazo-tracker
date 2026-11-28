@@ -119,6 +119,9 @@ describe('logChange（トークン）', () => {
         estimatedMinutes: null,
         timeLimitMinutes: null,
         firstReleasedOn: null,
+        imageUrl: null,
+        imagePageUrl: null,
+        imageBlocked: 0,
       },
       { actor: { tokenId }, proposalId },
     )

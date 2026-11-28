@@ -1,4 +1,8 @@
-// URL の判定。リクエストの投稿と、agent の出典の検査（docs/sources.md §4）で共有する。
+// URL の判定。リクエストの投稿と、agent の出典の検査（docs/sources.md §4）、画像の取得元（src/lib/image-url.ts）で共有する。
+
+// X（旧 Twitter）とその短縮 URL は取得元にしない（サブドメインも全部）。host は小文字・末尾ドット除去済みで渡す
+const xHosts = ['x.com', 'twitter.com', 't.co']
+export const isXHost = (host: string) => xHosts.some((h) => host === h || host.endsWith(`.${h}`))
 
 // escape.id（www. などのサブドメインも）のマイページ（/me と /me/…）。本人の記録が載るので受け付けない。
 // 表記の揺れで抜けないよう、host は末尾のドットを除いて小文字、path はデコード（できなければ拒否）・小文字・
