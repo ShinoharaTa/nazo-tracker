@@ -759,3 +759,64 @@ describe('レビュー対応', () => {
     expect(own).not.toContain('作品を見る ›')
   })
 })
+
+describe('差分表（.diff）', () => {
+  it('「前」が全部空の節は diff new で「前」の見出しも値のセルも出ない', async () => {
+    const id = await propose(createWorkBody(`新規の節 ${uniq()}`))
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    expect(html).toContain('<div class="diff new">')
+    expect(html).not.toContain('<div class="diff">')
+    expect(html).not.toContain('<span class="meta">前</span>')
+    expect(html).not.toMatch(/<span class="o( off)?">/)
+    // 項目ごとの箱。採用チェックは <label><input …>項目名</label> のまま
+    expect(html).toMatch(
+      /<div class="it"><span><label><input type="checkbox" name="accept_[^"]+" value="1" checked=""\/>題名<\/label><\/span>/,
+    )
+  })
+
+  it('1 つでも「前」があれば 3 列（diff・「前」の見出し・各行に「前」のセル）', async () => {
+    const workId = await insertWork(env, { title: `前あり ${uniq()}`, description: '元の説明' })
+    const id = await propose({
+      kind: 'update',
+      target_table: 'work',
+      target_id: workId,
+      fields: [f('work.description', '新しい説明'), f('work.official_url', 'https://example.com/')],
+    })
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    expect(html).toContain('<div class="diff">')
+    expect(html).not.toContain('<div class="diff new">')
+    expect(html).toContain('<span class="meta">前</span>')
+    expect(html).toContain('<span class="o">元の説明')
+    // 「前」が空の行もセルは出す
+    expect(html.match(/<span class="o">/g)?.length).toBe(2)
+  })
+
+  it('出典は summary 1 行（host · 日付 · 確信度 · 出典）、出典なしの項目に details は出ない', async () => {
+    const src = (
+      await api('POST', '/api/agent/sources', {
+        url: 'https://escape.id/foo-org/e-diff/',
+        method: 'escape_mcp',
+        fetched_at: '2026-11-11T01:02:03Z',
+        robots_checked: 0,
+      })
+    ).body.id as string
+    const workId = await insertWork(env, { title: `出典 ${uniq()}`, description: '元' })
+    const id = await propose({
+      kind: 'update',
+      target_table: 'work',
+      target_id: workId,
+      fields: [
+        { ...f('work.description', '出典つき', 0.9), source_id: src },
+        f('work.official_url', 'https://example.com/'),
+      ],
+    })
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    expect(html).toContain(
+      '<details class="full ind"><summary class="meta">escape.id · 2026-11-11 · <span class="mono">0.90</span> · 出典</summary>',
+    )
+    expect(html.match(/<details/g)?.length).toBe(1)
+    expect(html).not.toContain('出典を見る')
+    expect(html).not.toContain('出典なし')
+    expect(html).not.toContain('<span class="meta full">')
+  })
+})

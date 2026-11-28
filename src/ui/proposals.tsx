@@ -468,31 +468,27 @@ const orderOf = (field: string) => {
   return n === -1 ? proposalFieldOrder.length : n
 }
 
-const SourceLine = ({ f }: { f: AdminProposalField }) => (
-  <>
-    <span class="meta full">
-      {f.source
-        ? [f.source.domain ?? '出典', f.source.fetchedAt ? isoToJstDate(f.source.fetchedAt) : null]
-            .filter(Boolean)
-            .join(' · ')
-        : '出典なし'}{' '}
-      · <span class="mono">{confidenceText(f.confidence)}</span>
-    </span>
-    {f.source ? (
-      <details class="full">
-        <summary class="meta">出典を見る</summary>
-        {f.source.excerpt ? (
-          <p class="note" style="margin:4px 0;white-space:pre-wrap">
-            {f.source.excerpt}
-          </p>
-        ) : null}
-        <a href={f.source.url} rel="noopener noreferrer" style="overflow-wrap:anywhere">
-          {f.source.url}
-        </a>
-      </details>
-    ) : null}
-  </>
-)
+// 出典は 1 行の summary（host · 日付 · 確信度 · 出典）。開くと抜粋と URL。出典が無ければ何も出さない
+const SourceLine = ({ f, indent }: { f: AdminProposalField; indent: boolean }) =>
+  f.source ? (
+    <details class={indent ? 'full ind' : 'full'}>
+      <summary class="meta">
+        {[f.source.domain, f.source.fetchedAt ? isoToJstDate(f.source.fetchedAt) : null]
+          .filter(Boolean)
+          .map((t) => `${t} · `)
+          .join('')}
+        <span class="mono">{confidenceText(f.confidence)}</span> · 出典
+      </summary>
+      {f.source.excerpt ? (
+        <p class="note" style="margin:4px 0;white-space:pre-wrap">
+          {f.source.excerpt}
+        </p>
+      ) : null}
+      <a href={f.source.url} rel="noopener noreferrer" style="overflow-wrap:anywhere">
+        {f.source.url}
+      </a>
+    </details>
+  ) : null
 
 // 節の差分。editable なら採用の Checkbox（work.kind は下の Select で選ぶので付けない）
 const DiffSection = (props: {
@@ -506,61 +502,68 @@ const DiffSection = (props: {
   unused: boolean
   // 作品からしか参照されていない節で、既存の作品に紐付けられるとき（紐付けると作らない）
   workOnly: boolean
-}) => (
-  <div class="sect">
-    <h2>{proposalTableLabel(props.table)}</h2>
-    {props.unused ? (
-      <p class="note">
-        この{proposalTableLabel(props.table)}
-        はほかの項目から参照されていません。採用すると単独で作ります（いらなければ項目を全部外してください）。
-      </p>
-    ) : null}
-    {props.workOnly ? (
-      <p class="note">
-        この{proposalTableLabel(props.table)}
-        は作品からしか参照されていないので、既存の作品に紐付けるときは作りません。
-      </p>
-    ) : null}
-    <div class="diff">
-      <span class="meta">項目</span>
-      <span class="meta">前</span>
-      <span class="meta">後</span>
-      {props.fields.map((f) => {
-        const label = proposalFieldLabel(f.field)
-        const off = !props.editable && f.accepted === 0 ? ' off' : ''
-        const byKind = props.kindBySelect && f.field === 'work.kind'
-        return (
-          <>
-            <span class={off.trim() || undefined}>
-              {props.editable && !byKind ? (
-                <label>
-                  <input
-                    type="checkbox"
-                    name={`accept_${f.id}`}
-                    value="1"
-                    checked={props.checked(f)}
-                  />
-                  {label}
-                </label>
-              ) : (
-                label
+}) => {
+  // 「前」が全部空の節（新規の値ばかり）は「前」の列を出さず 2 列にする
+  const isNew = props.fields.every((f) => f.oldValue === null || f.oldValue === '')
+  return (
+    <div class="sect">
+      <h2>{proposalTableLabel(props.table)}</h2>
+      {props.unused ? (
+        <p class="note">
+          この{proposalTableLabel(props.table)}
+          はほかの項目から参照されていません。採用すると単独で作ります（いらなければ項目を全部外してください）。
+        </p>
+      ) : null}
+      {props.workOnly ? (
+        <p class="note">
+          この{proposalTableLabel(props.table)}
+          は作品からしか参照されていないので、既存の作品に紐付けるときは作りません。
+        </p>
+      ) : null}
+      <div class={isNew ? 'diff new' : 'diff'}>
+        <span class="meta">項目</span>
+        {isNew ? null : <span class="meta">前</span>}
+        <span class="meta">後</span>
+        {props.fields.map((f) => {
+          const label = proposalFieldLabel(f.field)
+          const off = !props.editable && f.accepted === 0 ? ' off' : ''
+          const byKind = props.kindBySelect && f.field === 'work.kind'
+          const box = props.editable && !byKind
+          return (
+            <div class="it">
+              <span class={off.trim() || undefined}>
+                {box ? (
+                  <label>
+                    <input
+                      type="checkbox"
+                      name={`accept_${f.id}`}
+                      value="1"
+                      checked={props.checked(f)}
+                    />
+                    {label}
+                  </label>
+                ) : (
+                  label
+                )}
+              </span>
+              {isNew ? null : (
+                <span class={`o${off}`}>
+                  {valueText(f.field, f.oldValue, props.names)}
+                  <ImagePreview field={f.field} v={f.oldValue} />
+                </span>
               )}
-            </span>
-            <span class={`o${off}`}>
-              {valueText(f.field, f.oldValue, props.names)}
-              <ImagePreview field={f.field} v={f.oldValue} />
-            </span>
-            <span class={`n${off}`}>
-              {valueText(f.field, f.newValue, props.names)}
-              <ImagePreview field={f.field} v={f.newValue} />
-            </span>
-            <SourceLine f={f} />
-          </>
-        )
-      })}
+              <span class={`n${off}`}>
+                {valueText(f.field, f.newValue, props.names)}
+                <ImagePreview field={f.field} v={f.newValue} />
+              </span>
+              <SourceLine f={f} indent={box} />
+            </div>
+          )
+        })}
+      </div>
     </div>
-  </div>
-)
+  )
+}
 
 const reasonText = (reasons: string[]) =>
   reasons.map((r) => matchReasonLabel(r.replace(/^worker:/, ''))).join('・')
