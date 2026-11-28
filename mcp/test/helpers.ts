@@ -17,12 +17,13 @@ export type Call = {
   body: unknown
 }
 
-// hang: 何も返さない。stall: ヘッダと本文の頭だけ返して止める。raw: 本文をそのまま（壊れた JSON 用）
+// hang: 何も返さない。stall: ヘッダと本文の頭だけ返して止める。destroy: 接続を切る。raw: 本文をそのまま（壊れた JSON 用）
 export type Reply =
   | { status: number; body: unknown; headers?: Record<string, string> }
   | { status: number; raw: string }
   | 'hang'
   | 'stall'
+  | 'destroy'
 export type Handler = (call: Call) => Reply
 
 const readBody = (req: IncomingMessage): Promise<string> =>
@@ -49,6 +50,10 @@ export const startFake = async (handler: Handler) => {
     calls.push(call)
     const r = handler(call)
     if (r === 'hang') return
+    if (r === 'destroy') {
+      req.socket.destroy()
+      return
+    }
     if (r === 'stall') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.write('{"items":')

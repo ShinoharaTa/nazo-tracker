@@ -48,6 +48,24 @@ const CALLS: [string, Record<string, unknown>][] = [
   ['get_row', { table: 'venue', id: 'v1' }],
   ['list_proposals', {}],
   ['get_proposal', { id: 'p1' }],
+  ['set_request_status', { id: 'r1', status: 'processing' }],
+  [
+    'add_source',
+    {
+      url: 'https://example.com/',
+      method: 'webfetch',
+      fetched_at: '2026-11-28T00:00:00Z',
+      robots_checked: true,
+    },
+  ],
+  [
+    'create_proposal',
+    {
+      kind: 'create',
+      target_table: 'organization',
+      fields: [{ field: 'organization.name', new_value: 'x', confidence: 0.5 }],
+    },
+  ],
 ]
 
 test('stdio: 成功・API エラー・接続失敗のどれでも、出力と stderr にトークンが無い', async () => {
