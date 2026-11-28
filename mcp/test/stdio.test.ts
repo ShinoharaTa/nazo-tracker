@@ -69,12 +69,10 @@ const CALLS: [string, Record<string, unknown>][] = [
 ]
 
 test('stdio: 成功・API エラー・接続失敗のどれでも、出力と stderr にトークンが無い', async () => {
-  let n = 0
-  // 成功と 401 / 500 を交互に返す
-  const fake = await startFake(() => {
-    n++
-    if (n % 3 === 0) return { status: 401, body: { error: 'invalid_token' } }
-    if (n % 3 === 1) return { status: 500, body: { error: 'internal' } }
+  // whoami は 401、schema は（再試行しても）ずっと 500、ほかは成功
+  const fake = await startFake((c) => {
+    if (c.path === '/api/agent/whoami') return { status: 401, body: { error: 'invalid_token' } }
+    if (c.path === '/api/agent/schema') return { status: 500, body: { error: 'internal' } }
     return { status: 200, body: { items: [], next: null, name: 'agent', expires_at: null } }
   })
   const env = tmpEnv(`NAZO_AGENT_TOKEN=${TOKEN}\nNAZO_AGENT_BASE_URL=${fake.url}\n`)
@@ -83,6 +81,11 @@ test('stdio: 成功・API エラー・接続失敗のどれでも、出力と st
     assert.ok(fake.calls.length >= CALLS.length)
     assert.ok(fake.calls.every((c) => c.auth === `Bearer ${TOKEN}`))
     assert.ok(r.stderr.includes('stdio server ready'))
+    // outputs[0] は tools/list。CALLS[0] = whoami、CALLS[1] = get_schema
+    assert.ok(r.outputs[1]?.includes('HTTP 401 invalid_token'))
+    assert.ok(r.outputs[2]?.includes('HTTP 500 internal'))
+    assert.ok(r.outputs[2]?.includes('"isError":true'))
+    assert.equal(fake.calls.filter((c) => c.path === '/api/agent/schema').length, 2)
     for (const o of [...r.outputs, r.stderr]) assert.ok(!o.includes(TOKEN))
 
     // 接続先が落ちている

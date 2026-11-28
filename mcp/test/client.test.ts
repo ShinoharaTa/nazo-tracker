@@ -82,3 +82,73 @@ test('つながらないときは network_error（エラー文にトークンが
     (e) => e instanceof ApiError && e.code === 'network_error' && !String(e.stack).includes(TOKEN),
   )
 })
+
+test('本文の受信中のタイムアウトは timeout。GET は 1 回だけやり直す', async () => {
+  const fake = await startFake(() => 'stall')
+  try {
+    const c = new ApiClient({ token: TOKEN, baseUrl: fake.url }, 150)
+    await assert.rejects(c.get('/whoami'), (e) => e instanceof ApiError && e.code === 'timeout')
+    assert.equal(fake.calls.length, 2)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('本文が JSON でないだけなら invalid_response（やり直さない）', async () => {
+  const fake = await startFake(() => ({ status: 200, raw: '<html>' }))
+  try {
+    const c = new ApiClient({ token: TOKEN, baseUrl: fake.url })
+    await assert.rejects(
+      c.get('/whoami'),
+      (e) => e instanceof ApiError && e.code === 'invalid_response',
+    )
+    assert.equal(fake.calls.length, 1)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('リダイレクトには従わず redirect。転送先に Bearer が届かない', async () => {
+  const target = await startFake(() => ({ status: 200, body: { ok: 1 } }))
+  const fake = await startFake(() => ({
+    status: 302,
+    body: {},
+    headers: { Location: `${target.url}/api/agent/whoami` },
+  }))
+  try {
+    const c = new ApiClient({ token: TOKEN, baseUrl: fake.url })
+    await assert.rejects(
+      c.get('/whoami'),
+      (e) =>
+        e instanceof ApiError &&
+        e.status === 302 &&
+        e.code === 'redirect' &&
+        !String(e.stack).includes(TOKEN),
+    )
+    assert.equal(fake.calls.length, 1)
+    assert.equal(target.calls.length, 0)
+  } finally {
+    await fake.close()
+    await target.close()
+  }
+})
+
+test('改行・非 ASCII・空白を含むトークンは送らず invalid_token_format（値は出さない）', async () => {
+  const fake = await startFake(() => ({ status: 200, body: {} }))
+  try {
+    for (const bad of [`${TOKEN}\nX-Evil: 1`, `${TOKEN}あ`, `${TOKEN} x`]) {
+      const c = new ApiClient({ token: bad, baseUrl: fake.url })
+      await assert.rejects(
+        c.get('/whoami'),
+        (e) =>
+          e instanceof ApiError &&
+          e.code === 'invalid_token_format' &&
+          !e.message.includes(TOKEN) &&
+          !String(e.stack).includes(TOKEN),
+      )
+    }
+    assert.equal(fake.calls.length, 0)
+  } finally {
+    await fake.close()
+  }
+})

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { norm } from '../../src/lib/norm.js'
 import { ApiClient } from '../src/client.js'
-import { scoreOf, searchMaster, similarity } from '../src/search.js'
+import { dice, levenshtein, scoreOf, searchMaster, similarity } from '../src/search.js'
 import { type Call, startFake, TOKEN } from './helpers.js'
 
 // 1 頁 2 件ずつ返す /index。part=alias も見る
@@ -131,4 +131,112 @@ test('similarity / scoreOf', () => {
   assert.equal(scoreOf('abcdef', 'abcdxx')?.kind, 'similar')
   assert.equal(scoreOf('abc', 'xyz'), null)
   assert.equal(scoreOf('', 'xyz'), null)
+})
+
+test('近い名前: bigram で拾えない 1 字違いもレーベンシュタインで拾う', () => {
+  assert.equal(levenshtein('abcd', 'abxd'), 1)
+  assert.equal(levenshtein('タンブルウィード', 'タンブルウイード'), 1)
+  // コードポイント単位（サロゲートペアも 1 文字）
+  assert.equal(levenshtein('a😀b', 'a😃b'), 1)
+  assert.ok(dice('abcd', 'abxd') < 0.5)
+  const a = scoreOf('abcd', 'abxd')
+  assert.equal(a?.kind, 'similar')
+  assert.equal(a?.score, Math.round(0.75 * 0.7 * 100) / 100)
+  const t = scoreOf(norm('タンブルウィード'), norm('タンブルウイード'))
+  assert.equal(t?.kind, 'similar')
+  assert.equal(t?.score, Math.round((1 - 1 / 8) * 0.7 * 100) / 100)
+  assert.equal(scoreOf('abcd', 'abcd')?.score, 1)
+})
+
+test('部分一致で含まれる側が 1 文字なら 0.3（近い名前より下）。2 文字以上は 0.7〜0.95', () => {
+  assert.deepEqual(scoreOf('abcd', 'd'), { score: 0.3, kind: 'partial' })
+  assert.deepEqual(scoreOf('d', 'abcd'), { score: 0.3, kind: 'partial' })
+  const two = scoreOf('abcd', 'cd')
+  assert.ok(two && two.score >= 0.7 && two.score <= 0.95)
+})
+
+test('1 文字のマスタ名「D」は 1 字違いの近い名前より下、完全一致は 1', async () => {
+  const fake = await startFake((call) =>
+    pages(
+      call.query.get('part') === 'alias'
+        ? []
+        : [work('w1', 'D'), work('w2', 'ABXD'), work('w3', 'ABCD'), work('w4', 'zzzz')],
+      call,
+    ),
+  )
+  try {
+    const r = await searchMaster(
+      new ApiClient({ token: TOKEN, baseUrl: fake.url }),
+      'work',
+      'ABCD',
+      20,
+    )
+    assert.deepEqual(
+      r.items.map((h) => [h.id, h.score, h.reason]),
+      [
+        ['w3', 1, 'name_exact'],
+        ['w2', Math.round(0.75 * 0.7 * 100) / 100, 'name_similar'],
+        ['w1', 0.3, 'name_partial'],
+      ],
+    )
+  } finally {
+    await fake.close()
+  }
+})
+
+test('organization: 別名の行（organization_id）から主名を引く', async () => {
+  const names = [
+    { id: 'o1', organization_id: 'o1', name: '謎解き工房', name_norm: norm('謎解き工房') },
+    { id: 'o2', organization_id: 'o2', name: '別の団体', name_norm: norm('別の団体') },
+  ]
+  const aliases = [
+    { id: 'oa1', organization_id: 'o2', name: 'ナゾコウ', name_norm: norm('ナゾコウ') },
+  ]
+  const fake = await startFake((call) => {
+    if (call.path !== '/api/agent/index/organization') return { status: 404, body: { error: 'nf' } }
+    return pages(call.query.get('part') === 'alias' ? aliases : names, call)
+  })
+  try {
+    const r = await searchMaster(
+      new ApiClient({ token: TOKEN, baseUrl: fake.url }),
+      'organization',
+      'ナゾコウ',
+      20,
+    )
+    assert.deepEqual(r.items, [
+      {
+        table: 'organization',
+        id: 'o2',
+        name: '別の団体',
+        alias: 'ナゾコウ',
+        score: 1,
+        reason: 'alias_exact',
+      },
+    ])
+  } finally {
+    await fake.close()
+  }
+})
+
+test('頁送りの上限で打ち切ったら truncated: true', async () => {
+  let n = 0
+  // next を返し続ける /index
+  const fake = await startFake(() => {
+    n++
+    return { status: 200, body: { items: [work(`w${n}`, `題名${n}`)], next: `w${n}` } }
+  })
+  try {
+    const r = await searchMaster(
+      new ApiClient({ token: TOKEN, baseUrl: fake.url }),
+      'work',
+      '題名',
+      20,
+      { maxPages: 3 },
+    )
+    assert.equal(r.truncated, true)
+    // name 3 頁 + alias 3 頁で止まる
+    assert.equal(fake.calls.length, 6)
+  } finally {
+    await fake.close()
+  }
 })

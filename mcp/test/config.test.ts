@@ -65,6 +65,37 @@ test('parseEnv: コメント・export・引用符', () => {
   })
 })
 
+test('parseEnv: 値の後ろの「空白 + #」はコメント。引用符の中の # は値', () => {
+  assert.deepEqual(
+    parseEnv(
+      [
+        'A=abc # コメント',
+        'B=abc#def',
+        'C="x # y" # コメント',
+        "D='q' #c",
+        'E=  v\t# tab の後ろ',
+        'F=#only',
+      ].join('\n'),
+    ),
+    { A: 'abc', B: 'abc#def', C: 'x # y', D: 'q', E: 'v', F: '#only' },
+  )
+  const r = load(`NAZO_AGENT_TOKEN=${TOKEN} # 発行日 2026-11-28\n`)
+  assert.ok(r.ok && r.config.token === TOKEN)
+})
+
+test('所有者が実行ユーザーと違えば使わない', () => {
+  const env = tmpEnv(`NAZO_AGENT_TOKEN=${TOKEN}\n`)
+  try {
+    const uid = process.getuid?.() ?? 0
+    const r = loadConfig({ NAZO_AGENT_ENV_FILE: env.file }, uid + 1)
+    assert.ok(!r.ok && r.message.includes('所有者を確かめてください'))
+    assert.ok(!r.ok && !r.message.includes(TOKEN))
+    assert.ok(loadConfig({ NAZO_AGENT_ENV_FILE: env.file }, uid).ok)
+  } finally {
+    env.cleanup()
+  }
+})
+
 test('トークンは環境変数からは読まない', () => {
   const env = tmpEnv('# no token\n')
   try {

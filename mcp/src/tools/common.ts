@@ -33,6 +33,9 @@ const HINTS: Record<string, string> = {
   invalid_request_id: 'request_id は空にせず、使わないときは省いてください。',
   timeout: '応答が 20 秒以内に返りませんでした。少し待って呼び直してください。',
   network_error: '接続先に届きませんでした。接続先と回線を確かめてください。',
+  redirect: '接続先（NAZO_AGENT_BASE_URL）を確かめてください（リダイレクトには従っていません）。',
+  invalid_token_format:
+    'トークンに改行・空白・非 ASCII の文字が入っていて送れません。agent.env の値を確かめてください。',
   invalid_response:
     '応答が JSON ではありませんでした。接続先（NAZO_AGENT_BASE_URL）を確かめてください。',
   // 書き込み（POST / PATCH）

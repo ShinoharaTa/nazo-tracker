@@ -5,7 +5,7 @@ import type { Config } from './config.js'
 
 export const TIMEOUT_MS = 20_000
 
-// API の失敗。status 0 は応答が無かった（ネットワーク・タイムアウト）。code は本文の error（無ければ http_<status>）
+// API の失敗。status 0 は応答が無かった（ネットワーク・タイムアウト・送る前の失敗）。code は本文の error（無ければ http_<status>）
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -20,6 +20,16 @@ export type Query = Record<string, string | number | undefined>
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v)
+
+// ヘッダに載せられるトークン（空白・改行・非 ASCII を含まない）
+const TOKEN_FORMAT = /^[\x21-\x7e]+$/
+
+const isTimeout = (e: unknown) =>
+  e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')
+
+// やり直してよい失敗（応答が無い・5xx）。送る前の失敗やリダイレクトはやり直しても同じ
+const retriable = (e: ApiError) =>
+  e.status >= 500 || e.code === 'timeout' || e.code === 'network_error'
 
 export class ApiClient {
   readonly host: string
@@ -67,13 +77,14 @@ export class ApiClient {
       } catch (e) {
         if (!(e instanceof ApiError)) throw e
         last = e
-        if (e.status !== 0 && e.status < 500) throw e
+        if (!retriable(e)) throw e
       }
     }
     throw last as ApiError
   }
 
   private async once(method: string, url: string, body: unknown): Promise<Record<string, unknown>> {
+    if (!TOKEN_FORMAT.test(this.config.token)) throw new ApiError(0, 'invalid_token_format', null)
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.config.token}`,
       Accept: 'application/json',
@@ -86,16 +97,22 @@ export class ApiClient {
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(this.timeoutMs),
-        redirect: 'error',
+        // 転送先へは行かない（Bearer を別の場所へ送らない）。3xx はそのまま受けて redirect にする
+        redirect: 'manual',
       })
     } catch (e) {
-      const timeout = e instanceof Error && e.name === 'TimeoutError'
-      throw new ApiError(0, timeout ? 'timeout' : 'network_error', null)
+      throw new ApiError(0, isTimeout(e) ? 'timeout' : 'network_error', null)
+    }
+    if (res.status >= 300 && res.status < 400) {
+      await res.body?.cancel().catch(() => {})
+      throw new ApiError(res.status, 'redirect', null)
     }
     let json: unknown = null
     try {
       json = await res.json()
-    } catch {
+    } catch (e) {
+      // 本文の受信中に時間切れになったのは timeout（JSON でないだけなら下の invalid_response）
+      if (isTimeout(e)) throw new ApiError(0, 'timeout', null)
       json = null
     }
     if (!res.ok) {
