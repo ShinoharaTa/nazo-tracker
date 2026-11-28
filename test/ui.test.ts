@@ -169,7 +169,7 @@ describe('管理画面のサイドの小見出し', () => {
     ['承認待ちの提案', '/admin/proposals'],
   ]
   const subOf = (current: string) =>
-    `<a class="on" href="/settings" aria-current="page">設定</a><div class="idx-sub">${items
+    `<a class="on" href="/settings">設定</a><div class="idx-sub">${items
       .map(([label, href]) =>
         href === current
           ? `<a class="on" href="${href}" aria-current="page">${label}</a>`
@@ -182,6 +182,15 @@ describe('管理画面のサイドの小見出し', () => {
     expect(side(html)).toContain(subOf('/admin/proposals'))
     // 下部ナビ（スマホ）には出さない
     expect(html.match(/idx-sub/g)).toHaveLength(1)
+  })
+
+  it('管理画面ではサイドの aria-current="page" は 1 つ（下部ナビの設定はそのまま）', async () => {
+    for (const path of ['/admin/proposals', '/admin/works', '/admin/requests', '/admin/tokens']) {
+      const html = await ownerGet(path)
+      expect(side(html).match(/aria-current="page"/g)).toHaveLength(1)
+      const bn = html.match(/<nav class="bn"[\s\S]*?<\/nav>/)?.[0] ?? ''
+      expect(bn).toContain('<a class="on" href="/settings" aria-current="page">設定</a>')
+    }
   })
 
   it('マスタの各ページはマスタ管理が現在地', async () => {

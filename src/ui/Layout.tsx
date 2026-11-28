@@ -94,9 +94,18 @@ const Cover = ({ tab }: { tab: Tab }) => {
   )
 }
 
-const TabLink = ({ t, current }: { t: (typeof tabs)[number]; current: Tab }) =>
+// subCurrent: 小見出しに現在地があるときは、aria-current をそちらに譲り、タブは見た目（.on）だけ残す
+const TabLink = ({
+  t,
+  current,
+  subCurrent,
+}: {
+  t: (typeof tabs)[number]
+  current: Tab
+  subCurrent?: boolean
+}) =>
   t.key === current ? (
-    <a class="on" href={t.href} aria-current="page">
+    <a class="on" href={t.href} aria-current={subCurrent ? undefined : 'page'}>
       {t.label}
     </a>
   ) : (
@@ -155,7 +164,11 @@ export const Layout = (props: LayoutProps) => {
             {tabs.map((t) =>
               props.sub && t.key === props.tab ? (
                 <>
-                  <TabLink t={t} current={props.tab} />
+                  <TabLink
+                    t={t}
+                    current={props.tab}
+                    subCurrent={props.sub.items.some((i) => i.href === props.sub?.current)}
+                  />
                   <SubNavLinks sub={props.sub} />
                 </>
               ) : (
