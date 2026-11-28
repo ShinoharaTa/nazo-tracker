@@ -30,6 +30,8 @@ export type Bindings = {
   LINE_CLIENT_SECRET?: string
   // "1" のときだけ部品見本 GET /_ui を有効にする
   UI_GALLERY?: string
+  // "1" のときだけマスタの画像（作品の画像・団体のロゴ）を表示する。判定は src/lib/image-url.ts の shownImage
+  MASTER_IMAGES?: string
   // レート制限（wrangler.toml の [[ratelimits]]、docs/ops.md）。未設定なら制限しない
   // ログイン入口（/auth/:provider と callback）。10 回 / 60 秒
   AUTH_LIMITER?: RateLimit

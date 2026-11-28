@@ -1,4 +1,6 @@
 UI_GALLERY=1
+# マスタの画像を表示する（本番の wrangler.toml は "0"）
+MASTER_IMAGES=1
 APP_ORIGIN=http://127.0.0.1:8787
 # session cookie の署名鍵。32 文字以上必須（短いと全ページ 500）。下はローカル用のダミー値。
 # 本番は `openssl rand -base64 32` の値を `wrangler secret put SESSION_SECRET` で入れる

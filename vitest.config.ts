@@ -18,6 +18,7 @@ export default defineConfig(async () => {
             AUTH_DEV_HOSTS: '',
             OWNER_IDENTITIES: '',
             UI_GALLERY: '0',
+            MASTER_IMAGES: '0',
             GOOGLE_CLIENT_ID: '',
             GOOGLE_CLIENT_SECRET: '',
             DISCORD_CLIENT_ID: '',

@@ -106,10 +106,11 @@ export const RecordTicket = ({ a, selected }: { a: OwnAttemptRow; selected?: boo
 }
 
 // マイリストの 1 行。記録があれば最新のステータス、無ければ「未プレイ」
-const WishRow = ({ w }: { w: OwnWishRow }) => (
+const WishRow = ({ w, images }: { w: OwnWishRow; images: boolean }) => (
   <div class="row wrow">
     <WorkTicket
-      w={{ id: w.workId, title: w.title, kind: w.kind, org: w.org, rep: null }}
+      w={{ id: w.workId, title: w.title, kind: w.kind, org: w.org, rep: null, image: w.image }}
+      images={images}
       chip={
         w.latestStatus ? (
           <StatusChip status={w.latestStatus} kind={w.kind} />
@@ -135,11 +136,14 @@ export const WishList = ({
   unplayed,
   page,
   hasNext,
+  images,
 }: {
   items: OwnWishRow[]
   unplayed: boolean
   page: number
   hasNext: boolean
+  // MASTER_IMAGES === '1'
+  images: boolean
 }) => (
   <>
     <nav class="chips" aria-label="マイリストの絞り込み">
@@ -160,7 +164,7 @@ export const WishList = ({
     </nav>
     <div class="list">
       {items.length ? (
-        items.map((w) => <WishRow w={w} />)
+        items.map((w) => <WishRow w={w} images={images} />)
       ) : (
         <Empty>
           マイリストは空です。
@@ -191,6 +195,8 @@ export type RecordsListProps = {
   hasNext: boolean
   playedCount: number
   selectedId?: string
+  // MASTER_IMAGES === '1'（マイリストの行の画像。記録の行には出さない）
+  images?: boolean
 }
 
 // 記録一覧（左ページ）
@@ -203,6 +209,7 @@ export const RecordsList = ({
   hasNext,
   playedCount,
   selectedId,
+  images = false,
 }: RecordsListProps) => (
   <>
     <TopBar
@@ -215,7 +222,13 @@ export const RecordsList = ({
     />
     <Tabs items={recordsTabs} current={tab} label="記録の絞り込み" />
     {tab === 'wish' ? (
-      <WishList items={wishItems} unplayed={unplayed} page={page} hasNext={hasNext} />
+      <WishList
+        items={wishItems}
+        unplayed={unplayed}
+        page={page}
+        hasNext={hasNext}
+        images={images}
+      />
     ) : (
       <>
         <div class="list">
@@ -253,6 +266,8 @@ export const NewRecordSearch = (props: {
   items: WorkListItem[]
   hasNext: boolean
   errors?: readonly string[]
+  // MASTER_IMAGES === '1'
+  images?: boolean
 }) => (
   <>
     <TopBar back="/records" label="記録を追加" />
@@ -271,7 +286,9 @@ export const NewRecordSearch = (props: {
       </form>
       <div class="list">
         {props.items.length ? (
-          props.items.map((w) => <WorkTicket w={w} hrefBase={newRecordHrefBase(props.q)} />)
+          props.items.map((w) => (
+            <WorkTicket w={w} hrefBase={newRecordHrefBase(props.q)} images={props.images} />
+          ))
         ) : props.q.trim() ? (
           <>
             <Empty>「{props.q}」に一致する作品はありません。</Empty>

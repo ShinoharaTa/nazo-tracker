@@ -3,6 +3,7 @@
 
 import { and, asc, desc, eq, exists, gt, inArray, isNull, ne, or, type SQL, sql } from 'drizzle-orm'
 import { alias, type SQLiteColumn } from 'drizzle-orm/sqlite-core'
+import type { ImageSource } from '../lib/image-url'
 import { norm } from '../lib/norm'
 import { columnRow } from './change-log'
 import type { Db } from './client'
@@ -57,6 +58,8 @@ export type WorkListItem = {
   org: { id: string; name: string } | null
   // 代表 run（compareRuns の先頭）。run が無ければ null
   rep: RunRow | null
+  // 出すかは shownImage で決める
+  image: ImageSource
 }
 
 // 代表 run の並び: COALESCE(end_on,'9999-12-31') DESC, COALESCE(start_on,'') DESC, id DESC
@@ -153,6 +156,10 @@ const workListColumns = {
   kind: work.kind,
   orgId: organization.id,
   orgName: organization.name,
+  imageUrl: work.imageUrl,
+  imagePageUrl: work.imagePageUrl,
+  imageBlocked: work.imageBlocked,
+  orgImageBlocked: organization.imageBlocked,
 }
 
 const selectWorkList = (db: Db) =>
@@ -170,6 +177,10 @@ const withRep = async (
     kind: WorkKind | null
     orgId: string | null
     orgName: string | null
+    imageUrl: string | null
+    imagePageUrl: string | null
+    imageBlocked: number
+    orgImageBlocked: number | null
   }[],
 ): Promise<WorkListItem[]> => {
   const runs = await runsByWork(
@@ -182,6 +193,12 @@ const withRep = async (
     kind: r.kind,
     org: r.orgId && r.orgName ? { id: r.orgId, name: r.orgName } : null,
     rep: runs.get(r.id)?.[0] ?? null,
+    image: {
+      url: r.imageUrl,
+      pageUrl: r.imagePageUrl,
+      blocked: r.imageBlocked,
+      orgBlocked: r.orgImageBlocked,
+    },
   }))
 }
 
@@ -271,6 +288,7 @@ export type WorkDetailData = {
   firstReleasedOn: string | null
   officialUrl: string | null
   org: { id: string; name: string } | null
+  image: ImageSource
   aliases: { title: string; kind: (typeof workAliasKinds)[number] }[]
   runs: RunRow[]
 }
@@ -290,9 +308,13 @@ export const getWork = async (db: Db, id: string): Promise<Resolved<WorkDetailDa
           timeLimitMinutes: work.timeLimitMinutes,
           firstReleasedOn: work.firstReleasedOn,
           officialUrl: work.officialUrl,
+          imageUrl: work.imageUrl,
+          imagePageUrl: work.imagePageUrl,
+          imageBlocked: work.imageBlocked,
           mergedIntoId: work.mergedIntoId,
           orgId: organization.id,
           orgName: organization.name,
+          orgImageBlocked: organization.imageBlocked,
         })
         .from(work)
         .leftJoin(organization, eq(organization.id, work.primaryOrganizationId))
@@ -301,7 +323,16 @@ export const getWork = async (db: Db, id: string): Promise<Resolved<WorkDetailDa
     id,
   )
   if (!resolved || 'redirect' in resolved) return resolved
-  const { mergedIntoId: _, orgId, orgName, ...w } = resolved.found
+  const {
+    mergedIntoId: _,
+    orgId,
+    orgName,
+    imageUrl,
+    imagePageUrl,
+    imageBlocked,
+    orgImageBlocked,
+    ...w
+  } = resolved.found
   const [aliases, runs] = await Promise.all([
     db
       .select({ title: workAlias.title, kind: workAlias.kind })
@@ -314,6 +345,12 @@ export const getWork = async (db: Db, id: string): Promise<Resolved<WorkDetailDa
     found: {
       ...w,
       org: orgId && orgName ? { id: orgId, name: orgName } : null,
+      image: {
+        url: imageUrl,
+        pageUrl: imagePageUrl,
+        blocked: imageBlocked,
+        orgBlocked: orgImageBlocked,
+      },
       aliases,
       runs: runs.get(w.id) ?? [],
     },
@@ -325,6 +362,7 @@ export type OrgDetailData = {
   name: string
   siteUrl: string | null
   escapeIdUrl: string | null
+  logo: ImageSource
   aliases: {
     name: string
     kind: (typeof organizationAliasKinds)[number]
@@ -344,6 +382,9 @@ export const getOrg = async (db: Db, id: string): Promise<Resolved<OrgDetailData
           name: organization.name,
           siteUrl: organization.siteUrl,
           escapeIdUrl: organization.escapeIdUrl,
+          logoUrl: organization.logoUrl,
+          logoPageUrl: organization.logoPageUrl,
+          imageBlocked: organization.imageBlocked,
           mergedIntoId: organization.mergedIntoId,
         })
         .from(organization)
@@ -352,7 +393,8 @@ export const getOrg = async (db: Db, id: string): Promise<Resolved<OrgDetailData
     id,
   )
   if (!resolved || 'redirect' in resolved) return resolved
-  const { mergedIntoId: _, ...o } = resolved.found
+  const { mergedIntoId: _, logoUrl, logoPageUrl, imageBlocked, ...o } = resolved.found
+  const logo = { url: logoUrl, pageUrl: logoPageUrl, blocked: imageBlocked, orgBlocked: null }
   const [aliases, venues, workRows] = await Promise.all([
     db
       .select({
@@ -386,7 +428,7 @@ export const getOrg = async (db: Db, id: string): Promise<Resolved<OrgDetailData
       .orderBy(desc(work.createdAt), desc(work.id))
       .limit(ORG_WORKS_LIMIT),
   ])
-  return { found: { ...o, aliases, venues, works: await withRep(db, workRows) } }
+  return { found: { ...o, logo, aliases, venues, works: await withRep(db, workRows) } }
 }
 
 export type VenueDetailData = {

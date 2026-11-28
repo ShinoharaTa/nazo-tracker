@@ -10,6 +10,7 @@ import type {
   WorkDetailData,
   WorkListItem,
 } from '../db/master'
+import { type ShownImage, shownImage } from '../lib/image-url'
 import { Empty, Menu, MenuItem, Ticket, TopBar } from './components'
 import {
   type AttemptStatus,
@@ -70,9 +71,24 @@ const Ext = ({ href, children }: { href: string; children?: Child }) =>
     <span>{children}</span>
   )
 
+// マスタの画像の <img>（共通の属性）。width / height は箱の寸法。切り抜かない（object-fit: contain は app.css の .mimg）。
+// 読み込みに失敗したら public/app.js が data-mimg の箱ごと隠す
+const MasterImg = (p: { img: ShownImage; alt: string; width: number; height: number }) => (
+  <img
+    src={p.img.src}
+    alt={p.alt}
+    width={p.width}
+    height={p.height}
+    loading="lazy"
+    decoding="async"
+    referrerpolicy="no-referrer"
+  />
+)
+
 // 作品一覧の 1 行。hrefBase の後ろに作品 id を付けてリンクにする（記録の作品選択では /records/new?work=）。
 // counts があればプレイ済み人数の chip を出す（none は出さない。マイリスト人数は一覧には出さない）
 // chip / extra はマイリスト用（extra を渡すと期間の代わりに出す。chip を渡すと人数の chip より優先）
+// images は MASTER_IMAGES === '1'。画像が出るときだけ stub の上段に 72x40 の箱を足す（出ないときの HTML は変えない）
 export const WorkTicket = ({
   w,
   selected,
@@ -80,6 +96,7 @@ export const WorkTicket = ({
   counts,
   chip,
   extra,
+  images = false,
 }: {
   w: WorkListItem
   selected?: boolean
@@ -87,19 +104,33 @@ export const WorkTicket = ({
   counts?: WorkCounts
   chip?: Child
   extra?: string
+  images?: boolean
 }) => {
   const k = kindLabel(w.kind)
   const played = counts ? countLabel(counts.played) : null
+  const img = shownImage(images, w.image, 'list')
+  const nd = (
+    <span class="nd">
+      {k}
+      {k ? <br /> : null}
+      {area(w.rep)}
+    </span>
+  )
   return (
     <Ticket
       href={`${hrefBase}${w.id}`}
       selected={selected}
       stub={
-        <span class="nd">
-          {k}
-          {k ? <br /> : null}
-          {area(w.rep)}
-        </span>
+        img ? (
+          <>
+            <span class="mimg thumb" data-mimg="">
+              <MasterImg img={img} alt="" width={72} height={40} />
+            </span>
+            {nd}
+          </>
+        ) : (
+          nd
+        )
       }
       meta={[k, w.org?.name].filter(Boolean).join(' · ')}
       title={w.title}
@@ -196,7 +227,7 @@ const WorkNums = ({ counts }: { counts: WorkCounts }) => {
   return <p class="work-nums">{nums.map((n) => `${n.label} ${n.value}`).join(' · ')}</p>
 }
 
-// editHref / runEditHref はオーナーのときだけ（作品と各回の「編集」）
+// editHref / runEditHref はオーナーのときだけ（作品と各回の「編集」）。images は MASTER_IMAGES === '1'
 export const WorkDetail = ({
   w,
   today,
@@ -204,6 +235,7 @@ export const WorkDetail = ({
   counts,
   editHref,
   runEditHref,
+  images = false,
 }: {
   w: WorkDetailData
   today: string
@@ -211,13 +243,26 @@ export const WorkDetail = ({
   counts: WorkCounts
   editHref?: string
   runEditHref?: (runId: string) => string
+  images?: boolean
 }) => {
   const k = kindLabel(w.kind)
   const players = formatPlayers(w.playerMin, w.playerMax)
+  const img = shownImage(images, w.image, 'detail')
   return (
     <>
       <TopBar back="/works" label="作品" action={EditLink({ href: editHref })} />
       <div class="card">
+        {/* 箱ごと取得元のページへのリンク。下に取得元の host */}
+        {img ? (
+          <div class="mimg-wrap" data-mimg="">
+            <a class="mimg wide" href={img.pageUrl} rel="noopener noreferrer">
+              <MasterImg img={img} alt={`${w.title} の画像`} width={640} height={360} />
+            </a>
+            <a class="mcap" href={img.pageUrl} rel="noopener noreferrer">
+              画像: {img.pageHost} ›
+            </a>
+          </div>
+        ) : null}
         <div style="display:flex;flex-direction:column;gap:6px">
           <span class="meta">
             {k}
@@ -348,67 +393,83 @@ const EditLink = ({ href }: { href?: string }) =>
     </a>
   ) : undefined
 
+// images は MASTER_IMAGES === '1'（ロゴと作品一覧の画像）
 export const OrgDetail = ({
   o,
   counts,
   editHref,
+  images = false,
 }: {
   o: OrgDetailData
   counts?: Map<string, WorkCounts>
   editHref?: string
-}) => (
-  <>
-    <TopBar back="/works" label="団体" action={EditLink({ href: editHref })} />
-    <div class="card">
-      <span class="title" style="font-size:22px">
-        {o.name}
-      </span>
-      {o.siteUrl || o.escapeIdUrl ? (
-        <div class="row" style="justify-content:flex-start">
-          {o.siteUrl ? <Ext href={o.siteUrl}>公式サイト</Ext> : null}
-          {o.escapeIdUrl ? <Ext href={o.escapeIdUrl}>escape.id</Ext> : null}
+  images?: boolean
+}) => {
+  const logo = shownImage(images, o.logo, 'detail')
+  return (
+    <>
+      <TopBar back="/works" label="団体" action={EditLink({ href: editHref })} />
+      <div class="card">
+        {logo ? (
+          <div class="mimg-wrap" data-mimg="">
+            <span class="mimg logo">
+              <MasterImg img={logo} alt={`${o.name} のロゴ`} width={200} height={48} />
+            </span>
+            <a class="mcap" href={logo.pageUrl} rel="noopener noreferrer">
+              ロゴ: {logo.pageHost} ›
+            </a>
+          </div>
+        ) : null}
+        <span class="title" style="font-size:22px">
+          {o.name}
+        </span>
+        {o.siteUrl || o.escapeIdUrl ? (
+          <div class="row" style="justify-content:flex-start">
+            {o.siteUrl ? <Ext href={o.siteUrl}>公式サイト</Ext> : null}
+            {o.escapeIdUrl ? <Ext href={o.escapeIdUrl}>escape.id</Ext> : null}
+          </div>
+        ) : null}
+      </div>
+      {o.aliases.length ? (
+        <div class="sect">
+          <h2>別名</h2>
+          <ul>
+            {o.aliases.map((a) => (
+              <li>
+                {organizationAliasKindLabels[a.kind]}: {a.name}
+                {aliasPeriod(a.since, a.until)}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
-    </div>
-    {o.aliases.length ? (
-      <div class="sect">
-        <h2>別名</h2>
-        <ul>
-          {o.aliases.map((a) => (
-            <li>
-              {organizationAliasKindLabels[a.kind]}: {a.name}
-              {aliasPeriod(a.since, a.until)}
-            </li>
-          ))}
-        </ul>
-      </div>
-    ) : null}
-    {o.venues.length ? (
-      <div class="sect">
-        <h2>運営する会場</h2>
-        <ul>
-          {o.venues.map((v) => (
-            <li>
-              <a href={`/venues/${v.id}`}>{[v.prefecture, v.name].filter(Boolean).join(' · ')}</a>
-            </li>
-          ))}
-        </ul>
-      </div>
-    ) : null}
-    <div class="sect">
-      <h2>作品</h2>
-      {o.works.length ? (
-        <div class="list">
-          {o.works.map((w) => (
-            <WorkTicket w={w} counts={counts?.get(w.id)} />
-          ))}
+      {o.venues.length ? (
+        <div class="sect">
+          <h2>運営する会場</h2>
+          <ul>
+            {o.venues.map((v) => (
+              <li>
+                <a href={`/venues/${v.id}`}>{[v.prefecture, v.name].filter(Boolean).join(' · ')}</a>
+              </li>
+            ))}
+          </ul>
         </div>
-      ) : (
-        <Empty>作品はまだ登録されていません。</Empty>
-      )}
-    </div>
-  </>
-)
+      ) : null}
+      <div class="sect">
+        <h2>作品</h2>
+        {o.works.length ? (
+          <div class="list">
+            {o.works.map((w) => (
+              <WorkTicket w={w} counts={counts?.get(w.id)} images={images} />
+            ))}
+          </div>
+        ) : (
+          <Empty>作品はまだ登録されていません。</Empty>
+        )}
+      </div>
+    </>
+  )
+}
 
 export const VenueDetail = ({
   v,

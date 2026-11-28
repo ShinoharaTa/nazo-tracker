@@ -59,6 +59,23 @@ const Cover = ({ tab }: { tab: Tab }) => {
         <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
           フレンドに見えるのは、作品名・ステータス・日付だけです。メモ・ネタバレメモ・ネタバレ写真は、フレンドにも見えません。
         </p>
+        {/* マスタの画像（design.md §3.4.2）。MASTER_IMAGES の値にかかわらず出す */}
+        <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
+          作品の画像と団体のロゴは、このサイトには保存していません。公開元（escape.id
+          など）のページが紹介用に指定している画像を、お使いのブラウザが公開元から直接読み込んで表示します。そのとき、公開元のサーバーにはお使いの
+          IP アドレスが伝わります（どのページを見ていたかは伝えません）。
+        </p>
+        <p style="margin:0;line-height:1.9;color:var(--fg);font-size:14px">
+          画像の権利をお持ちで掲載を止めたい場合は、
+          <a href="https://bsky.app/profile/shino3.net" rel="noopener noreferrer">
+            @shino3.net
+          </a>
+          （Bluesky）か
+          <a href="https://x.com/SHINOHARATTT" rel="noopener noreferrer">
+            @SHINOHARATTT
+          </a>
+          （X）までお知らせください。確認でき次第、表示を止めます。
+        </p>
       </div>
     )
   }
