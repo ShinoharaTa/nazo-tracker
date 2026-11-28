@@ -21,7 +21,7 @@ const shopFormOf = (r: ShopRow): Form => ({
 })
 
 const notFound = () => (
-  <AdminPage title="見つかりませんでした">
+  <AdminPage section="master" title="見つかりませんでした">
     <AdminNotFound back="/admin/shops" />
   </AdminPage>
 )
@@ -30,7 +30,7 @@ const formPage = async (
   db: Db,
   p: { title: string; action: string; values: Form; errors?: readonly string[]; saved?: boolean },
 ) => (
-  <AdminPage title={p.title}>
+  <AdminPage section="master" title={p.title}>
     <TopBar back="/admin/shops" label={p.title} />
     <div class="sect" style="margin-top:4px">
       {p.saved ? <Saved /> : null}

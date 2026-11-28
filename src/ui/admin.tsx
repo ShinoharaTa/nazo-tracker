@@ -42,9 +42,35 @@ type OrgOption = { id: string; name: string }
 const orgSelectOptions = (orgs: readonly OrgOption[]) =>
   orgs.map((o) => ({ value: o.id, label: o.name }))
 
-// 全ページ見開き 1 枚（single）、タブは設定
-export const AdminPage = ({ title, children }: { title: string; children?: Child }) => (
-  <Layout title={title} tab="settings" single left={children} />
+// 管理画面の区分。並び・文言・href は /settings の「管理（オーナーのみ）」（src/routes/ui.tsx）と同じにする
+const adminSections = {
+  master: { label: 'マスタ管理', href: '/admin' },
+  requests: { label: 'リクエスト', href: '/admin/requests' },
+  tokens: { label: 'agent トークン', href: '/admin/tokens' },
+  proposals: { label: '承認待ちの提案', href: '/admin/proposals' },
+} as const
+
+export type AdminSection = keyof typeof adminSections
+
+const adminSubItems = Object.values(adminSections)
+
+// 全ページ見開き 1 枚（single）、タブは設定。PC のサイドの目次に管理の区分を出し、section を現在地にする
+export const AdminPage = ({
+  title,
+  section,
+  children,
+}: {
+  title: string
+  section: AdminSection
+  children?: Child
+}) => (
+  <Layout
+    title={title}
+    tab="settings"
+    single
+    left={children}
+    sub={{ items: adminSubItems, current: adminSections[section].href }}
+  />
 )
 
 export const AdminNotFound = ({ back }: { back: string }) => (

@@ -43,20 +43,20 @@ const orgFormOf = (r: OrgRow): Form => ({
 })
 
 const notFound = () => (
-  <AdminPage title="見つかりませんでした">
+  <AdminPage section="master" title="見つかりませんでした">
     <AdminNotFound back="/admin/orgs" />
   </AdminPage>
 )
 
 const mergedPage = (into: { id: string; name: string } | null) => (
-  <AdminPage title="団体を編集">
+  <AdminPage section="master" title="団体を編集">
     <TopBar back="/admin/orgs" label="団体を編集" />
     {into ? <MergedNotice href={`/admin/orgs/${into.id}`} name={into.name} /> : null}
   </AdminPage>
 )
 
 const newPage = (values: Form, errors: readonly string[] = []) => (
-  <AdminPage title="団体を追加">
+  <AdminPage section="master" title="団体を追加">
     <TopBar back="/admin/orgs" label="団体を追加" />
     <div class="sect" style="margin-top:4px">
       <OrgForm action="/admin/orgs/new" values={values} errors={errors} />
@@ -74,7 +74,7 @@ const editPage = (p: {
   saved?: boolean
   merged?: boolean
 }) => (
-  <AdminPage title="団体を編集">
+  <AdminPage section="master" title="団体を編集">
     <TopBar back="/admin/orgs" label="団体を編集" />
     <div class="sect" style="margin-top:4px">
       {p.saved ? <Saved /> : null}

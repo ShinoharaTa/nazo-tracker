@@ -37,13 +37,13 @@ const runFormOf = (r: RunDbRow): Form => ({
 })
 
 const notFound = () => (
-  <AdminPage title="見つかりませんでした">
+  <AdminPage section="master" title="見つかりませんでした">
     <AdminNotFound back="/admin/works" />
   </AdminPage>
 )
 
 const mergedPage = (into: { id: string; name: string } | null) => (
-  <AdminPage title="回を編集">
+  <AdminPage section="master" title="回を編集">
     <TopBar back="/admin/works" label="回を編集" />
     {into ? <MergedNotice href={`/admin/works/${into.id}`} name={into.name} /> : null}
   </AdminPage>
@@ -66,7 +66,7 @@ const formPage = async (
     shopOptions(db),
   ])
   return (
-    <AdminPage title={p.title}>
+    <AdminPage section="master" title={p.title}>
       <TopBar back={`/admin/works/${p.work.id}`} label={p.title} />
       <div class="sect" style="margin-top:4px">
         <p class="note">{p.work.title}</p>

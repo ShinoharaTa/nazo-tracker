@@ -33,7 +33,7 @@ const toTab = (v: string | undefined): AdminRequestTab =>
   (adminRequestTabs as readonly string[]).includes(v ?? '') ? (v as AdminRequestTab) : 'open'
 
 const notFoundPage = () => (
-  <AdminPage title="見つかりませんでした">
+  <AdminPage section="requests" title="見つかりませんでした">
     <AdminNotFound back="/admin/requests" />
   </AdminPage>
 )
@@ -49,7 +49,7 @@ const detailPage = async (
     listProposalsOfRequest(db, r.id),
   ])
   return (
-    <AdminPage title="リクエスト">
+    <AdminPage section="requests" title="リクエスト">
       <AdminRequestDetail
         r={r}
         target={t ? { id: t.id, title: t.title } : null}
@@ -71,7 +71,7 @@ requests.get('/requests', async (c) => {
     countRequests(db, 'open'),
   ])
   return c.html(
-    <AdminPage title="リクエスト">
+    <AdminPage section="requests" title="リクエスト">
       <AdminRequestsList
         tab={tab}
         openCount={openCount}

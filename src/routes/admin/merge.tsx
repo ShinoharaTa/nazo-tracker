@@ -151,20 +151,20 @@ const register = <R extends Row>(app: Hono<AppEnv>, e: Entity<R>) => {
   const title = `${e.label}の統合`
 
   const notFound = () => (
-    <AdminPage title="見つかりませんでした">
+    <AdminPage section="master" title="見つかりませんでした">
       <AdminNotFound back={e.base} />
     </AdminPage>
   )
 
   const mergedPage = (into: { id: string; name: string } | null) => (
-    <AdminPage title={title}>
+    <AdminPage section="master" title={title}>
       <TopBar back={e.base} label={title} />
       {into ? <MergedNotice href={`${e.base}/${into.id}`} name={into.name} /> : null}
     </AdminPage>
   )
 
   const errorPage = (a: R, message: string) => (
-    <AdminPage title={title}>
+    <AdminPage section="master" title={title}>
       <TopBar back={`${e.base}/${a.id}`} label={title} />
       <div class="sect" style="margin-top:4px">
         <p class="note" role="alert">
@@ -185,7 +185,7 @@ const register = <R extends Row>(app: Hono<AppEnv>, e: Entity<R>) => {
   })
 
   const confirmPage = async (db: Db, a: R, b: R, errors?: string[]) => (
-    <AdminPage title={title}>
+    <AdminPage section="master" title={title}>
       <TopBar back={`${e.base}?merge_from=${a.id}`} label={title} />
       <MergeConfirm
         action={`${e.base}/${a.id}/merge`}
