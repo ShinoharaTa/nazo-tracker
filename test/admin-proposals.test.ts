@@ -6,6 +6,7 @@ import { getAdminProposal } from '../src/db/proposals'
 import { createToken } from '../src/db/tokens'
 import app from '../src/index'
 import { ulid } from '../src/lib/id'
+import { isoToJstDate } from '../src/lib/time'
 import { approvalChoiceOf, buildApproval } from '../src/pipeline/apply'
 import { loginAs, ORIGIN } from './helpers/auth'
 import { insertOrg, insertOrgAlias, insertWork, insertWorkAlias } from './helpers/master'
@@ -814,11 +815,66 @@ describe('差分表（.diff）', () => {
     expect(html).toContain(
       '<details class="full ind"><summary class="meta"><span class="mono">0.90</span> · escape.id · 2026-11-11 · 出典</summary>',
     )
-    expect(html.match(/<details/g)?.length).toBe(1)
+    // 出典の details は 1 件（もう 1 件は承認待ちの「却下する」）
+    expect(html.match(/<details class="full/g)?.length).toBe(1)
     expect(html).not.toContain('出典を見る')
     expect(html).toContain(
       '<span class="meta full ind">出典なし · <span class="mono">0.40</span></span>',
     )
     expect(html.match(/出典なし/g)?.length).toBe(1)
+  })
+})
+
+describe('詳細の並び（承認 → 却下）', () => {
+  it('承認待ちは「却下する」の details が承認フォームの直後にあり、既定で閉じている', async () => {
+    const id = await propose(createWorkBody(`並び ${uniq()}`))
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    const approveAt = html.indexOf(`action="/admin/proposals/${id}/approve"`)
+    const detailsAt = html.indexOf('<details class="reject">')
+    expect(approveAt).toBeGreaterThan(-1)
+    expect(detailsAt).toBeGreaterThan(approveAt)
+    // 承認フォームの閉じタグの直後に details。却下フォームはその中（入れ子の form にしない）
+    expect(html.slice(html.indexOf('</form>', approveAt), detailsAt)).toBe('</form>')
+    const rejectAt = html.indexOf(`action="/admin/proposals/${id}/reject"`)
+    expect(rejectAt).toBeGreaterThan(detailsAt)
+    expect(html.slice(detailsAt, rejectAt)).toContain('<summary class="note">却下する</summary>')
+    expect(html.indexOf('</details>', detailsAt)).toBeGreaterThan(rejectAt)
+    expect(html).not.toContain('<h2>却下</h2>')
+  })
+
+  it('却下が 400 で再表示されたら details は開いていて、理由が残る', async () => {
+    const id = await propose(createWorkBody(`並び 400 ${uniq()}`))
+    const res = await post(`/admin/proposals/${id}/reject`, { reason: ' ', remember: '1' })
+    expect(res.status).toBe(400)
+    const html = await res.text()
+    expect(html).toMatch(/<details class="reject" open(="")?>/)
+    expect(html).toContain('却下の理由を入力してください。')
+  })
+
+  it('提案日はカードの meta 行に出て、提案日だけの dl.kv は出ない', async () => {
+    const id = await propose(createWorkBody(`並び 日付 ${uniq()}`))
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    expect(html).not.toContain('提案日')
+    expect(html).not.toContain('<dl class="kv">')
+    // 期待値は DB に入った created_at から作る（日付をまたいでも落ちない）
+    const createdAt = await env.DB.prepare('SELECT created_at FROM proposal WHERE id = ?')
+      .bind(id)
+      .first<string>('created_at')
+    const date = isoToJstDate(createdAt ?? '')
+    expect(date).toBeTruthy()
+    expect(html).toMatch(
+      new RegExp(
+        `確信度 <span class="mono">[0-9.]+</span> · 提案 <span class="mono">${date}</span></span>`,
+      ),
+    )
+  })
+
+  it('処理済みは kv（処理日）が出て、却下の details は出ない', async () => {
+    const id = await propose(createWorkBody(`並び 処理済み ${uniq()}`))
+    expect((await approve(id)).status).toBe(302)
+    const html = await (await get(`/admin/proposals/${id}`)).text()
+    expect(html).toContain('<dl class="kv">')
+    expect(html).toContain('処理日')
+    expect(html).not.toContain('<details class="reject"')
   })
 })

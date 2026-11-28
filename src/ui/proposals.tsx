@@ -713,6 +713,11 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
     }))
     .filter((s) => s.fields.length)
   const minConfidence = props.p.confidence
+  // 提案日はカードの meta 行に出すので、kv はほかの行があるときだけ
+  const hasKv = Boolean(
+    p.requestId || p.followUpOfId || p.reviewedAt || p.revertedAt || p.reviewNote,
+  )
+  const rejectOpen = Boolean(props.rejection || props.rejectErrors?.length)
 
   const body = (
     <>
@@ -764,47 +769,47 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
         <span class="row" style="justify-content:flex-start;gap:8px">
           <span class="chip">{proposalStatusLabels[p.status]}</span>
           <span class="meta">
-            {kindLabelOf(p)} · 確信度 <span class="mono">{confidenceText(minConfidence)}</span>
+            {kindLabelOf(p)} · 確信度 <span class="mono">{confidenceText(minConfidence)}</span> ·
+            提案 <span class="mono">{isoToJstDate(p.createdAt) ?? ''}</span>
           </span>
         </span>
       </div>
-      <div class="sect">
-        <dl class="kv">
-          <Kv label="提案日">
-            <span class="mono">{isoToJstDate(p.createdAt) ?? ''}</span>
-          </Kv>
-          {p.requestId ? (
-            <Kv label="依頼元">
-              <a href={`/admin/requests/${p.requestId}`}>リクエストを見る</a>
-            </Kv>
-          ) : null}
-          {p.followUpOfId ? (
-            <Kv label="元の提案">
-              <a href={`/admin/proposals/${p.followUpOfId}`}>自動反映した提案を見る</a>
-              {props.parentStatus === 'reverted' ? (
-                <span class="note" style="display:block">
-                  元の作品は取り消されました。
-                </span>
-              ) : null}
-            </Kv>
-          ) : null}
-          {p.reviewedAt ? (
-            <Kv label="処理日">
-              <span class="mono">{isoToJstDate(p.reviewedAt) ?? ''}</span>
-            </Kv>
-          ) : null}
-          {p.revertedAt ? (
-            <Kv label="取り消し日">
-              <span class="mono">{isoToJstDate(p.revertedAt) ?? ''}</span>
-            </Kv>
-          ) : null}
-          {p.reviewNote ? (
-            <Kv label={p.status === 'rejected' ? '却下の理由' : 'メモ'}>
-              <span style="white-space:pre-wrap">{p.reviewNote}</span>
-            </Kv>
-          ) : null}
-        </dl>
-      </div>
+      {hasKv ? (
+        <div class="sect">
+          <dl class="kv">
+            {p.requestId ? (
+              <Kv label="依頼元">
+                <a href={`/admin/requests/${p.requestId}`}>リクエストを見る</a>
+              </Kv>
+            ) : null}
+            {p.followUpOfId ? (
+              <Kv label="元の提案">
+                <a href={`/admin/proposals/${p.followUpOfId}`}>自動反映した提案を見る</a>
+                {props.parentStatus === 'reverted' ? (
+                  <span class="note" style="display:block">
+                    元の作品は取り消されました。
+                  </span>
+                ) : null}
+              </Kv>
+            ) : null}
+            {p.reviewedAt ? (
+              <Kv label="処理日">
+                <span class="mono">{isoToJstDate(p.reviewedAt) ?? ''}</span>
+              </Kv>
+            ) : null}
+            {p.revertedAt ? (
+              <Kv label="取り消し日">
+                <span class="mono">{isoToJstDate(p.revertedAt) ?? ''}</span>
+              </Kv>
+            ) : null}
+            {p.reviewNote ? (
+              <Kv label={p.status === 'rejected' ? '却下の理由' : 'メモ'}>
+                <span style="white-space:pre-wrap">{p.reviewNote}</span>
+              </Kv>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
       {pending ? (
         <>
           <PendingList
@@ -860,8 +865,9 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
               </button>
             </div>
           </form>
-          <div class="sect">
-            <h2>却下</h2>
+          {/* 却下は承認ボタンの下に畳む。400 で再表示したときは開いておく */}
+          <details class="reject" open={rejectOpen}>
+            <summary class="note">却下する</summary>
             <form method="post" action={`/admin/proposals/${p.id}/reject`} class="list">
               <FormErrors errors={props.rejectErrors ?? []} />
               <Field label="理由" name="reason" value={props.rejection?.reason} multiline />
@@ -874,7 +880,7 @@ export const ProposalDetail = (props: ProposalDetailProps) => {
                 却下
               </button>
             </form>
-          </div>
+          </details>
         </>
       ) : (
         <>
